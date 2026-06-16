@@ -1,0 +1,31 @@
+{
+  "manifest_version": 3,
+  "name": "RefactoringMiner Action — Diff Overlay",
+  "version": "0.1.0",
+  "description": "Overlays the refactorings detected by the RefactoringMiner GitHub Action directly onto GitHub PR and commit diffs.",
+  "host_permissions": [
+    "https://github.com/*",
+    "https://*.github.io/*"
+  ],
+  "background": {
+    "service_worker": "src/service-worker.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://github.com/*/*/pull/*/files",
+        "https://github.com/*/*/pull/*/commits/*",
+        "https://github.com/*/*/commit/*"
+      ],
+      "js": [
+        "src/config.js",
+        "src/github.js",
+        "src/overlay.js",
+        "src/messaging.js",
+        "src/views.js",
+        "src/content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}
