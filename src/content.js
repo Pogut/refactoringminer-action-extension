@@ -1,5 +1,9 @@
 var RMX = window.RMX || (window.RMX = {});
 
+// Fires the instant this script is injected, before any logic — lets us tell
+// "not injected" apart from "injected but inactive/errored".
+console.log('[RMX] content script injected:', location.href);
+
 // Orchestrator: figure out the page, pick a view adapter, fetch the feed the
 // action published, and paint the overlays. Re-runs on GitHub's soft (Turbo)
 // navigations so the overlay survives tab switches within a PR.
@@ -51,27 +55,74 @@ var RMX = window.RMX || (window.RMX = {});
     });
 
     console.info(`[RMX] ${refactorings.length} refactorings, ${painted} lines highlighted`);
-    if (painted === 0) probe(refactorings);
+    if (painted === 0) inspectChanges();
     handleDeepLink();
   }
 
-  // When nothing highlighted, report whether the failure is anchor resolution
-  // (filePath → diff-<digest>) or the line-id lookup, so we know which DOM
-  // assumption broke on this view.
-  function probe(refactorings) {
-    const r = refactorings.find((x) => (x.rightSideLocations || []).length);
-    if (!r) return;
-    const cr = r.rightSideLocations[0];
-    const anchor = RMX.github.anchorForFile(cr.filePath);
-    const id = anchor ? `${anchor}R${cr.startLine}` : null;
-    console.warn('[RMX] probe — nothing painted', {
-      filePath: cr.filePath,
-      anchorResolved: anchor,
-      lineId: id,
-      lineElementFound: id ? !!document.getElementById(id) : false,
-      sampleDataPath: document.querySelector('[data-path]') ? document.querySelector('[data-path]').getAttribute('data-path') : null,
-      hasEmbeddedData: !!document.querySelector('script[data-target="react-app.embeddedData"]'),
+  // Diagnostic for the new "/changes" React diff, which has no per-line ids.
+  // Each file is a DIV#diff-<sha256(path)> container; this dumps the vocabulary
+  // (data-* attribute names) and a markup snippet of the richest *rendered*
+  // container so we can see how individual lines are marked. Runs once.
+  function inspectChanges() {
+    if (window.__rmxInspected) return;
+    window.__rmxInspected = true;
+
+    const containers = Array.prototype.slice
+      .call(document.querySelectorAll('div[id^="diff-"]'))
+      .filter((el) => /^diff-[0-9a-f]{64}$/.test(el.id));
+
+    let best = null;
+    containers.forEach((el) => {
+      const n = el.querySelectorAll('*').length; // off-screen files are nearly empty (virtualized)
+      if (!best || n > best.n) best = { el, n };
     });
+    if (!best) {
+      console.warn('[RMX] inspect: no file containers found');
+      return;
+    }
+
+    const c = best.el;
+    const dataAttrNames = new Set();
+    c.querySelectorAll('*').forEach((el) => {
+      for (let i = 0; i < el.attributes.length; i++) {
+        const name = el.attributes[i].name;
+        if (name.indexOf('data-') === 0) dataAttrNames.add(name);
+      }
+    });
+    const lineEls = c.querySelectorAll('[data-line-number]');
+    const sampleLines = Array.prototype.slice.call(lineEls, 0, 6).map(
+      (e) => `${e.tagName}[data-line-number=${e.getAttribute('data-line-number')}].${String(e.className).slice(0, 30)}`,
+    );
+
+    const out = '[RMX] inspect ' + JSON.stringify({
+      richestContainer: c.id.slice(0, 17),
+      descendants: best.n,
+      dataAttrNames: Array.from(dataAttrNames),
+      lineNumberEls: lineEls.length,
+      sampleLines,
+      htmlSnippet: c.innerHTML.replace(/\s+/g, ' ').slice(0, 900),
+    });
+    console.warn(out);
+    showDiag(out);
+  }
+
+  // Draws the diagnostic in a fixed, pre-selected textarea on the page so it can
+  // be read/copied without DevTools. Temporary — removed once highlighting works.
+  function showDiag(text) {
+    let box = document.getElementById('rmx-diag');
+    if (!box) {
+      box = document.createElement('textarea');
+      box.id = 'rmx-diag';
+      box.readOnly = true;
+      box.style.cssText =
+        'position:fixed;top:8px;right:8px;z-index:2147483647;width:540px;height:240px;' +
+        'background:#0d1117;color:#7ee787;border:2px solid #f0883e;border-radius:8px;' +
+        'font:11px/1.4 ui-monospace,monospace;padding:8px;white-space:pre-wrap;overflow:auto;';
+      document.body.appendChild(box);
+    }
+    box.value = text;
+    box.focus();
+    box.select();
   }
 
   function paintSide(locations, side, label, index) {
