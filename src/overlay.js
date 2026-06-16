@@ -8,6 +8,8 @@ RMX.overlay = (function () {
   const CLASS = 'rmx-hl';
   const TIP = 'rmx-tip';
   const FLASH = 'rmx-flash';
+  const SEL = 'rmx-sel'; // neon "selected refactoring" highlight, both sides
+  const ON = 'rmx-on'; // blink "on" phase — the darker-yellow fill is visible
 
   // RefactoringMiner-style palette: a light fill plus a stronger left stripe.
   // `order` fixes the legend's row order; `label` is the human-readable name.
@@ -30,6 +32,8 @@ RMX.overlay = (function () {
     s.id = 'rmx-style';
     s.textContent = `
       ${catRules}
+      .${CLASS}.${SEL}{box-shadow:inset 3px 0 0 #b59f00,0 0 0 2px #b59f00 !important;transition:background-color .18s ease;}
+      .${CLASS}.${SEL}.${ON}{background:#c2a000 !important;}
       .${TIP}{position:absolute;z-index:2147483647;max-width:460px;white-space:pre-wrap;
         background:#1f2328;color:#fff;padding:6px 9px;border-radius:6px;pointer-events:none;
         font:12px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;opacity:0;transition:opacity .08s;}
@@ -58,10 +62,11 @@ RMX.overlay = (function () {
 
   function clearAll() {
     document.querySelectorAll('.' + CLASS).forEach((el) => {
-      el.classList.remove(CLASS, FLASH);
+      el.classList.remove(CLASS, FLASH, SEL, ON);
       el.removeAttribute('data-rmx-cat');
       el.removeAttribute('data-rmx-desc');
       el.removeAttribute('data-rmx-index');
+      el.removeAttribute('data-rmx-side');
     });
   }
 
@@ -84,6 +89,7 @@ RMX.overlay = (function () {
       if (!cells.length) continue;
       cells.forEach((cell) => {
         cell.classList.add(CLASS);
+        cell.setAttribute('data-rmx-side', side);
         if (!cell.getAttribute('data-rmx-cat')) cell.setAttribute('data-rmx-cat', category);
         appendUnique(cell, 'data-rmx-desc', summary, '\n');
         appendUnique(cell, 'data-rmx-index', String(index), ' ');
@@ -93,7 +99,73 @@ RMX.overlay = (function () {
     return painted;
   }
 
-  // One delegated tooltip shared by all highlighted cells.
+  // --- click-to-pair selection -------------------------------------------
+  // Clicking a highlighted cell lights up every cell of the same refactoring(s)
+  // in neon on BOTH sides, so the counterpart is obvious. The selection is kept
+  // in memory and re-applied after re-paints (so it survives scrolling).
+  let selectedIndices = [];
+  let blinkOn = false;
+  let blinkTimer = null;
+  const BLINK_MS = 550; // per phase (cursor-like)
+
+  // Marks every cell of the selected refactoring(s) and sets its fill to the
+  // current blink phase. Additive + idempotent, so scroll re-paints just sync
+  // newly mounted cells to the current phase. SEL keeps the gold outline always;
+  // ON (the darker-yellow fill) is what blinks off and on.
+  function applySelection() {
+    selectedIndices.forEach((i) => {
+      document.querySelectorAll(`.${CLASS}[data-rmx-index~="${i}"]`).forEach((el) => {
+        el.classList.add(SEL);
+        el.classList.toggle(ON, blinkOn);
+      });
+    });
+  }
+
+  function removeSelectionClasses() {
+    document.querySelectorAll('.' + SEL).forEach((el) => el.classList.remove(SEL, ON));
+  }
+
+  // Select on click: blink the darker-yellow fill on/off like a text cursor.
+  function select(indices) {
+    removeSelectionClasses();
+    selectedIndices = indices.slice();
+    clearInterval(blinkTimer);
+    blinkOn = true;
+    applySelection();
+    blinkTimer = setInterval(() => {
+      blinkOn = !blinkOn;
+      applySelection();
+    }, BLINK_MS);
+  }
+
+  function clearSelection() {
+    clearInterval(blinkTimer);
+    selectedIndices = [];
+    blinkOn = false;
+    removeSelectionClasses();
+  }
+
+  function inViewport(el) {
+    const r = el.getBoundingClientRect();
+    return r.top >= 0 && r.bottom <= (window.innerHeight || document.documentElement.clientHeight);
+  }
+
+  // Bring the opposite side's first matching cell into view (only if it's
+  // off-screen), so clicking the left element jumps you to the right one.
+  function scrollToCounterpart(cell, indices) {
+    const side = cell.getAttribute('data-rmx-side');
+    for (let k = 0; k < indices.length; k++) {
+      const matches = document.querySelectorAll(`.${CLASS}[data-rmx-index~="${indices[k]}"]`);
+      for (let j = 0; j < matches.length; j++) {
+        if (matches[j].getAttribute('data-rmx-side') !== side) {
+          if (!inViewport(matches[j])) matches[j].scrollIntoView({ behavior: 'smooth', block: 'center' });
+          return;
+        }
+      }
+    }
+  }
+
+  // One delegated tooltip + click handler shared by all highlighted cells.
   function installTooltip() {
     ensureStyle();
     if (window.__rmxTip) return;
@@ -112,6 +184,18 @@ RMX.overlay = (function () {
       tip.style.top = window.scrollY + r.top - tip.offsetHeight - 6 + 'px';
       tip.style.left = window.scrollX + r.left + 'px';
       tip.style.opacity = 1;
+    });
+    document.addEventListener('click', (e) => {
+      const cell = e.target.closest && e.target.closest('.' + CLASS);
+      if (!cell) {
+        clearSelection();
+        return;
+      }
+      const idxAttr = cell.getAttribute('data-rmx-index');
+      if (!idxAttr) return;
+      const indices = idxAttr.split(' ');
+      select(indices);
+      scrollToCounterpart(cell, indices);
     });
   }
 
@@ -178,5 +262,8 @@ RMX.overlay = (function () {
     return true;
   }
 
-  return { ensureStyle, clearAll, highlightRange, installTooltip, showLegend, hideLegend, scrollToRefactoring };
+  return {
+    ensureStyle, clearAll, highlightRange, installTooltip,
+    showLegend, hideLegend, applySelection, clearSelection, scrollToRefactoring,
+  };
 })();

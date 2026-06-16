@@ -43,8 +43,11 @@ var RMX = window.RMX || (window.RMX = {});
 
   // --- rendering ------------------------------------------------------------
 
-  async function render(refactorings) {
-    RMX.overlay.clearAll();
+  // `additive` re-paints without clearing first — used by the scroll observer so
+  // existing highlights and the neon selection (and its fade) aren't disturbed
+  // as the virtualized diff mounts new rows.
+  async function render(refactorings, additive) {
+    if (!additive) RMX.overlay.clearAll();
     RMX.overlay.installTooltip();
 
     // Precompute each file's digest (sha256(path)) once so painting is sync.
@@ -69,6 +72,7 @@ var RMX = window.RMX || (window.RMX = {});
     });
 
     RMX.overlay.showLegend(Array.from(used));
+    RMX.overlay.applySelection(); // re-apply neon selection to any newly mounted cells
     console.info(`[RMX] ${refactorings.length} refactorings, ${painted} line-spans highlighted`);
     handleDeepLink();
   }
@@ -165,7 +169,7 @@ var RMX = window.RMX || (window.RMX = {});
     observer = new MutationObserver(() => {
       clearTimeout(repaintTimer);
       repaintTimer = setTimeout(() => {
-        if (currentRefactorings) render(currentRefactorings);
+        if (currentRefactorings) render(currentRefactorings, true);
       }, 250);
     });
     observer.observe(document.body, { childList: true, subtree: true });
