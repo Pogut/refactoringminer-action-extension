@@ -7,9 +7,13 @@ var RMX = window.RMX || (window.RMX = {});
   async function run() {
     const loc = RMX.config.parseLocation();
     const adapter = RMX.views.pick(loc);
-    if (!adapter) return; // not a page we overlay (or the adapter is disabled)
+    if (!adapter) {
+      console.info('[RMX] inactive on this page', loc);
+      return; // not a page we overlay (or the adapter is disabled)
+    }
 
     const url = RMX.config.feedUrl(loc);
+    console.info(`[RMX] view=${loc.view} feed=${url}`);
     if (!url) return;
 
     let feed;
@@ -47,7 +51,27 @@ var RMX = window.RMX || (window.RMX = {});
     });
 
     console.info(`[RMX] ${refactorings.length} refactorings, ${painted} lines highlighted`);
+    if (painted === 0) probe(refactorings);
     handleDeepLink();
+  }
+
+  // When nothing highlighted, report whether the failure is anchor resolution
+  // (filePath → diff-<digest>) or the line-id lookup, so we know which DOM
+  // assumption broke on this view.
+  function probe(refactorings) {
+    const r = refactorings.find((x) => (x.rightSideLocations || []).length);
+    if (!r) return;
+    const cr = r.rightSideLocations[0];
+    const anchor = RMX.github.anchorForFile(cr.filePath);
+    const id = anchor ? `${anchor}R${cr.startLine}` : null;
+    console.warn('[RMX] probe — nothing painted', {
+      filePath: cr.filePath,
+      anchorResolved: anchor,
+      lineId: id,
+      lineElementFound: id ? !!document.getElementById(id) : false,
+      sampleDataPath: document.querySelector('[data-path]') ? document.querySelector('[data-path]').getAttribute('data-path') : null,
+      hasEmbeddedData: !!document.querySelector('script[data-target="react-app.embeddedData"]'),
+    });
   }
 
   function paintSide(locations, side, label, index) {

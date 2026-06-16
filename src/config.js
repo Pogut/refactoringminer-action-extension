@@ -26,7 +26,9 @@ RMX.config = (function () {
     const [owner, repo, kind, id, sub, subId] = u.pathname.split('/').filter(Boolean);
     if (!owner || !repo) return null;
 
-    if (kind === 'pull' && id && sub === 'files') {
+    // GitHub serves the PR diff at /files (classic) or /changes (the newer
+    // "Preview" diff experience); both are the same view to us.
+    if (kind === 'pull' && id && (sub === 'files' || sub === 'changes')) {
       return { owner, repo, prNumber: id, view: 'files' };
     }
     if (kind === 'pull' && id && sub === 'commits' && subId) {

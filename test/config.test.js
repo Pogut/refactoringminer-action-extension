@@ -22,6 +22,9 @@ const files = parseLocation('https://github.com/o/r/pull/14/files');
 ok(files && files.view === 'files', 'PR files view is recognised');
 ok(files.owner === 'o' && files.repo === 'r' && files.prNumber === '14', 'owner/repo/PR extracted');
 
+const changes = parseLocation('https://github.com/o/r/pull/14/changes');
+ok(changes && changes.view === 'files' && changes.prNumber === '14', 'PR /changes view maps to files');
+
 const prCommit = parseLocation('https://github.com/o/r/pull/14/commits/abc123');
 ok(prCommit && prCommit.view === 'commit' && prCommit.prNumber === '14', 'PR commit view → commit');
 
