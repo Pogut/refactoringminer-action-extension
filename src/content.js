@@ -151,10 +151,22 @@ var RMX = window.RMX || (window.RMX = {});
     return s.length > 60 ? s.slice(0, 57) + '…' : s;
   }
 
-  // ?rm=<feedIndex> (set by the action's PR comment links) scrolls to + flashes.
+  // When the user follows one of the action's PR-comment links, GitHub lands us
+  // on its native line anchor — #diff-<sha256(path)><L|R><line>, which is exactly
+  // our data-line-anchor. Blink that refactoring so they see where it is (and its
+  // counterpart). Deduped via lastDeepLink so re-paints don't keep re-triggering
+  // it and so a manual click afterwards isn't overridden.
+  let lastDeepLink = '';
   function handleDeepLink() {
-    const m = /[?&#]rm=(\d+)/.exec(window.location.href);
-    if (m) RMX.overlay.scrollToRefactoring(Number(m[1]));
+    const m = /#(diff-[0-9a-f]{64}[LR]\d+)/.exec(window.location.hash);
+    if (!m) return;
+    const anchor = m[1];
+    if (anchor === lastDeepLink) return;
+    const cell = document.querySelector(`[data-line-anchor="${anchor}"]`) || document.getElementById(anchor);
+    const idx = cell && cell.getAttribute('data-rmx-index');
+    if (!idx) return; // target not painted/mounted yet — a later re-paint retries
+    lastDeepLink = anchor;
+    RMX.overlay.select(idx.split(' '));
   }
 
   // --- lifecycle ------------------------------------------------------------
@@ -183,5 +195,8 @@ var RMX = window.RMX || (window.RMX = {});
   document.addEventListener('turbo:load', schedule);
   document.addEventListener('pjax:end', schedule);
   window.addEventListener('popstate', schedule);
+  // Following another comment link while already on the diff only changes the
+  // hash — re-run the deep-link blink for the new anchor.
+  window.addEventListener('hashchange', handleDeepLink);
   schedule();
 })();

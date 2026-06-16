@@ -264,6 +264,6 @@ RMX.overlay = (function () {
 
   return {
     ensureStyle, clearAll, highlightRange, installTooltip,
-    showLegend, hideLegend, applySelection, clearSelection, scrollToRefactoring,
+    showLegend, hideLegend, select, applySelection, clearSelection, scrollToRefactoring,
   };
 })();
