@@ -20,10 +20,19 @@ var RMX = window.RMX || (window.RMX = {});
       return;
     }
 
-    const commit = feed && feed.commits && feed.commits[0];
+    const commit = firstCommit(feed);
     if (!commit || !Array.isArray(commit.refactorings)) return;
 
     render(commit.refactorings);
+  }
+
+  // The action publishes RefactoringMiner's native export, `{ url, refactorings }`.
+  // Accept that and the wrapped `{ commits: [ … ] }` form interchangeably.
+  function firstCommit(feed) {
+    if (!feed) return null;
+    if (Array.isArray(feed.commits)) return feed.commits[0] || null;
+    if (Array.isArray(feed.refactorings)) return { url: feed.url, refactorings: feed.refactorings };
+    return null;
   }
 
   function render(refactorings) {
