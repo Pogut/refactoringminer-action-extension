@@ -1,41 +1,39 @@
 var RMX = window.RMX || (window.RMX = {});
 
-// Fires the instant this script is injected, before any logic — lets us tell
-// "not injected" apart from "injected but inactive/errored".
-console.log('[RMX] content script injected:', location.href);
-
 // Orchestrator: figure out the page, pick a view adapter, fetch the feed the
-// action published, and paint the overlays. Re-runs on GitHub's soft (Turbo)
-// navigations so the overlay survives tab switches within a PR.
+// action published, and paint the overlays. Re-paints on GitHub's soft (Turbo)
+// navigations and as the virtualized diff mounts more rows on scroll.
 (function () {
+  let currentRefactorings = null;
+
   async function run() {
     const loc = RMX.config.parseLocation();
-    const adapter = RMX.views.pick(loc);
-    if (!adapter) {
-      console.info('[RMX] inactive on this page', loc);
-      return; // not a page we overlay (or the adapter is disabled)
-    }
-
-    const url = RMX.config.feedUrl(loc);
-    console.info(`[RMX] view=${loc.view} feed=${url}`);
-    if (!url) return;
+    if (!RMX.views.pick(loc) || !RMX.config.feedUrl(loc)) return deactivate();
 
     let feed;
     try {
-      feed = await RMX.messaging.fetchFeed(url);
+      feed = await RMX.messaging.fetchFeed(RMX.config.feedUrl(loc));
     } catch (e) {
-      console.info(`[RMX] no feed for this page (${e.message})`);
-      return;
+      return deactivate(); // no feed published for this PR
     }
-
     const commit = firstCommit(feed);
-    if (!commit || !Array.isArray(commit.refactorings)) return;
+    if (!commit || !Array.isArray(commit.refactorings)) return deactivate();
 
-    render(commit.refactorings);
+    currentRefactorings = commit.refactorings;
+    await render(currentRefactorings);
+    observe();
   }
 
-  // The action publishes RefactoringMiner's native export, `{ url, refactorings }`.
-  // Accept that and the wrapped `{ commits: [ … ] }` form interchangeably.
+  // Tear down overlays + legend when we land on a page with nothing to show
+  // (e.g. navigating away from the PR diff via Turbo).
+  function deactivate() {
+    currentRefactorings = null;
+    RMX.overlay.clearAll();
+    RMX.overlay.hideLegend();
+  }
+
+  // The action publishes RefactoringMiner's native export `{ url, refactorings }`;
+  // also accept the wrapped `{ commits: [ … ] }` form.
   function firstCommit(feed) {
     if (!feed) return null;
     if (Array.isArray(feed.commits)) return feed.commits[0] || null;
@@ -43,113 +41,136 @@ console.log('[RMX] content script injected:', location.href);
     return null;
   }
 
-  function render(refactorings) {
+  // --- rendering ------------------------------------------------------------
+
+  async function render(refactorings) {
     RMX.overlay.clearAll();
     RMX.overlay.installTooltip();
 
+    // Precompute each file's digest (sha256(path)) once so painting is sync.
+    const paths = new Set();
+    refactorings.forEach((r) => {
+      (r.leftSideLocations || []).forEach((cr) => paths.add(cr.filePath));
+      (r.rightSideLocations || []).forEach((cr) => paths.add(cr.filePath));
+    });
+    const digests = {};
+    await Promise.all(
+      Array.from(paths).map(async (p) => {
+        digests[p] = await RMX.github.fileDigest(p);
+      }),
+    );
+
+    const used = new Set();
     let painted = 0;
     refactorings.forEach((r, index) => {
-      const label = r.type + (r.description ? ` — ${r.description}` : '');
-      painted += paintSide(r.leftSideLocations, 'L', label, index);
-      painted += paintSide(r.rightSideLocations, 'R', label, index);
+      const summary = summarize(r);
+      painted += paintSide(r.leftSideLocations, 'L', r.type, summary, index, digests, used);
+      painted += paintSide(r.rightSideLocations, 'R', r.type, summary, index, digests, used);
     });
 
-    console.info(`[RMX] ${refactorings.length} refactorings, ${painted} lines highlighted`);
-    if (painted === 0) inspectChanges();
+    RMX.overlay.showLegend(Array.from(used));
+    console.info(`[RMX] ${refactorings.length} refactorings, ${painted} line-spans highlighted`);
     handleDeepLink();
   }
 
-  // Diagnostic for the new "/changes" React diff, which has no per-line ids.
-  // Each file is a DIV#diff-<sha256(path)> container; this dumps the vocabulary
-  // (data-* attribute names) and a markup snippet of the richest *rendered*
-  // container so we can see how individual lines are marked. Runs once.
-  function inspectChanges() {
-    if (window.__rmxInspected) return;
-    window.__rmxInspected = true;
-
-    const containers = Array.prototype.slice
-      .call(document.querySelectorAll('div[id^="diff-"]'))
-      .filter((el) => /^diff-[0-9a-f]{64}$/.test(el.id));
-
-    let best = null;
-    containers.forEach((el) => {
-      const n = el.querySelectorAll('*').length; // off-screen files are nearly empty (virtualized)
-      if (!best || n > best.n) best = { el, n };
-    });
-    if (!best) {
-      console.warn('[RMX] inspect: no file containers found');
-      return;
-    }
-
-    const c = best.el;
-    const dataAttrNames = new Set();
-    c.querySelectorAll('*').forEach((el) => {
-      for (let i = 0; i < el.attributes.length; i++) {
-        const name = el.attributes[i].name;
-        if (name.indexOf('data-') === 0) dataAttrNames.add(name);
-      }
-    });
-    const lineEls = c.querySelectorAll('[data-line-number]');
-    const sampleLines = Array.prototype.slice.call(lineEls, 0, 6).map(
-      (e) => `${e.tagName}[data-line-number=${e.getAttribute('data-line-number')}].${String(e.className).slice(0, 30)}`,
-    );
-
-    const out = '[RMX] inspect ' + JSON.stringify({
-      richestContainer: c.id.slice(0, 17),
-      descendants: best.n,
-      dataAttrNames: Array.from(dataAttrNames),
-      lineNumberEls: lineEls.length,
-      sampleLines,
-      htmlSnippet: c.innerHTML.replace(/\s+/g, ' ').slice(0, 900),
-    });
-    console.warn(out);
-    showDiag(out);
-  }
-
-  // Draws the diagnostic in a fixed, pre-selected textarea on the page so it can
-  // be read/copied without DevTools. Temporary — removed once highlighting works.
-  function showDiag(text) {
-    let box = document.getElementById('rmx-diag');
-    if (!box) {
-      box = document.createElement('textarea');
-      box.id = 'rmx-diag';
-      box.readOnly = true;
-      box.style.cssText =
-        'position:fixed;top:8px;right:8px;z-index:2147483647;width:540px;height:240px;' +
-        'background:#0d1117;color:#7ee787;border:2px solid #f0883e;border-radius:8px;' +
-        'font:11px/1.4 ui-monospace,monospace;padding:8px;white-space:pre-wrap;overflow:auto;';
-      document.body.appendChild(box);
-    }
-    box.value = text;
-    box.focus();
-    box.select();
-  }
-
-  function paintSide(locations, side, label, index) {
+  function paintSide(locations, side, type, summary, index, digests, used) {
     let painted = 0;
     (locations || []).forEach((cr) => {
-      const anchor = RMX.github.anchorForFile(cr.filePath);
+      if (isContext(cr)) return;
+      const category = categorize(type, side, cr.description);
+      used.add(category); // legend reflects every category in the feed, mounted or not
+      const digest = digests[cr.filePath];
+      if (!digest) return;
       painted += RMX.overlay.highlightRange({
-        anchor,
+        digest,
         side,
         startLine: cr.startLine,
         endLine: cr.endLine,
-        label,
+        category,
+        summary,
         index,
       });
     });
     return painted;
   }
 
-  // ?rm=<feedIndex> (set by the action's PR comment links) scrolls to and
-  // flashes that refactoring once the overlays are painted.
+  // RefactoringMiner includes the enclosing source/target method or type as a
+  // location for context; highlighting those whole bodies floods the diff. Skip
+  // them so only the elements that actually changed get coloured.
+  const CONTEXT_DESC = [
+    'source method declaration',
+    'target method declaration',
+    'original method declaration',
+    'method declaration with',
+    'original type declaration',
+    'sub-type declaration',
+    'type declaration after',
+    'type declaration before',
+  ];
+  function isContext(loc) {
+    if ((loc.endLine - loc.startLine) < 2) return false; // small ranges are specific enough
+    const d = (loc.description || '').toLowerCase();
+    return CONTEXT_DESC.some((s) => d.indexOf(s) !== -1);
+  }
+
+  // Map a location to one of RefactoringMiner's legend colours. Approximated
+  // from the refactoring type, the diff side, and the location's role (the
+  // action-level kind isn't carried in this feed).
+  function categorize(type, side, desc) {
+    const d = (desc || '').toLowerCase();
+    const t = (type || '').toLowerCase();
+    if (d.indexOf('moved') !== -1 || d.indexOf('pulled up') !== -1 || t.indexOf('move') === 0 || t.indexOf('pull up') === 0) {
+      return side === 'R' ? 'movedIn' : 'movedOut';
+    }
+    if (d.indexOf('inlined') !== -1) return side === 'R' ? 'inserted' : 'deleted';
+    if (d.indexOf('extracted') !== -1 || d.indexOf('added') !== -1 || t.indexOf('extract') === 0) {
+      return side === 'R' ? 'inserted' : 'updated';
+    }
+    if (d.indexOf('renamed') !== -1 || t.indexOf('rename') === 0 || t.indexOf('change') === 0 || d.indexOf('referencing') !== -1) {
+      return 'updated';
+    }
+    return side === 'R' ? 'inserted' : 'deleted';
+  }
+
+  // Concise one-liner, e.g. "Rename Attribute: _full_name → _display_name".
+  function summarize(r) {
+    const left = firstCodeElement(r.leftSideLocations);
+    const right = firstCodeElement(r.rightSideLocations);
+    if (left && right && left !== right) return `${r.type}: ${shorten(left)} → ${shorten(right)}`;
+    return `${r.type}: ${shorten(right || left || '')}`.replace(/: $/, '');
+  }
+  function firstCodeElement(locations) {
+    const hit = (locations || []).find((l) => l.codeElement);
+    return hit ? hit.codeElement : null;
+  }
+  function shorten(s) {
+    return s.length > 60 ? s.slice(0, 57) + '…' : s;
+  }
+
+  // ?rm=<feedIndex> (set by the action's PR comment links) scrolls to + flashes.
   function handleDeepLink() {
     const m = /[?&#]rm=(\d+)/.exec(window.location.href);
     if (m) RMX.overlay.scrollToRefactoring(Number(m[1]));
   }
 
-  // Turbo/PJAX soft navigation: the DOM swaps without a full reload, so re-run
-  // after it settles. A short delay lets the new diff mount first.
+  // --- lifecycle ------------------------------------------------------------
+
+  // The /changes diff is virtualized: rows mount as you scroll. Re-paint
+  // (debounced) when the diff DOM grows, so newly mounted lines get coloured.
+  // We observe childList only, so our own class/attribute writes don't re-trigger.
+  let observer = null;
+  let repaintTimer = null;
+  function observe() {
+    if (observer) return;
+    observer = new MutationObserver(() => {
+      clearTimeout(repaintTimer);
+      repaintTimer = setTimeout(() => {
+        if (currentRefactorings) render(currentRefactorings);
+      }, 250);
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+  }
+
   function schedule() {
     RMX.github.resetCache();
     setTimeout(run, 300);

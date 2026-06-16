@@ -1,61 +1,37 @@
 var RMX = window.RMX || (window.RMX = {});
 
-// Bridges a RefactoringMiner CodeRange ({ filePath, startLine, endLine, side })
-// to the GitHub diff DOM. GitHub gives every diff line-number cell an id of
-//   diff-<pathDigest><L|R><lineNumber>
-// (the permalink anchor). So once we know a file's pathDigest, every line is a
-// direct getElementById lookup — the same hook RefactoringAwareCommitReview
-// matched on (`columnId == dataAnchor + side + line`).
+// Maps a RefactoringMiner CodeRange to GitHub diff line cells across both diff
+// UIs. In both, the file digest is sha256(filePath), so we never scrape the DOM
+// to resolve a file:
+//   - classic /files: each line cell has id `diff-<digest><L|R><line>`.
+//   - new /changes (React): cells carry `data-line-anchor="diff-<digest><L|R><line>"`.
 RMX.github = (function () {
-  let embeddedCache = null;
+  const digestCache = new Map();
 
-  // GitHub embeds a JSON payload describing the diff in a <script> tag; it maps
-  // each file path to its pathDigest and works whether or not you're logged in.
-  function embeddedData() {
-    if (embeddedCache !== null) return embeddedCache;
-    const script = document.querySelector('script[data-target="react-app.embeddedData"]');
-    try {
-      embeddedCache = script ? JSON.parse(script.textContent) : false;
-    } catch (_) {
-      embeddedCache = false;
-    }
-    return embeddedCache;
+  async function fileDigest(filePath) {
+    if (digestCache.has(filePath)) return digestCache.get(filePath);
+    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(filePath));
+    const hex = Array.prototype.map
+      .call(new Uint8Array(buf), (b) => b.toString(16).padStart(2, '0'))
+      .join('');
+    digestCache.set(filePath, hex);
+    return hex;
   }
 
-  // Resolve a file path to its `diff-<pathDigest>` anchor, trying the cheap
-  // DOM attributes first and the embedded payload as the reliable fallback.
-  function anchorForFile(filePath) {
-    for (const header of document.querySelectorAll('[data-path]')) {
-      if (header.getAttribute('data-path') === filePath) {
-        const a = header.getAttribute('data-anchor');
-        if (a) return a;
-      }
-    }
-    const data = embeddedData();
-    const entries = data && data.payload && data.payload.diffEntryData;
-    if (Array.isArray(entries)) {
-      const hit = entries.find((e) => e.path === filePath);
-      if (hit && hit.pathDigest) return `diff-${hit.pathDigest}`;
-    }
-    return null;
-  }
-
-  // The line-number cell for (anchor, side, line), or null if that line isn't
-  // mounted. NOTE: the virtualized React diff only mounts rows near the
-  // viewport, so a line outside it returns null until scrolled into view — the
-  // re-render-on-scroll handling lives in content.js (phase-next).
-  function lineCell(anchor, side, line) {
-    return anchor ? document.getElementById(`${anchor}${side}${line}`) : null;
-  }
-
-  // The row we visibly highlight, given a line-number cell.
-  function rowFor(cell) {
-    return cell ? cell.closest('tr') || cell.parentElement : null;
+  // The diff cells for one (file, side, line), or [] if that line isn't mounted
+  // (the React diff virtualizes off-screen rows). Prefers the new view's
+  // data-line-anchor; falls back to the classic view's element id.
+  function lineCells(digest, side, line) {
+    const anchor = `diff-${digest}${side}${line}`;
+    const byData = document.querySelectorAll(`[data-line-anchor="${anchor}"]`);
+    if (byData.length) return Array.prototype.slice.call(byData);
+    const byId = document.getElementById(anchor);
+    return byId ? [byId] : [];
   }
 
   function resetCache() {
-    embeddedCache = null;
+    // Digests are pure functions of the path; nothing to reset between renders.
   }
 
-  return { anchorForFile, lineCell, rowFor, resetCache };
+  return { fileDigest, lineCells, resetCache };
 })();
