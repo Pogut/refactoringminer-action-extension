@@ -93,6 +93,7 @@ var RMX = window.RMX || (window.RMX = {});
         category,
         summary,
         index,
+        filePath: cr.filePath,
       });
     });
     return painted;
