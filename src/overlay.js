@@ -109,6 +109,20 @@ RMX.overlay = (function () {
     });
   }
 
+  // The line begins a new declaration (Python `def`/`class`). RefactoringMiner's
+  // declaration ranges overshoot onto the *next* element's first line in
+  // indent-based languages — and a `def`/`class` line can never legitimately be
+  // the last line of a block (it needs a body) — so a range whose endLine starts
+  // a declaration has over-shot. Brace languages end on `}`, so they're unaffected.
+  function startsDeclaration(cells, line) {
+    let code = '';
+    cells.forEach((c) => {
+      const t = c.textContent || '';
+      if (t.trim() && t.trim() !== String(line)) code = t;
+    });
+    return /^\s*(async\s+def\b|def\b|class\b)/.test(code);
+  }
+
   // Highlight every line in [startLine,endLine] for one side of one file. A cell
   // touched by several refactorings keeps its first category but accumulates
   // each refactoring's summary (deduped). Returns the count of mounted lines.
@@ -118,6 +132,9 @@ RMX.overlay = (function () {
       const cells = RMX.github.lineCells(digest, side, line);
       if (!cells.length) continue;
       if (!lineHasCode(cells, line)) continue; // skip blank source lines (nothing to colour)
+      // Stop a multi-line range before an over-shot trailing declaration (the
+      // next method/class), but never trim the range's own opening line.
+      if (line === endLine && line !== startLine && startsDeclaration(cells, line)) continue;
       cells.forEach((cell) => {
         cell.classList.add(CLASS);
         cell.setAttribute('data-rmx-side', side);
