@@ -121,11 +121,14 @@ var RMX = window.RMX || (window.RMX = {});
     return (t === 'METHOD_DECLARATION' || t === 'TYPE_DECLARATION') && loc.endLine - loc.startLine >= 2;
   }
 
-  // A declaration RefactoringMiner reports as freshly created (e.g. the getter an
-  // Encapsulate Attribute adds). It's genuinely new code, so it should be
-  // highlighted in full rather than skipped as enclosing context.
+  // A declaration RefactoringMiner reports as freshly created — the getter an
+  // Encapsulate Attribute adds, or the method/type an Extract produces. It's
+  // genuinely new code, so it should be highlighted in full rather than skipped
+  // as enclosing context. ("extracted" matches the new declaration but not the
+  // "before/after extraction" source/target methods, which stay context.)
   function isNewDeclaration(loc) {
-    return (loc.description || '').toLowerCase().indexOf('added') !== -1;
+    const d = (loc.description || '').toLowerCase();
+    return d.indexOf('added') !== -1 || d.indexOf('extracted') !== -1;
   }
 
   // Map a location to one of RefactoringMiner's legend colours. Approximated
