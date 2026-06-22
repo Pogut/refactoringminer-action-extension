@@ -56,6 +56,24 @@ RMX.overlay = (function () {
       #rmx-legend .rmx-lg-body{padding:9px 10px;display:flex;flex-direction:column;gap:7px;}
       #rmx-legend .rmx-lg-row{display:flex;align-items:center;gap:8px;}
       #rmx-legend .rmx-lg-sw{width:26px;height:13px;border-radius:3px;flex:0 0 auto;}
+
+      /* Pinned-line bars: selected lines that scrolled out of view, stacked at
+         the top/bottom edge as a floating peek of the off-screen refactored code. */
+      #rmx-pin-top,#rmx-pin-bottom{position:fixed;left:0;right:0;z-index:2147483600;
+        display:flex;flex-direction:column;pointer-events:none;}
+      #rmx-pin-top{top:0;}
+      #rmx-pin-bottom{bottom:0;flex-direction:column-reverse;}
+      .rmx-pin{pointer-events:auto;cursor:pointer;display:flex;align-items:center;gap:10px;
+        height:28px;padding:0 12px;white-space:nowrap;overflow:hidden;
+        font:12px/28px ui-monospace,SFMono-Regular,Menlo,monospace;
+        color:var(--fgColor-default,#1f2328);box-shadow:0 1px 5px rgba(31,35,40,.16);
+        animation:rmx-pin-blink 1.8s ease-in-out infinite;}
+      @keyframes rmx-pin-blink{0%,100%{background:var(--bgColor-default,#fff);}50%{background:#c2a000;}}
+      #rmx-pin-top .rmx-pin{border-bottom:1px solid var(--borderColor-muted,#d8dee4);}
+      #rmx-pin-bottom .rmx-pin{border-top:1px solid var(--borderColor-muted,#d8dee4);}
+      .rmx-pin .rmx-pin-stripe{width:4px;align-self:stretch;flex:0 0 auto;background:#b59f00;}
+      .rmx-pin .rmx-pin-meta{color:var(--fgColor-muted,#656d76);flex:0 0 auto;}
+      .rmx-pin .rmx-pin-code{overflow:hidden;text-overflow:ellipsis;opacity:.92;}
     `;
     document.head.appendChild(s);
   }
@@ -67,6 +85,7 @@ RMX.overlay = (function () {
       el.removeAttribute('data-rmx-desc');
       el.removeAttribute('data-rmx-index');
       el.removeAttribute('data-rmx-side');
+      el.removeAttribute('data-rmx-file');
     });
   }
 
@@ -82,7 +101,7 @@ RMX.overlay = (function () {
   // Highlight every line in [startLine,endLine] for one side of one file. A cell
   // touched by several refactorings keeps its first category but accumulates
   // each refactoring's summary (deduped). Returns the count of mounted lines.
-  function highlightRange({ digest, side, startLine, endLine, category, summary, index }) {
+  function highlightRange({ digest, side, startLine, endLine, category, summary, index, filePath }) {
     let painted = 0;
     for (let line = startLine; line <= endLine; line++) {
       const cells = RMX.github.lineCells(digest, side, line);
@@ -90,6 +109,7 @@ RMX.overlay = (function () {
       cells.forEach((cell) => {
         cell.classList.add(CLASS);
         cell.setAttribute('data-rmx-side', side);
+        if (filePath) cell.setAttribute('data-rmx-file', filePath);
         if (!cell.getAttribute('data-rmx-cat')) cell.setAttribute('data-rmx-cat', category);
         appendUnique(cell, 'data-rmx-desc', summary, '\n');
         appendUnique(cell, 'data-rmx-index', String(index), ' ');
@@ -119,6 +139,7 @@ RMX.overlay = (function () {
         el.classList.toggle(ON, blinkOn);
       });
     });
+    schedulePins(); // refresh the pinned-line peek as cells (re)mount
   }
 
   function removeSelectionClasses() {
@@ -134,7 +155,9 @@ RMX.overlay = (function () {
     applySelection();
     blinkTimer = setInterval(() => {
       blinkOn = !blinkOn;
-      applySelection();
+      // Just flip the fill on already-selected cells — cheap, and avoids
+      // rebuilding the pinned bars on every blink tick.
+      document.querySelectorAll(`.${CLASS}.${SEL}`).forEach((el) => el.classList.toggle(ON, blinkOn));
     }, BLINK_MS);
   }
 
@@ -143,6 +166,106 @@ RMX.overlay = (function () {
     selectedIndices = [];
     blinkOn = false;
     removeSelectionClasses();
+    clearPins();
+  }
+
+  // --- pinned-line peek ---------------------------------------------------
+  // Selected lines that scroll out of view are mirrored as floating bars at the
+  // top edge (when scrolled below them) or bottom edge (above them), stacked in
+  // document order. Clones, not the real rows — GitHub virtualizes the table.
+  const TOP_ZONE = 56; // approx. height of GitHub's sticky header region
+  const PIN_BLINK_MS = 1800; // bar pulse period (slower than the in-diff blink)
+  const blinkEpoch = Date.now(); // shared clock so rebuilt bars stay in phase
+  let topLayer = null;
+  let bottomLayer = null;
+  let pinRaf = null;
+
+  function ensurePinLayers() {
+    if (topLayer) return;
+    topLayer = document.createElement('div');
+    topLayer.id = 'rmx-pin-top';
+    bottomLayer = document.createElement('div');
+    bottomLayer.id = 'rmx-pin-bottom';
+    document.body.appendChild(topLayer);
+    document.body.appendChild(bottomLayer);
+  }
+
+  function clearPins() {
+    if (topLayer) topLayer.textContent = '';
+    if (bottomLayer) bottomLayer.textContent = '';
+  }
+
+  function schedulePins() {
+    if (pinRaf) return;
+    pinRaf = requestAnimationFrame(() => {
+      pinRaf = null;
+      updatePins();
+    });
+  }
+
+  function updatePins() {
+    if (!selectedIndices.length) {
+      clearPins();
+      return;
+    }
+    ensurePinLayers();
+
+    // One entry per selected line (group the gutter + code cells that share a
+    // data-line-anchor; keep the code cell — the one with the most text).
+    const byAnchor = {};
+    document.querySelectorAll(`.${CLASS}.${SEL}`).forEach((cell) => {
+      const anchor = cell.getAttribute('data-line-anchor');
+      if (!anchor) return;
+      const len = (cell.textContent || '').length;
+      if (!byAnchor[anchor] || len > byAnchor[anchor].len) byAnchor[anchor] = { cell, len, anchor };
+    });
+
+    const vh = window.innerHeight || document.documentElement.clientHeight;
+    const above = [];
+    const below = [];
+    Object.keys(byAnchor).forEach((a) => {
+      const entry = byAnchor[a];
+      const r = entry.cell.getBoundingClientRect();
+      if (!r.height) return; // unmounted by virtualization
+      entry.top = r.top;
+      if (r.bottom <= TOP_ZONE) above.push(entry);
+      else if (r.top >= vh) below.push(entry);
+    });
+    above.sort((x, y) => x.top - y.top);
+    below.sort((x, y) => x.top - y.top);
+
+    renderStack(topLayer, above);
+    renderStack(bottomLayer, below);
+  }
+
+  function renderStack(layer, entries) {
+    layer.textContent = '';
+    entries.forEach((entry) => {
+      const m = /^diff-[0-9a-f]{64}([LR])(\d+)$/.exec(entry.anchor) || [];
+      const cat = entry.cell.getAttribute('data-rmx-cat');
+      const file = (entry.cell.getAttribute('data-rmx-file') || '').split('/').pop();
+
+      const bar = document.createElement('div');
+      bar.className = 'rmx-pin';
+      // Negative delay = start mid-cycle at the shared phase, so bars rebuilt on
+      // scroll resume the pulse seamlessly instead of restarting it.
+      bar.style.animationDelay = '-' + (((Date.now() - blinkEpoch) % PIN_BLINK_MS) / 1000) + 's';
+      const stripe = document.createElement('span');
+      stripe.className = 'rmx-pin-stripe';
+      if (cat && CATS[cat]) stripe.style.background = CATS[cat].bar;
+      const meta = document.createElement('span');
+      meta.className = 'rmx-pin-meta';
+      meta.textContent = `${file}:${m[1] || ''}${m[2] || ''}`;
+      const code = document.createElement('span');
+      code.className = 'rmx-pin-code';
+      code.textContent = (entry.cell.textContent || '').trim().slice(0, 160);
+
+      bar.appendChild(stripe);
+      bar.appendChild(meta);
+      bar.appendChild(code);
+      bar.addEventListener('click', () => entry.cell.scrollIntoView({ behavior: 'smooth', block: 'center' }));
+      layer.appendChild(bar);
+    });
   }
 
   function inViewport(el) {
@@ -186,7 +309,10 @@ RMX.overlay = (function () {
       tip.style.opacity = 1;
     });
     document.addEventListener('click', (e) => {
-      const cell = e.target.closest && e.target.closest('.' + CLASS);
+      if (!e.target.closest) return;
+      // Clicks on our own UI (pinned bars, legend) shouldn't clear the selection.
+      if (e.target.closest('#rmx-pin-top, #rmx-pin-bottom, #rmx-legend')) return;
+      const cell = e.target.closest('.' + CLASS);
       if (!cell) {
         clearSelection();
         return;
@@ -197,6 +323,10 @@ RMX.overlay = (function () {
       select(indices);
       scrollToCounterpart(cell, indices);
     });
+    // Re-place the pinned bars as the user scrolls/resizes (capture so we catch
+    // scrolling from any inner container, not just the window).
+    window.addEventListener('scroll', schedulePins, true);
+    window.addEventListener('resize', schedulePins);
   }
 
   // A compact, collapsible legend pinned bottom-right, showing only the

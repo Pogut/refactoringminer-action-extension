@@ -78,9 +78,26 @@ var RMX = window.RMX || (window.RMX = {});
   }
 
   function paintSide(locations, side, type, summary, index, digests, used) {
+    const locs = locations || [];
+    // Decide how each location is shown, applied identically to left and right so
+    // related parts stay consistent:
+    //   • A newly created declaration (added getter, extracted method/type) is
+    //     genuine new code → highlight it in full.
+    //   • Otherwise a big enclosing method/type declaration is context: skip it
+    //     when the side has a finer location to show instead, or — when it's the
+    //     only location (Rename/Pull Up/Move/Change-modifier on a whole method or
+    //     type) — colour just its header line so the side still shows without
+    //     flooding the diff.
+    //   • Anything finer (statement, field, param, conditional…) → full range.
+    const hasFiner = locs.some((cr) => !isContainer(cr));
     let painted = 0;
-    (locations || []).forEach((cr) => {
-      if (isContext(cr)) return;
+    locs.forEach((cr) => {
+      let startLine = cr.startLine;
+      let endLine = cr.endLine;
+      if (isContainer(cr) && !isNewDeclaration(cr)) {
+        if (hasFiner) return;
+        endLine = startLine; // declaration-only refactoring → header line only
+      }
       const category = categorize(type, side, cr.description);
       used.add(category); // legend reflects every category in the feed, mounted or not
       const digest = digests[cr.filePath];
@@ -88,33 +105,33 @@ var RMX = window.RMX || (window.RMX = {});
       painted += RMX.overlay.highlightRange({
         digest,
         side,
-        startLine: cr.startLine,
-        endLine: cr.endLine,
+        startLine,
+        endLine,
         category,
         summary,
         index,
+        filePath: cr.filePath,
       });
     });
     return painted;
   }
 
-  // RefactoringMiner includes the enclosing source/target method or type as a
-  // location for context; highlighting those whole bodies floods the diff. Skip
-  // them so only the elements that actually changed get coloured.
-  const CONTEXT_DESC = [
-    'source method declaration',
-    'target method declaration',
-    'original method declaration',
-    'method declaration with',
-    'original type declaration',
-    'sub-type declaration',
-    'type declaration after',
-    'type declaration before',
-  ];
-  function isContext(loc) {
-    if ((loc.endLine - loc.startLine) < 2) return false; // small ranges are specific enough
+  // A whole enclosing method/class declaration spanning multiple lines.
+  // RefactoringMiner includes these for context next to the specific changed
+  // lines; highlighting their entire bodies floods the diff.
+  function isContainer(loc) {
+    const t = loc.codeElementType || '';
+    return (t === 'METHOD_DECLARATION' || t === 'TYPE_DECLARATION') && loc.endLine - loc.startLine >= 2;
+  }
+
+  // A declaration RefactoringMiner reports as freshly created — the getter an
+  // Encapsulate Attribute adds, or the method/type an Extract produces. It's
+  // genuinely new code, so it should be highlighted in full rather than skipped
+  // as enclosing context. ("extracted" matches the new declaration but not the
+  // "before/after extraction" source/target methods, which stay context.)
+  function isNewDeclaration(loc) {
     const d = (loc.description || '').toLowerCase();
-    return CONTEXT_DESC.some((s) => d.indexOf(s) !== -1);
+    return d.indexOf('added') !== -1 || d.indexOf('extracted') !== -1;
   }
 
   // Map a location to one of RefactoringMiner's legend colours. Approximated
