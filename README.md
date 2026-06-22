@@ -45,18 +45,6 @@ Feed shape (RefactoringMiner's classic `-json` output):
    Changed lines involved in a refactoring get a coloured gutter; hover for the
    refactoring type/description.
 
-## Status
-
-- ✅ Feed fetch via service worker (cross-origin to `*.github.io`).
-- ✅ PR **Files changed** view: line highlighting + tooltip + `?rm=<i>` scroll.
-- 🚧 Per-commit pages (`/commit`, `/pull/N/commits/`): adapter stubbed — needs a
-  per-commit feed (today's feed is PR-aggregate). DOM hook is identical.
-- 🚧 Richer visuals (extract/inline borders + arrows, side-nav) — port from
-  RefactoringAwareCommitReview after the core loop is solid.
-- 🚧 Virtualized React diff: rows mount lazily; re-paint on scroll is TODO.
-- 🚧 Private repos: gh-pages can't serve them; fall back to the workflow
-  artifact + user auth.
-
 ## Architecture
 
 | File | Role |
