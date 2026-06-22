@@ -78,9 +78,23 @@ var RMX = window.RMX || (window.RMX = {});
   }
 
   function paintSide(locations, side, type, summary, index, digests, used) {
+    const locs = locations || [];
+    // Evaluate each side the SAME way so left/right stay consistent:
+    //   • If the side has any fine-grained location (a statement, field, param,
+    //     conditional…), the big enclosing method/type declarations are just
+    //     context — skip them.
+    //   • If a declaration is the ONLY location (Rename/Pull Up/Move/Change
+    //     modifier on a whole method or type), keep it but colour just its header
+    //     line, so it still shows without flooding the diff.
+    const hasFiner = locs.some((cr) => !isContainer(cr));
     let painted = 0;
-    (locations || []).forEach((cr) => {
-      if (isContext(cr)) return;
+    locs.forEach((cr) => {
+      let startLine = cr.startLine;
+      let endLine = cr.endLine;
+      if (isContainer(cr)) {
+        if (hasFiner) return;
+        endLine = startLine; // declaration-only refactoring → header line only
+      }
       const category = categorize(type, side, cr.description);
       used.add(category); // legend reflects every category in the feed, mounted or not
       const digest = digests[cr.filePath];
@@ -88,8 +102,8 @@ var RMX = window.RMX || (window.RMX = {});
       painted += RMX.overlay.highlightRange({
         digest,
         side,
-        startLine: cr.startLine,
-        endLine: cr.endLine,
+        startLine,
+        endLine,
         category,
         summary,
         index,
@@ -99,23 +113,12 @@ var RMX = window.RMX || (window.RMX = {});
     return painted;
   }
 
-  // RefactoringMiner includes the enclosing source/target method or type as a
-  // location for context; highlighting those whole bodies floods the diff. Skip
-  // them so only the elements that actually changed get coloured.
-  const CONTEXT_DESC = [
-    'source method declaration',
-    'target method declaration',
-    'original method declaration',
-    'method declaration with',
-    'original type declaration',
-    'sub-type declaration',
-    'type declaration after',
-    'type declaration before',
-  ];
-  function isContext(loc) {
-    if ((loc.endLine - loc.startLine) < 2) return false; // small ranges are specific enough
-    const d = (loc.description || '').toLowerCase();
-    return CONTEXT_DESC.some((s) => d.indexOf(s) !== -1);
+  // A whole enclosing method/class declaration spanning multiple lines.
+  // RefactoringMiner includes these for context next to the specific changed
+  // lines; highlighting their entire bodies floods the diff.
+  function isContainer(loc) {
+    const t = loc.codeElementType || '';
+    return (t === 'METHOD_DECLARATION' || t === 'TYPE_DECLARATION') && loc.endLine - loc.startLine >= 2;
   }
 
   // Map a location to one of RefactoringMiner's legend colours. Approximated
