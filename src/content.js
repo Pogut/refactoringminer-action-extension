@@ -91,7 +91,7 @@ var RMX = window.RMX || (window.RMX = {});
     locs.forEach((cr) => {
       let startLine = cr.startLine;
       let endLine = cr.endLine;
-      if (isContainer(cr)) {
+      if (isContainer(cr) && !isNewDeclaration(cr)) {
         if (hasFiner) return;
         endLine = startLine; // declaration-only refactoring → header line only
       }
@@ -119,6 +119,13 @@ var RMX = window.RMX || (window.RMX = {});
   function isContainer(loc) {
     const t = loc.codeElementType || '';
     return (t === 'METHOD_DECLARATION' || t === 'TYPE_DECLARATION') && loc.endLine - loc.startLine >= 2;
+  }
+
+  // A declaration RefactoringMiner reports as freshly created (e.g. the getter an
+  // Encapsulate Attribute adds). It's genuinely new code, so it should be
+  // highlighted in full rather than skipped as enclosing context.
+  function isNewDeclaration(loc) {
+    return (loc.description || '').toLowerCase().indexOf('added') !== -1;
   }
 
   // Map a location to one of RefactoringMiner's legend colours. Approximated
