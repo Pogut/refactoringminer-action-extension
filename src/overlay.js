@@ -98,6 +98,17 @@ RMX.overlay = (function () {
     }
   }
 
+  // A diff line is "blank" when its only content is the gutter line number, i.e.
+  // an empty source line. RefactoringMiner's declaration ranges are inclusive and
+  // overshoot — they trail into the blank line (and the next element) after a
+  // method — so skip those: colouring an empty row just shows a stripe with no code.
+  function lineHasCode(cells, line) {
+    return cells.some((c) => {
+      const t = (c.textContent || '').trim();
+      return t !== '' && t !== String(line);
+    });
+  }
+
   // Highlight every line in [startLine,endLine] for one side of one file. A cell
   // touched by several refactorings keeps its first category but accumulates
   // each refactoring's summary (deduped). Returns the count of mounted lines.
@@ -106,6 +117,7 @@ RMX.overlay = (function () {
     for (let line = startLine; line <= endLine; line++) {
       const cells = RMX.github.lineCells(digest, side, line);
       if (!cells.length) continue;
+      if (!lineHasCode(cells, line)) continue; // skip blank source lines (nothing to colour)
       cells.forEach((cell) => {
         cell.classList.add(CLASS);
         cell.setAttribute('data-rmx-side', side);
