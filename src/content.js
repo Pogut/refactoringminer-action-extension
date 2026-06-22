@@ -79,13 +79,16 @@ var RMX = window.RMX || (window.RMX = {});
 
   function paintSide(locations, side, type, summary, index, digests, used) {
     const locs = locations || [];
-    // Evaluate each side the SAME way so left/right stay consistent:
-    //   • If the side has any fine-grained location (a statement, field, param,
-    //     conditional…), the big enclosing method/type declarations are just
-    //     context — skip them.
-    //   • If a declaration is the ONLY location (Rename/Pull Up/Move/Change
-    //     modifier on a whole method or type), keep it but colour just its header
-    //     line, so it still shows without flooding the diff.
+    // Decide how each location is shown, applied identically to left and right so
+    // related parts stay consistent:
+    //   • A newly created declaration (added getter, extracted method/type) is
+    //     genuine new code → highlight it in full.
+    //   • Otherwise a big enclosing method/type declaration is context: skip it
+    //     when the side has a finer location to show instead, or — when it's the
+    //     only location (Rename/Pull Up/Move/Change-modifier on a whole method or
+    //     type) — colour just its header line so the side still shows without
+    //     flooding the diff.
+    //   • Anything finer (statement, field, param, conditional…) → full range.
     const hasFiner = locs.some((cr) => !isContainer(cr));
     let painted = 0;
     locs.forEach((cr) => {
