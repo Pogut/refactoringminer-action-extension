@@ -1,0 +1,10 @@
+{
+	"lang": "typescript",
+	"feedPr": 13,
+	"beforeRef": "typescript-1",
+	"afterRef": "typescript-2",
+	"owner": "Pogut",
+	"repo": "rm-action-test",
+	"prNumber": "13",
+	"url": "https://github.com/Pogut/rm-action-test/pull/13"
+}
