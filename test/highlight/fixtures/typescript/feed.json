@@ -1,0 +1,1133 @@
+{
+	"url": "https://github.com/Pogut/rm-action-test/pull/13",
+	"refactorings": [
+		{
+			"type": "Change Attribute Access Modifier",
+			"description": "Change Attribute Access Modifier public to private in attribute private loyaltyPoints : number from class CustomerProfile.CustomerProfile",
+			"markup": "**Change Attribute Access Modifier** `public` to `private` in attribute [private loyaltyPoints : number](https://github.com/Pogut/rm-action-test/pull/13/changes?diff=split#diff-7de68624fe335dff51c62325083d2ef910a090f9a12169711c2e6bbcce129dbfR6) from class `CustomerProfile.CustomerProfile`",
+			"leftSideLocations": [
+				{
+					"filePath": "typescript/CustomerProfile.ts",
+					"startLine": 6,
+					"endLine": 6,
+					"startColumn": 5,
+					"endColumn": 0,
+					"codeElementType": "FIELD_DECLARATION",
+					"description": "original attribute declaration",
+					"codeElement": "public loyaltyPoints : number"
+				}
+			],
+			"rightSideLocations": [
+				{
+					"filePath": "typescript/CustomerProfile.ts",
+					"startLine": 6,
+					"endLine": 6,
+					"startColumn": 5,
+					"endColumn": 0,
+					"codeElementType": "FIELD_DECLARATION",
+					"description": "attribute declaration with changed access modifier",
+					"codeElement": "private loyaltyPoints : number"
+				}
+			]
+		},
+		{
+			"type": "Invert Condition",
+			"description": "Invert Condition if(optedIn && !bouncedEmail && purchaseCount > 0) to if(!emailOptedIn || bouncedEmail || purchaseCount <= 0) in method private canReceivePromotion(emailOptedIn boolean, bouncedEmail boolean, purchaseCount number) : boolean from class CustomerProfile.CustomerProfile",
+			"markup": "**Invert Condition** [if(optedIn && !bouncedEmail && purchaseCount > 0)](https://github.com/Pogut/rm-action-test/pull/13/changes?diff=split#diff-7de68624fe335dff51c62325083d2ef910a090f9a12169711c2e6bbcce129dbfL21) to [if(!emailOptedIn || bouncedEmail || purchaseCount <= 0)](https://github.com/Pogut/rm-action-test/pull/13/changes?diff=split#diff-7de68624fe335dff51c62325083d2ef910a090f9a12169711c2e6bbcce129dbfR19) in method [private canReceivePromotion(emailOptedIn boolean, bouncedEmail boolean, purchaseCount number) : boolean](https://github.com/Pogut/rm-action-test/pull/13/changes?diff=split#diff-7de68624fe335dff51c62325083d2ef910a090f9a12169711c2e6bbcce129dbfR18) from class `CustomerProfile.CustomerProfile`",
+			"leftSideLocations": [
+				{
+					"filePath": "typescript/CustomerProfile.ts",
+					"startLine": 21,
+					"endLine": 23,
+					"startColumn": 9,
+					"endColumn": 0,
+					"codeElementType": "IF_STATEMENT",
+					"description": "original conditional",
+					"codeElement": "if(optedIn && !bouncedEmail && purchaseCount > 0)"
+				},
+				{
+					"filePath": "typescript/CustomerProfile.ts",
+					"startLine": 20,
+					"endLine": 25,
+					"startColumn": 5,
+					"endColumn": 0,
+					"codeElementType": "METHOD_DECLARATION",
+					"description": "original method declaration",
+					"codeElement": "private canReceivePromotion(optedIn boolean, bouncedEmail boolean, purchaseCount number) : boolean"
+				}
+			],
+			"rightSideLocations": [
+				{
+					"filePath": "typescript/CustomerProfile.ts",
+					"startLine": 19,
+					"endLine": 21,
+					"startColumn": 9,
+					"endColumn": 0,
+					"codeElementType": "IF_STATEMENT",
+					"description": "inverted conditional",
+					"codeElement": "if(!emailOptedIn || bouncedEmail || purchaseCount <= 0)"
+				},
+				{
+					"filePath": "typescript/CustomerProfile.ts",
+					"startLine": 18,
+					"endLine": 23,
+					"startColumn": 5,
+					"endColumn": 0,
+					"codeElementType": "METHOD_DECLARATION",
+					"description": "method declaration with inverted conditional",
+					"codeElement": "private canReceivePromotion(emailOptedIn boolean, bouncedEmail boolean, purchaseCount number) : boolean"
+				}
+			]
+		},
+		{
+			"type": "Rename Parameter",
+			"description": "Rename Parameter optedIn : boolean to emailOptedIn : boolean in method private canReceivePromotion(emailOptedIn boolean, bouncedEmail boolean, purchaseCount number) : boolean from class CustomerProfile.CustomerProfile",
+			"markup": "**Rename Parameter** [optedIn : boolean](https://github.com/Pogut/rm-action-test/pull/13/changes?diff=split#diff-7de68624fe335dff51c62325083d2ef910a090f9a12169711c2e6bbcce129dbfL20) to [emailOptedIn : boolean](https://github.com/Pogut/rm-action-test/pull/13/changes?diff=split#diff-7de68624fe335dff51c62325083d2ef910a090f9a12169711c2e6bbcce129dbfR18) in method `private canReceivePromotion(emailOptedIn boolean, bouncedEmail boolean, purchaseCount number) : boolean` from class `CustomerProfile.CustomerProfile`",
+			"leftSideLocations": [
+				{
+					"filePath": "typescript/CustomerProfile.ts",
+					"startLine": 20,
+					"endLine": 20,
+					"startColumn": 25,
+					"endColumn": 0,
+					"codeElementType": "VARIABLE_DECLARATION_EXPRESSION",
+					"description": "original variable declaration",
+					"codeElement": "optedIn : boolean"
+				},
+				{
+					"filePath": "typescript/CustomerProfile.ts",
+					"startLine": 21,
+					"endLine": 23,
+					"startColumn": 9,
+					"endColumn": 0,
+					"codeElementType": "IF_STATEMENT",
+					"description": "statement referencing the original variable",
+					"codeElement": null
+				}
+			],
+			"rightSideLocations": [
+				{
+					"filePath": "typescript/CustomerProfile.ts",
+					"startLine": 18,
+					"endLine": 18,
+					"startColumn": 25,
+					"endColumn": 0,
+					"codeElementType": "VARIABLE_DECLARATION_EXPRESSION",
+					"description": "renamed variable declaration",
+					"codeElement": "emailOptedIn : boolean"
+				},
+				{
+					"filePath": "typescript/CustomerProfile.ts",
+					"startLine": 19,
+					"endLine": 21,
+					"startColumn": 9,
+					"endColumn": 0,
+					"codeElementType": "IF_STATEMENT",
+					"description": "statement referencing the renamed variable",
+					"codeElement": null
+				}
+			]
+		},
+		{
+			"type": "Rename Variable",
+			"description": "Rename Variable points : Inferred to earnedPoints : Inferred in method private addPurchase(amountCents number) : void from class CustomerProfile.CustomerProfile",
+			"markup": "**Rename Variable** [points : Inferred](https://github.com/Pogut/rm-action-test/pull/13/changes?diff=split#diff-7de68624fe335dff51c62325083d2ef910a090f9a12169711c2e6bbcce129dbfL28) to [earnedPoints : Inferred](https://github.com/Pogut/rm-action-test/pull/13/changes?diff=split#diff-7de68624fe335dff51c62325083d2ef910a090f9a12169711c2e6bbcce129dbfR26) in method `private addPurchase(amountCents number) : void` from class `CustomerProfile.CustomerProfile`",
+			"leftSideLocations": [
+				{
+					"filePath": "typescript/CustomerProfile.ts",
+					"startLine": 28,
+					"endLine": 28,
+					"startColumn": 15,
+					"endColumn": 0,
+					"codeElementType": "VARIABLE_DECLARATION_EXPRESSION",
+					"description": "original variable declaration",
+					"codeElement": "points : Inferred"
+				},
+				{
+					"filePath": "typescript/CustomerProfile.ts",
+					"startLine": 28,
+					"endLine": 28,
+					"startColumn": 9,
+					"endColumn": 0,
+					"codeElementType": "VARIABLE_DECLARATION_STATEMENT",
+					"description": "statement referencing the original variable",
+					"codeElement": null
+				},
+				{
+					"filePath": "typescript/CustomerProfile.ts",
+					"startLine": 29,
+					"endLine": 29,
+					"startColumn": 9,
+					"endColumn": 0,
+					"codeElementType": "EXPRESSION_STATEMENT",
+					"description": "statement referencing the original variable",
+					"codeElement": null
+				}
+			],
+			"rightSideLocations": [
+				{
+					"filePath": "typescript/CustomerProfile.ts",
+					"startLine": 26,
+					"endLine": 26,
+					"startColumn": 15,
+					"endColumn": 0,
+					"codeElementType": "VARIABLE_DECLARATION_EXPRESSION",
+					"description": "renamed variable declaration",
+					"codeElement": "earnedPoints : Inferred"
+				},
+				{
+					"filePath": "typescript/CustomerProfile.ts",
+					"startLine": 26,
+					"endLine": 26,
+					"startColumn": 9,
+					"endColumn": 0,
+					"codeElementType": "VARIABLE_DECLARATION_STATEMENT",
+					"description": "statement referencing the renamed variable",
+					"codeElement": null
+				},
+				{
+					"filePath": "typescript/CustomerProfile.ts",
+					"startLine": 27,
+					"endLine": 27,
+					"startColumn": 9,
+					"endColumn": 0,
+					"codeElementType": "EXPRESSION_STATEMENT",
+					"description": "statement referencing the renamed variable",
+					"codeElement": null
+				}
+			]
+		},
+		{
+			"type": "Rename Method",
+			"description": "Rename Method private formatPaymentStatus(total number, discount number) : string renamed to private describePaymentStatus(total number, discount number) : string in class OrderProcessor.OrderProcessor",
+			"markup": "**Rename Method** [private formatPaymentStatus(total number, discount number) : string](https://github.com/Pogut/rm-action-test/pull/13/changes?diff=split#diff-a232d47c5e6cadb655f39977435d09628dc1dcff51251ebf37dee7c186e33747L32) renamed to [private describePaymentStatus(total number, discount number) : string](https://github.com/Pogut/rm-action-test/pull/13/changes?diff=split#diff-a232d47c5e6cadb655f39977435d09628dc1dcff51251ebf37dee7c186e33747R34) in class `OrderProcessor.OrderProcessor`",
+			"leftSideLocations": [
+				{
+					"filePath": "typescript/OrderProcessor.ts",
+					"startLine": 32,
+					"endLine": 40,
+					"startColumn": 5,
+					"endColumn": 0,
+					"codeElementType": "METHOD_DECLARATION",
+					"description": "original method declaration",
+					"codeElement": "private formatPaymentStatus(total number, discount number) : string"
+				}
+			],
+			"rightSideLocations": [
+				{
+					"filePath": "typescript/OrderProcessor.ts",
+					"startLine": 34,
+					"endLine": 42,
+					"startColumn": 5,
+					"endColumn": 0,
+					"codeElementType": "METHOD_DECLARATION",
+					"description": "renamed method declaration",
+					"codeElement": "private describePaymentStatus(total number, discount number) : string"
+				}
+			]
+		},
+		{
+			"type": "Inline Method",
+			"description": "Inline Method private centsToDollars(cents number) : number inlined to private buildReceipt(buyerName string, unitPrice number, quantity number, discount number) : string in class OrderProcessor.OrderProcessor",
+			"markup": "**Inline Method** [private centsToDollars(cents number) : number](https://github.com/Pogut/rm-action-test/pull/13/changes?diff=split#diff-a232d47c5e6cadb655f39977435d09628dc1dcff51251ebf37dee7c186e33747L28) inlined to [private buildReceipt(buyerName string, unitPrice number, quantity number, discount number) : string](https://github.com/Pogut/rm-action-test/pull/13/changes?diff=split#diff-a232d47c5e6cadb655f39977435d09628dc1dcff51251ebf37dee7c186e33747R7) in class `OrderProcessor.OrderProcessor`",
+			"leftSideLocations": [
+				{
+					"filePath": "typescript/OrderProcessor.ts",
+					"startLine": 28,
+					"endLine": 30,
+					"startColumn": 5,
+					"endColumn": 0,
+					"codeElementType": "METHOD_DECLARATION",
+					"description": "inlined method declaration",
+					"codeElement": "private centsToDollars(cents number) : number"
+				},
+				{
+					"filePath": "typescript/OrderProcessor.ts",
+					"startLine": 29,
+					"endLine": 29,
+					"startColumn": 9,
+					"endColumn": 0,
+					"codeElementType": "RETURN_STATEMENT",
+					"description": "inlined code from inlined method declaration",
+					"codeElement": null
+				},
+				{
+					"filePath": "typescript/OrderProcessor.ts",
+					"startLine": 4,
+					"endLine": 22,
+					"startColumn": 5,
+					"endColumn": 0,
+					"codeElementType": "METHOD_DECLARATION",
+					"description": "target method declaration before inline",
+					"codeElement": "private buildReceipt(customerName string, unitPrice number, quantity number, discount number) : string"
+				},
+				{
+					"filePath": "typescript/OrderProcessor.ts",
+					"startLine": 11,
+					"endLine": 11,
+					"startColumn": 25,
+					"endColumn": 0,
+					"codeElementType": "METHOD_INVOCATION",
+					"description": "inlined method invocation",
+					"codeElement": "this.centsToDollars(total)"
+				}
+			],
+			"rightSideLocations": [
+				{
+					"filePath": "typescript/OrderProcessor.ts",
+					"startLine": 7,
+					"endLine": 25,
+					"startColumn": 5,
+					"endColumn": 0,
+					"codeElementType": "METHOD_DECLARATION",
+					"description": "target method declaration after inline",
+					"codeElement": "private buildReceipt(buyerName string, unitPrice number, quantity number, discount number) : string"
+				},
+				{
+					"filePath": "typescript/OrderProcessor.ts",
+					"startLine": 14,
+					"endLine": 14,
+					"startColumn": 9,
+					"endColumn": 0,
+					"codeElementType": "VARIABLE_DECLARATION_STATEMENT",
+					"description": "inlined code in target method declaration",
+					"codeElement": null
+				}
+			]
+		},
+		{
+			"type": "Extract Method",
+			"description": "Extract Method private calculateTotal(unitPrice number, quantity number, discount number) : number extracted from private buildReceipt(customerName string, unitPrice number, quantity number, discount number) : string in class OrderProcessor.OrderProcessor",
+			"markup": "**Extract Method** [private calculateTotal(unitPrice number, quantity number, discount number) : number](https://github.com/Pogut/rm-action-test/pull/13/changes?diff=split#diff-a232d47c5e6cadb655f39977435d09628dc1dcff51251ebf37dee7c186e33747R27) extracted from [private buildReceipt(customerName string, unitPrice number, quantity number, discount number) : string](https://github.com/Pogut/rm-action-test/pull/13/changes?diff=split#diff-a232d47c5e6cadb655f39977435d09628dc1dcff51251ebf37dee7c186e33747L4) in class `OrderProcessor.OrderProcessor`",
+			"leftSideLocations": [
+				{
+					"filePath": "typescript/OrderProcessor.ts",
+					"startLine": 4,
+					"endLine": 22,
+					"startColumn": 5,
+					"endColumn": 0,
+					"codeElementType": "METHOD_DECLARATION",
+					"description": "source method declaration before extraction",
+					"codeElement": "private buildReceipt(customerName string, unitPrice number, quantity number, discount number) : string"
+				},
+				{
+					"filePath": "typescript/OrderProcessor.ts",
+					"startLine": 7,
+					"endLine": 7,
+					"startColumn": 9,
+					"endColumn": 0,
+					"codeElementType": "VARIABLE_DECLARATION_STATEMENT",
+					"description": "extracted code from source method declaration",
+					"codeElement": null
+				},
+				{
+					"filePath": "typescript/OrderProcessor.ts",
+					"startLine": 8,
+					"endLine": 8,
+					"startColumn": 9,
+					"endColumn": 0,
+					"codeElementType": "VARIABLE_DECLARATION_STATEMENT",
+					"description": "extracted code from source method declaration",
+					"codeElement": null
+				}
+			],
+			"rightSideLocations": [
+				{
+					"filePath": "typescript/OrderProcessor.ts",
+					"startLine": 27,
+					"endLine": 32,
+					"startColumn": 5,
+					"endColumn": 0,
+					"codeElementType": "METHOD_DECLARATION",
+					"description": "extracted method declaration",
+					"codeElement": "private calculateTotal(unitPrice number, quantity number, discount number) : number"
+				},
+				{
+					"filePath": "typescript/OrderProcessor.ts",
+					"startLine": 30,
+					"endLine": 30,
+					"startColumn": 9,
+					"endColumn": 0,
+					"codeElementType": "VARIABLE_DECLARATION_STATEMENT",
+					"description": "extracted code to extracted method declaration",
+					"codeElement": null
+				},
+				{
+					"filePath": "typescript/OrderProcessor.ts",
+					"startLine": 31,
+					"endLine": 31,
+					"startColumn": 9,
+					"endColumn": 0,
+					"codeElementType": "RETURN_STATEMENT",
+					"description": "extracted code to extracted method declaration",
+					"codeElement": null
+				},
+				{
+					"filePath": "typescript/OrderProcessor.ts",
+					"startLine": 7,
+					"endLine": 25,
+					"startColumn": 5,
+					"endColumn": 0,
+					"codeElementType": "METHOD_DECLARATION",
+					"description": "source method declaration after extraction",
+					"codeElement": "private buildReceipt(buyerName string, unitPrice number, quantity number, discount number) : string"
+				},
+				{
+					"filePath": "typescript/OrderProcessor.ts",
+					"startLine": 8,
+					"endLine": 8,
+					"startColumn": 23,
+					"endColumn": 0,
+					"codeElementType": "METHOD_INVOCATION",
+					"description": "extracted method invocation",
+					"codeElement": "this.calculateTotal(unitPrice,quantity,discount)"
+				},
+				{
+					"filePath": "typescript/OrderProcessor.ts",
+					"startLine": 28,
+					"endLine": 28,
+					"startColumn": 9,
+					"endColumn": 0,
+					"codeElementType": "VARIABLE_DECLARATION_STATEMENT",
+					"description": "added statement in extracted method declaration",
+					"codeElement": null
+				},
+				{
+					"filePath": "typescript/OrderProcessor.ts",
+					"startLine": 29,
+					"endLine": 29,
+					"startColumn": 9,
+					"endColumn": 0,
+					"codeElementType": "VARIABLE_DECLARATION_STATEMENT",
+					"description": "added statement in extracted method declaration",
+					"codeElement": null
+				}
+			]
+		},
+		{
+			"type": "Rename Parameter",
+			"description": "Rename Parameter customerName : string to buyerName : string in method private buildReceipt(buyerName string, unitPrice number, quantity number, discount number) : string from class OrderProcessor.OrderProcessor",
+			"markup": "**Rename Parameter** [customerName : string](https://github.com/Pogut/rm-action-test/pull/13/changes?diff=split#diff-a232d47c5e6cadb655f39977435d09628dc1dcff51251ebf37dee7c186e33747L4) to [buyerName : string](https://github.com/Pogut/rm-action-test/pull/13/changes?diff=split#diff-a232d47c5e6cadb655f39977435d09628dc1dcff51251ebf37dee7c186e33747R7) in method `private buildReceipt(buyerName string, unitPrice number, quantity number, discount number) : string` from class `OrderProcessor.OrderProcessor`",
+			"leftSideLocations": [
+				{
+					"filePath": "typescript/OrderProcessor.ts",
+					"startLine": 4,
+					"endLine": 4,
+					"startColumn": 18,
+					"endColumn": 0,
+					"codeElementType": "VARIABLE_DECLARATION_EXPRESSION",
+					"description": "original variable declaration",
+					"codeElement": "customerName : string"
+				},
+				{
+					"filePath": "typescript/OrderProcessor.ts",
+					"startLine": 10,
+					"endLine": 10,
+					"startColumn": 9,
+					"endColumn": 0,
+					"codeElementType": "VARIABLE_DECLARATION_STATEMENT",
+					"description": "statement referencing the original variable",
+					"codeElement": null
+				}
+			],
+			"rightSideLocations": [
+				{
+					"filePath": "typescript/OrderProcessor.ts",
+					"startLine": 7,
+					"endLine": 7,
+					"startColumn": 18,
+					"endColumn": 0,
+					"codeElementType": "VARIABLE_DECLARATION_EXPRESSION",
+					"description": "renamed variable declaration",
+					"codeElement": "buyerName : string"
+				},
+				{
+					"filePath": "typescript/OrderProcessor.ts",
+					"startLine": 13,
+					"endLine": 13,
+					"startColumn": 9,
+					"endColumn": 0,
+					"codeElementType": "VARIABLE_DECLARATION_STATEMENT",
+					"description": "statement referencing the renamed variable",
+					"codeElement": null
+				}
+			]
+		},
+		{
+			"type": "Pull Up Method",
+			"description": "Pull Up Method private displayName() : string from class AdminAccount.AdminAccount to private displayName() : string from class Account.Account",
+			"markup": "**Pull Up Method** [private displayName() : string](https://github.com/Pogut/rm-action-test/pull/13/changes?diff=split#diff-6279d8546578409a40e25a294c558c9435218459a8d674b5f3bf044ae56f070dL9) from class `AdminAccount.AdminAccount` to [private displayName() : string](https://github.com/Pogut/rm-action-test/pull/13/changes?diff=split#diff-cc9c1232d2c10534e3388bf401f46216f99da981693d07a8dd2d0c4bb2a39dc3R8) from class `Account.Account`",
+			"leftSideLocations": [
+				{
+					"filePath": "typescript/AdminAccount.ts",
+					"startLine": 9,
+					"endLine": 11,
+					"startColumn": 5,
+					"endColumn": 0,
+					"codeElementType": "METHOD_DECLARATION",
+					"description": "original method declaration",
+					"codeElement": "private displayName() : string"
+				}
+			],
+			"rightSideLocations": [
+				{
+					"filePath": "typescript/Account.ts",
+					"startLine": 8,
+					"endLine": 10,
+					"startColumn": 5,
+					"endColumn": 0,
+					"codeElementType": "METHOD_DECLARATION",
+					"description": "pulled up method declaration",
+					"codeElement": "private displayName() : string"
+				}
+			]
+		},
+		{
+			"type": "Pull Up Attribute",
+			"description": "Pull Up Attribute protected username : string from class AdminAccount.AdminAccount to protected username : string from class Account.Account",
+			"markup": "**Pull Up Attribute** [protected username : string](https://github.com/Pogut/rm-action-test/pull/13/changes?diff=split#diff-6279d8546578409a40e25a294c558c9435218459a8d674b5f3bf044ae56f070dL2) from class `AdminAccount.AdminAccount` to [protected username : string](https://github.com/Pogut/rm-action-test/pull/13/changes?diff=split#diff-cc9c1232d2c10534e3388bf401f46216f99da981693d07a8dd2d0c4bb2a39dc3R2) from class `Account.Account`",
+			"leftSideLocations": [
+				{
+					"filePath": "typescript/AdminAccount.ts",
+					"startLine": 2,
+					"endLine": 2,
+					"startColumn": 5,
+					"endColumn": 0,
+					"codeElementType": "FIELD_DECLARATION",
+					"description": "original attribute declaration",
+					"codeElement": "protected username : string"
+				}
+			],
+			"rightSideLocations": [
+				{
+					"filePath": "typescript/Account.ts",
+					"startLine": 2,
+					"endLine": 2,
+					"startColumn": 5,
+					"endColumn": 0,
+					"codeElementType": "FIELD_DECLARATION",
+					"description": "pulled up attribute declaration",
+					"codeElement": "protected username : string"
+				}
+			]
+		},
+		{
+			"type": "Pull Up Method",
+			"description": "Pull Up Method private displayName() : string from class GuestAccount.GuestAccount to private displayName() : string from class Account.Account",
+			"markup": "**Pull Up Method** [private displayName() : string](https://github.com/Pogut/rm-action-test/pull/13/changes?diff=split#diff-423b2c0d95fd4c685dd50fe78a4df15acaac6a07888358a87b24e4ded94375c9L8) from class `GuestAccount.GuestAccount` to [private displayName() : string](https://github.com/Pogut/rm-action-test/pull/13/changes?diff=split#diff-cc9c1232d2c10534e3388bf401f46216f99da981693d07a8dd2d0c4bb2a39dc3R8) from class `Account.Account`",
+			"leftSideLocations": [
+				{
+					"filePath": "typescript/GuestAccount.ts",
+					"startLine": 8,
+					"endLine": 10,
+					"startColumn": 5,
+					"endColumn": 0,
+					"codeElementType": "METHOD_DECLARATION",
+					"description": "original method declaration",
+					"codeElement": "private displayName() : string"
+				}
+			],
+			"rightSideLocations": [
+				{
+					"filePath": "typescript/Account.ts",
+					"startLine": 8,
+					"endLine": 10,
+					"startColumn": 5,
+					"endColumn": 0,
+					"codeElementType": "METHOD_DECLARATION",
+					"description": "pulled up method declaration",
+					"codeElement": "private displayName() : string"
+				}
+			]
+		},
+		{
+			"type": "Pull Up Attribute",
+			"description": "Pull Up Attribute protected username : string from class GuestAccount.GuestAccount to protected username : string from class Account.Account",
+			"markup": "**Pull Up Attribute** [protected username : string](https://github.com/Pogut/rm-action-test/pull/13/changes?diff=split#diff-423b2c0d95fd4c685dd50fe78a4df15acaac6a07888358a87b24e4ded94375c9L2) from class `GuestAccount.GuestAccount` to [protected username : string](https://github.com/Pogut/rm-action-test/pull/13/changes?diff=split#diff-cc9c1232d2c10534e3388bf401f46216f99da981693d07a8dd2d0c4bb2a39dc3R2) from class `Account.Account`",
+			"leftSideLocations": [
+				{
+					"filePath": "typescript/GuestAccount.ts",
+					"startLine": 2,
+					"endLine": 2,
+					"startColumn": 5,
+					"endColumn": 0,
+					"codeElementType": "FIELD_DECLARATION",
+					"description": "original attribute declaration",
+					"codeElement": "protected username : string"
+				}
+			],
+			"rightSideLocations": [
+				{
+					"filePath": "typescript/Account.ts",
+					"startLine": 2,
+					"endLine": 2,
+					"startColumn": 5,
+					"endColumn": 0,
+					"codeElementType": "FIELD_DECLARATION",
+					"description": "pulled up attribute declaration",
+					"codeElement": "protected username : string"
+				}
+			]
+		},
+		{
+			"type": "Move Attribute",
+			"description": "Move Attribute private street : string from class CustomerProfile.CustomerProfile to private street : string from class Address.Address",
+			"markup": "**Move Attribute** [private street : string](https://github.com/Pogut/rm-action-test/pull/13/changes?diff=split#diff-7de68624fe335dff51c62325083d2ef910a090f9a12169711c2e6bbcce129dbfL3) from class `CustomerProfile.CustomerProfile` to [private street : string](https://github.com/Pogut/rm-action-test/pull/13/changes?diff=split#diff-d580e8a8a86ba682f025ff1fc0e1e6ef17d844121be699b5d77e416537aa1527R2) from class `Address.Address`",
+			"leftSideLocations": [
+				{
+					"filePath": "typescript/CustomerProfile.ts",
+					"startLine": 3,
+					"endLine": 3,
+					"startColumn": 5,
+					"endColumn": 0,
+					"codeElementType": "FIELD_DECLARATION",
+					"description": "original attribute declaration",
+					"codeElement": "private street : string"
+				}
+			],
+			"rightSideLocations": [
+				{
+					"filePath": "typescript/Address.ts",
+					"startLine": 2,
+					"endLine": 2,
+					"startColumn": 5,
+					"endColumn": 0,
+					"codeElementType": "FIELD_DECLARATION",
+					"description": "moved attribute declaration",
+					"codeElement": "private street : string"
+				}
+			]
+		},
+		{
+			"type": "Move Attribute",
+			"description": "Move Attribute private city : string from class CustomerProfile.CustomerProfile to private city : string from class Address.Address",
+			"markup": "**Move Attribute** [private city : string](https://github.com/Pogut/rm-action-test/pull/13/changes?diff=split#diff-7de68624fe335dff51c62325083d2ef910a090f9a12169711c2e6bbcce129dbfL4) from class `CustomerProfile.CustomerProfile` to [private city : string](https://github.com/Pogut/rm-action-test/pull/13/changes?diff=split#diff-d580e8a8a86ba682f025ff1fc0e1e6ef17d844121be699b5d77e416537aa1527R3) from class `Address.Address`",
+			"leftSideLocations": [
+				{
+					"filePath": "typescript/CustomerProfile.ts",
+					"startLine": 4,
+					"endLine": 4,
+					"startColumn": 5,
+					"endColumn": 0,
+					"codeElementType": "FIELD_DECLARATION",
+					"description": "original attribute declaration",
+					"codeElement": "private city : string"
+				}
+			],
+			"rightSideLocations": [
+				{
+					"filePath": "typescript/Address.ts",
+					"startLine": 3,
+					"endLine": 3,
+					"startColumn": 5,
+					"endColumn": 0,
+					"codeElementType": "FIELD_DECLARATION",
+					"description": "moved attribute declaration",
+					"codeElement": "private city : string"
+				}
+			]
+		},
+		{
+			"type": "Move Attribute",
+			"description": "Move Attribute private postalCode : string from class CustomerProfile.CustomerProfile to private postalCode : string from class Address.Address",
+			"markup": "**Move Attribute** [private postalCode : string](https://github.com/Pogut/rm-action-test/pull/13/changes?diff=split#diff-7de68624fe335dff51c62325083d2ef910a090f9a12169711c2e6bbcce129dbfL5) from class `CustomerProfile.CustomerProfile` to [private postalCode : string](https://github.com/Pogut/rm-action-test/pull/13/changes?diff=split#diff-d580e8a8a86ba682f025ff1fc0e1e6ef17d844121be699b5d77e416537aa1527R4) from class `Address.Address`",
+			"leftSideLocations": [
+				{
+					"filePath": "typescript/CustomerProfile.ts",
+					"startLine": 5,
+					"endLine": 5,
+					"startColumn": 5,
+					"endColumn": 0,
+					"codeElementType": "FIELD_DECLARATION",
+					"description": "original attribute declaration",
+					"codeElement": "private postalCode : string"
+				}
+			],
+			"rightSideLocations": [
+				{
+					"filePath": "typescript/Address.ts",
+					"startLine": 4,
+					"endLine": 4,
+					"startColumn": 5,
+					"endColumn": 0,
+					"codeElementType": "FIELD_DECLARATION",
+					"description": "moved attribute declaration",
+					"codeElement": "private postalCode : string"
+				}
+			]
+		},
+		{
+			"type": "Extract Superclass",
+			"description": "Extract Superclass Account.Account from class AdminAccount.AdminAccount",
+			"markup": "**Extract Superclass** [Account.Account](https://github.com/Pogut/rm-action-test/pull/13/changes?diff=split#diff-cc9c1232d2c10534e3388bf401f46216f99da981693d07a8dd2d0c4bb2a39dc3R1) from class [AdminAccount.AdminAccount](https://github.com/Pogut/rm-action-test/pull/13/changes?diff=split#diff-6279d8546578409a40e25a294c558c9435218459a8d674b5f3bf044ae56f070dL1)",
+			"leftSideLocations": [
+				{
+					"filePath": "typescript/AdminAccount.ts",
+					"startLine": 1,
+					"endLine": 16,
+					"startColumn": 8,
+					"endColumn": 0,
+					"codeElementType": "TYPE_DECLARATION",
+					"description": "original type declaration",
+					"codeElement": "AdminAccount.AdminAccount"
+				},
+				{
+					"filePath": "typescript/AdminAccount.ts",
+					"startLine": 9,
+					"endLine": 11,
+					"startColumn": 5,
+					"endColumn": 0,
+					"codeElementType": "METHOD_DECLARATION",
+					"description": "original method declaration",
+					"codeElement": "private displayName() : string"
+				},
+				{
+					"filePath": "typescript/AdminAccount.ts",
+					"startLine": 2,
+					"endLine": 2,
+					"startColumn": 5,
+					"endColumn": 0,
+					"codeElementType": "FIELD_DECLARATION",
+					"description": "original attribute declaration",
+					"codeElement": "protected username : string"
+				}
+			],
+			"rightSideLocations": [
+				{
+					"filePath": "typescript/AdminAccount.ts",
+					"startLine": 3,
+					"endLine": 13,
+					"startColumn": 8,
+					"endColumn": 0,
+					"codeElementType": "TYPE_DECLARATION",
+					"description": "type declaration after extraction",
+					"codeElement": "AdminAccount.AdminAccount"
+				},
+				{
+					"filePath": "typescript/Account.ts",
+					"startLine": 1,
+					"endLine": 11,
+					"startColumn": 8,
+					"endColumn": 0,
+					"codeElementType": "TYPE_DECLARATION",
+					"description": "extracted type declaration",
+					"codeElement": "Account.Account"
+				},
+				{
+					"filePath": "typescript/Account.ts",
+					"startLine": 8,
+					"endLine": 10,
+					"startColumn": 5,
+					"endColumn": 0,
+					"codeElementType": "METHOD_DECLARATION",
+					"description": "extracted method declaration",
+					"codeElement": "private displayName() : string"
+				},
+				{
+					"filePath": "typescript/Account.ts",
+					"startLine": 2,
+					"endLine": 2,
+					"startColumn": 5,
+					"endColumn": 0,
+					"codeElementType": "FIELD_DECLARATION",
+					"description": "extracted attribute declaration",
+					"codeElement": "protected username : string"
+				}
+			]
+		},
+		{
+			"type": "Extract Superclass",
+			"description": "Extract Superclass Account.Account from class GuestAccount.GuestAccount",
+			"markup": "**Extract Superclass** [Account.Account](https://github.com/Pogut/rm-action-test/pull/13/changes?diff=split#diff-cc9c1232d2c10534e3388bf401f46216f99da981693d07a8dd2d0c4bb2a39dc3R1) from class [GuestAccount.GuestAccount](https://github.com/Pogut/rm-action-test/pull/13/changes?diff=split#diff-423b2c0d95fd4c685dd50fe78a4df15acaac6a07888358a87b24e4ded94375c9L1)",
+			"leftSideLocations": [
+				{
+					"filePath": "typescript/GuestAccount.ts",
+					"startLine": 1,
+					"endLine": 15,
+					"startColumn": 8,
+					"endColumn": 0,
+					"codeElementType": "TYPE_DECLARATION",
+					"description": "original type declaration",
+					"codeElement": "GuestAccount.GuestAccount"
+				},
+				{
+					"filePath": "typescript/GuestAccount.ts",
+					"startLine": 8,
+					"endLine": 10,
+					"startColumn": 5,
+					"endColumn": 0,
+					"codeElementType": "METHOD_DECLARATION",
+					"description": "original method declaration",
+					"codeElement": "private displayName() : string"
+				},
+				{
+					"filePath": "typescript/GuestAccount.ts",
+					"startLine": 2,
+					"endLine": 2,
+					"startColumn": 5,
+					"endColumn": 0,
+					"codeElementType": "FIELD_DECLARATION",
+					"description": "original attribute declaration",
+					"codeElement": "protected username : string"
+				}
+			],
+			"rightSideLocations": [
+				{
+					"filePath": "typescript/GuestAccount.ts",
+					"startLine": 3,
+					"endLine": 11,
+					"startColumn": 8,
+					"endColumn": 0,
+					"codeElementType": "TYPE_DECLARATION",
+					"description": "type declaration after extraction",
+					"codeElement": "GuestAccount.GuestAccount"
+				},
+				{
+					"filePath": "typescript/Account.ts",
+					"startLine": 1,
+					"endLine": 11,
+					"startColumn": 8,
+					"endColumn": 0,
+					"codeElementType": "TYPE_DECLARATION",
+					"description": "extracted type declaration",
+					"codeElement": "Account.Account"
+				},
+				{
+					"filePath": "typescript/Account.ts",
+					"startLine": 8,
+					"endLine": 10,
+					"startColumn": 5,
+					"endColumn": 0,
+					"codeElementType": "METHOD_DECLARATION",
+					"description": "extracted method declaration",
+					"codeElement": "private displayName() : string"
+				},
+				{
+					"filePath": "typescript/Account.ts",
+					"startLine": 2,
+					"endLine": 2,
+					"startColumn": 5,
+					"endColumn": 0,
+					"codeElementType": "FIELD_DECLARATION",
+					"description": "extracted attribute declaration",
+					"codeElement": "protected username : string"
+				}
+			]
+		},
+		{
+			"type": "Extract Class",
+			"description": "Extract Class Address.Address from class CustomerProfile.CustomerProfile",
+			"markup": "**Extract Class** [Address.Address](https://github.com/Pogut/rm-action-test/pull/13/changes?diff=split#diff-d580e8a8a86ba682f025ff1fc0e1e6ef17d844121be699b5d77e416537aa1527R1) from class [CustomerProfile.CustomerProfile](https://github.com/Pogut/rm-action-test/pull/13/changes?diff=split#diff-7de68624fe335dff51c62325083d2ef910a090f9a12169711c2e6bbcce129dbfL1)",
+			"leftSideLocations": [
+				{
+					"filePath": "typescript/CustomerProfile.ts",
+					"startLine": 1,
+					"endLine": 31,
+					"startColumn": 8,
+					"endColumn": 0,
+					"codeElementType": "TYPE_DECLARATION",
+					"description": "original type declaration",
+					"codeElement": "CustomerProfile.CustomerProfile"
+				},
+				{
+					"filePath": "typescript/CustomerProfile.ts",
+					"startLine": 3,
+					"endLine": 3,
+					"startColumn": 5,
+					"endColumn": 0,
+					"codeElementType": "FIELD_DECLARATION",
+					"description": "original attribute declaration",
+					"codeElement": "private street : string"
+				},
+				{
+					"filePath": "typescript/CustomerProfile.ts",
+					"startLine": 4,
+					"endLine": 4,
+					"startColumn": 5,
+					"endColumn": 0,
+					"codeElementType": "FIELD_DECLARATION",
+					"description": "original attribute declaration",
+					"codeElement": "private city : string"
+				},
+				{
+					"filePath": "typescript/CustomerProfile.ts",
+					"startLine": 5,
+					"endLine": 5,
+					"startColumn": 5,
+					"endColumn": 0,
+					"codeElementType": "FIELD_DECLARATION",
+					"description": "original attribute declaration",
+					"codeElement": "private postalCode : string"
+				}
+			],
+			"rightSideLocations": [
+				{
+					"filePath": "typescript/CustomerProfile.ts",
+					"startLine": 3,
+					"endLine": 33,
+					"startColumn": 8,
+					"endColumn": 0,
+					"codeElementType": "TYPE_DECLARATION",
+					"description": "type declaration after extraction",
+					"codeElement": "CustomerProfile.CustomerProfile"
+				},
+				{
+					"filePath": "typescript/Address.ts",
+					"startLine": 1,
+					"endLine": 15,
+					"startColumn": 8,
+					"endColumn": 0,
+					"codeElementType": "TYPE_DECLARATION",
+					"description": "extracted type declaration",
+					"codeElement": "Address.Address"
+				},
+				{
+					"filePath": "typescript/Address.ts",
+					"startLine": 2,
+					"endLine": 2,
+					"startColumn": 5,
+					"endColumn": 0,
+					"codeElementType": "FIELD_DECLARATION",
+					"description": "extracted attribute declaration",
+					"codeElement": "private street : string"
+				},
+				{
+					"filePath": "typescript/Address.ts",
+					"startLine": 3,
+					"endLine": 3,
+					"startColumn": 5,
+					"endColumn": 0,
+					"codeElementType": "FIELD_DECLARATION",
+					"description": "extracted attribute declaration",
+					"codeElement": "private city : string"
+				},
+				{
+					"filePath": "typescript/Address.ts",
+					"startLine": 4,
+					"endLine": 4,
+					"startColumn": 5,
+					"endColumn": 0,
+					"codeElementType": "FIELD_DECLARATION",
+					"description": "extracted attribute declaration",
+					"codeElement": "private postalCode : string"
+				}
+			]
+		},
+		{
+			"type": "Move And Rename Method",
+			"description": "Move And Rename Method private formatHeader(customerName string) : string from class OrderProcessor.OrderProcessor to private createReceiptHeader(customerName string) : string from class ReceiptFormatter.ReceiptFormatter",
+			"markup": "**Move And Rename Method** [private formatHeader(customerName string) : string](https://github.com/Pogut/rm-action-test/pull/13/changes?diff=split#diff-a232d47c5e6cadb655f39977435d09628dc1dcff51251ebf37dee7c186e33747L24) from class `OrderProcessor.OrderProcessor` to [private createReceiptHeader(customerName string) : string](https://github.com/Pogut/rm-action-test/pull/13/changes?diff=split#diff-1e8b68fb81075fd549980614a8b88232c01b124ad7095510705faa13d096a409R2) from class `ReceiptFormatter.ReceiptFormatter`",
+			"leftSideLocations": [
+				{
+					"filePath": "typescript/OrderProcessor.ts",
+					"startLine": 24,
+					"endLine": 26,
+					"startColumn": 5,
+					"endColumn": 0,
+					"codeElementType": "METHOD_DECLARATION",
+					"description": "original method declaration",
+					"codeElement": "private formatHeader(customerName string) : string"
+				}
+			],
+			"rightSideLocations": [
+				{
+					"filePath": "typescript/ReceiptFormatter.ts",
+					"startLine": 2,
+					"endLine": 4,
+					"startColumn": 5,
+					"endColumn": 0,
+					"codeElementType": "METHOD_DECLARATION",
+					"description": "moved method declaration",
+					"codeElement": "private createReceiptHeader(customerName string) : string"
+				}
+			]
+		},
+		{
+			"type": "Move Code",
+			"description": "Move Code from private constructor(username string) in class AdminAccount.AdminAccount to private constructor(username string) in class Account.Account",
+			"markup": "**Move Code** from [private constructor(username string)](https://github.com/Pogut/rm-action-test/pull/13/changes?diff=split#diff-6279d8546578409a40e25a294c558c9435218459a8d674b5f3bf044ae56f070dL5) in class `AdminAccount.AdminAccount` to [private constructor(username string)](https://github.com/Pogut/rm-action-test/pull/13/changes?diff=split#diff-cc9c1232d2c10534e3388bf401f46216f99da981693d07a8dd2d0c4bb2a39dc3R4) in class `Account.Account`",
+			"leftSideLocations": [
+				{
+					"filePath": "typescript/AdminAccount.ts",
+					"startLine": 5,
+					"endLine": 7,
+					"startColumn": 5,
+					"endColumn": 0,
+					"codeElementType": "METHOD_DECLARATION",
+					"description": "source method declaration",
+					"codeElement": "private constructor(username string)"
+				},
+				{
+					"filePath": "typescript/AdminAccount.ts",
+					"startLine": 6,
+					"endLine": 6,
+					"startColumn": 9,
+					"endColumn": 0,
+					"codeElementType": "EXPRESSION_STATEMENT",
+					"description": "moved code from source method declaration",
+					"codeElement": null
+				}
+			],
+			"rightSideLocations": [
+				{
+					"filePath": "typescript/Account.ts",
+					"startLine": 4,
+					"endLine": 6,
+					"startColumn": 5,
+					"endColumn": 0,
+					"codeElementType": "METHOD_DECLARATION",
+					"description": "target method declaration",
+					"codeElement": "private constructor(username string)"
+				},
+				{
+					"filePath": "typescript/Account.ts",
+					"startLine": 5,
+					"endLine": 5,
+					"startColumn": 9,
+					"endColumn": 0,
+					"codeElementType": "EXPRESSION_STATEMENT",
+					"description": "moved code to target method declaration",
+					"codeElement": null
+				}
+			]
+		},
+		{
+			"type": "Move Code",
+			"description": "Move Code from private constructor(fullName string, street string, city string, postalCode string, loyaltyPoints number) in class CustomerProfile.CustomerProfile to private constructor(street string, city string, postalCode string) in class Address.Address",
+			"markup": "**Move Code** from [private constructor(fullName string, street string, city string, postalCode string, loyaltyPoints number)](https://github.com/Pogut/rm-action-test/pull/13/changes?diff=split#diff-7de68624fe335dff51c62325083d2ef910a090f9a12169711c2e6bbcce129dbfL8) in class `CustomerProfile.CustomerProfile` to [private constructor(street string, city string, postalCode string)](https://github.com/Pogut/rm-action-test/pull/13/changes?diff=split#diff-d580e8a8a86ba682f025ff1fc0e1e6ef17d844121be699b5d77e416537aa1527R6) in class `Address.Address`",
+			"leftSideLocations": [
+				{
+					"filePath": "typescript/CustomerProfile.ts",
+					"startLine": 8,
+					"endLine": 14,
+					"startColumn": 5,
+					"endColumn": 0,
+					"codeElementType": "METHOD_DECLARATION",
+					"description": "source method declaration",
+					"codeElement": "private constructor(fullName string, street string, city string, postalCode string, loyaltyPoints number)"
+				},
+				{
+					"filePath": "typescript/CustomerProfile.ts",
+					"startLine": 10,
+					"endLine": 10,
+					"startColumn": 9,
+					"endColumn": 0,
+					"codeElementType": "EXPRESSION_STATEMENT",
+					"description": "moved code from source method declaration",
+					"codeElement": null
+				},
+				{
+					"filePath": "typescript/CustomerProfile.ts",
+					"startLine": 12,
+					"endLine": 12,
+					"startColumn": 9,
+					"endColumn": 0,
+					"codeElementType": "EXPRESSION_STATEMENT",
+					"description": "moved code from source method declaration",
+					"codeElement": null
+				},
+				{
+					"filePath": "typescript/CustomerProfile.ts",
+					"startLine": 9,
+					"endLine": 9,
+					"startColumn": 9,
+					"endColumn": 0,
+					"codeElementType": "EXPRESSION_STATEMENT",
+					"description": "moved code from source method declaration",
+					"codeElement": null
+				}
+			],
+			"rightSideLocations": [
+				{
+					"filePath": "typescript/Address.ts",
+					"startLine": 6,
+					"endLine": 10,
+					"startColumn": 5,
+					"endColumn": 0,
+					"codeElementType": "METHOD_DECLARATION",
+					"description": "target method declaration",
+					"codeElement": "private constructor(street string, city string, postalCode string)"
+				},
+				{
+					"filePath": "typescript/Address.ts",
+					"startLine": 7,
+					"endLine": 7,
+					"startColumn": 9,
+					"endColumn": 0,
+					"codeElementType": "EXPRESSION_STATEMENT",
+					"description": "moved code to target method declaration",
+					"codeElement": null
+				},
+				{
+					"filePath": "typescript/Address.ts",
+					"startLine": 9,
+					"endLine": 9,
+					"startColumn": 9,
+					"endColumn": 0,
+					"codeElementType": "EXPRESSION_STATEMENT",
+					"description": "moved code to target method declaration",
+					"codeElement": null
+				},
+				{
+					"filePath": "typescript/Address.ts",
+					"startLine": 8,
+					"endLine": 8,
+					"startColumn": 9,
+					"endColumn": 0,
+					"codeElementType": "EXPRESSION_STATEMENT",
+					"description": "moved code to target method declaration",
+					"codeElement": null
+				}
+			]
+		},
+		{
+			"type": "Move Code",
+			"description": "Move Code from private constructor(username string) in class GuestAccount.GuestAccount to private constructor(username string) in class Account.Account",
+			"markup": "**Move Code** from [private constructor(username string)](https://github.com/Pogut/rm-action-test/pull/13/changes?diff=split#diff-423b2c0d95fd4c685dd50fe78a4df15acaac6a07888358a87b24e4ded94375c9L4) in class `GuestAccount.GuestAccount` to [private constructor(username string)](https://github.com/Pogut/rm-action-test/pull/13/changes?diff=split#diff-cc9c1232d2c10534e3388bf401f46216f99da981693d07a8dd2d0c4bb2a39dc3R4) in class `Account.Account`",
+			"leftSideLocations": [
+				{
+					"filePath": "typescript/GuestAccount.ts",
+					"startLine": 4,
+					"endLine": 6,
+					"startColumn": 5,
+					"endColumn": 0,
+					"codeElementType": "METHOD_DECLARATION",
+					"description": "source method declaration",
+					"codeElement": "private constructor(username string)"
+				},
+				{
+					"filePath": "typescript/GuestAccount.ts",
+					"startLine": 5,
+					"endLine": 5,
+					"startColumn": 9,
+					"endColumn": 0,
+					"codeElementType": "EXPRESSION_STATEMENT",
+					"description": "moved code from source method declaration",
+					"codeElement": null
+				}
+			],
+			"rightSideLocations": [
+				{
+					"filePath": "typescript/Account.ts",
+					"startLine": 4,
+					"endLine": 6,
+					"startColumn": 5,
+					"endColumn": 0,
+					"codeElementType": "METHOD_DECLARATION",
+					"description": "target method declaration",
+					"codeElement": "private constructor(username string)"
+				},
+				{
+					"filePath": "typescript/Account.ts",
+					"startLine": 5,
+					"endLine": 5,
+					"startColumn": 9,
+					"endColumn": 0,
+					"codeElementType": "EXPRESSION_STATEMENT",
+					"description": "moved code to target method declaration",
+					"codeElement": null
+				}
+			]
+		}
+	]
+}

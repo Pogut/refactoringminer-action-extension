@@ -1,0 +1,56 @@
+[
+  {
+    "level": "warn",
+    "code": "range-exceeds-file",
+    "refIndex": 2,
+    "message": "Encapsulate Attribute: python/customer_profile.py R range 22-24 exceeds 23 lines"
+  },
+  {
+    "level": "warn",
+    "code": "range-exceeds-file",
+    "refIndex": 6,
+    "message": "Rename Method: python/order_processor.py R range 34-40 exceeds 39 lines"
+  },
+  {
+    "level": "warn",
+    "code": "range-exceeds-file",
+    "refIndex": 14,
+    "message": "Extract Superclass: python/admin_account.py R range 4-11 exceeds 10 lines"
+  },
+  {
+    "level": "warn",
+    "code": "range-exceeds-file",
+    "refIndex": 14,
+    "message": "Extract Superclass: python/guest_account.py R range 4-10 exceeds 9 lines"
+  },
+  {
+    "level": "warn",
+    "code": "range-exceeds-file",
+    "refIndex": 18,
+    "message": "Extract Class: python/customer_profile.py R range 4-24 exceeds 23 lines"
+  },
+  {
+    "level": "warn",
+    "code": "range-exceeds-file",
+    "refIndex": 19,
+    "message": "Change Method Access Modifier: python/receipt_formatter.py R range 2-4 exceeds 3 lines"
+  },
+  {
+    "level": "warn",
+    "code": "range-exceeds-file",
+    "refIndex": 20,
+    "message": "Move And Rename Method: python/receipt_formatter.py R range 2-4 exceeds 3 lines"
+  },
+  {
+    "level": "warn",
+    "code": "range-exceeds-file",
+    "refIndex": 24,
+    "message": "Extract Superclass: python/admin_account.py R range 4-11 exceeds 10 lines"
+  },
+  {
+    "level": "warn",
+    "code": "range-exceeds-file",
+    "refIndex": 25,
+    "message": "Extract Superclass: python/guest_account.py R range 4-10 exceeds 9 lines"
+  }
+]

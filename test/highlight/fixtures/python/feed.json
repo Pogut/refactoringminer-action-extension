@@ -1,0 +1,1229 @@
+{
+	"url": "https://github.com/Pogut/rm-action-test/pull/14",
+	"refactorings": [
+		{
+			"type": "Rename Attribute",
+			"description": "Rename Attribute _full_name to _display_name in class customer_profile.CustomerProfile",
+			"markup": "**Rename Attribute** [_full_name](https://github.com/Pogut/rm-action-test/pull/14/changes?diff=split#diff-cc5b4b712cbe58c6422b7eb08837c8b9392153d0c8a728fc7c9df32465eae3b7L3) to [_display_name](https://github.com/Pogut/rm-action-test/pull/14/changes?diff=split#diff-cc5b4b712cbe58c6422b7eb08837c8b9392153d0c8a728fc7c9df32465eae3b7R6) in class `customer_profile.CustomerProfile`",
+			"leftSideLocations": [
+				{
+					"filePath": "python/customer_profile.py",
+					"startLine": 3,
+					"endLine": 3,
+					"startColumn": 9,
+					"endColumn": 36,
+					"codeElementType": "FIELD_DECLARATION",
+					"description": "original attribute declaration",
+					"codeElement": "_full_name"
+				}
+			],
+			"rightSideLocations": [
+				{
+					"filePath": "python/customer_profile.py",
+					"startLine": 6,
+					"endLine": 6,
+					"startColumn": 9,
+					"endColumn": 39,
+					"codeElementType": "FIELD_DECLARATION",
+					"description": "renamed attribute declaration",
+					"codeElement": "_display_name"
+				}
+			]
+		},
+		{
+			"type": "Rename Attribute",
+			"description": "Rename Attribute loyalty_points to _loyalty_points in class customer_profile.CustomerProfile",
+			"markup": "**Rename Attribute** [loyalty_points](https://github.com/Pogut/rm-action-test/pull/14/changes?diff=split#diff-cc5b4b712cbe58c6422b7eb08837c8b9392153d0c8a728fc7c9df32465eae3b7L7) to [_loyalty_points](https://github.com/Pogut/rm-action-test/pull/14/changes?diff=split#diff-cc5b4b712cbe58c6422b7eb08837c8b9392153d0c8a728fc7c9df32465eae3b7R8) in class `customer_profile.CustomerProfile`",
+			"leftSideLocations": [
+				{
+					"filePath": "python/customer_profile.py",
+					"startLine": 7,
+					"endLine": 7,
+					"startColumn": 9,
+					"endColumn": 45,
+					"codeElementType": "FIELD_DECLARATION",
+					"description": "original attribute declaration",
+					"codeElement": "loyalty_points"
+				}
+			],
+			"rightSideLocations": [
+				{
+					"filePath": "python/customer_profile.py",
+					"startLine": 8,
+					"endLine": 8,
+					"startColumn": 9,
+					"endColumn": 46,
+					"codeElementType": "FIELD_DECLARATION",
+					"description": "renamed attribute declaration",
+					"codeElement": "_loyalty_points"
+				}
+			]
+		},
+		{
+			"type": "Encapsulate Attribute",
+			"description": "Encapsulate Attribute _loyalty_points from class customer_profile.CustomerProfile",
+			"markup": "**Encapsulate Attribute** [_loyalty_points](https://github.com/Pogut/rm-action-test/pull/14/changes?diff=split#diff-cc5b4b712cbe58c6422b7eb08837c8b9392153d0c8a728fc7c9df32465eae3b7R8) from class `customer_profile.CustomerProfile`",
+			"leftSideLocations": [
+				{
+					"filePath": "python/customer_profile.py",
+					"startLine": 7,
+					"endLine": 7,
+					"startColumn": 9,
+					"endColumn": 28,
+					"codeElementType": "FIELD_DECLARATION",
+					"description": "original attribute declaration",
+					"codeElement": "loyalty_points"
+				}
+			],
+			"rightSideLocations": [
+				{
+					"filePath": "python/customer_profile.py",
+					"startLine": 8,
+					"endLine": 8,
+					"startColumn": 9,
+					"endColumn": 29,
+					"codeElementType": "FIELD_DECLARATION",
+					"description": "encapsulated attribute declaration",
+					"codeElement": "_loyalty_points"
+				},
+				{
+					"filePath": "python/customer_profile.py",
+					"startLine": 22,
+					"endLine": 24,
+					"startColumn": 1,
+					"endColumn": 1,
+					"codeElementType": "METHOD_DECLARATION",
+					"description": "added getter method",
+					"codeElement": "public get_loyalty_points()"
+				}
+			]
+		},
+		{
+			"type": "Invert Condition",
+			"description": "Invert Condition if(opted_in and not bounced_email and purchase_count > 0) to if(not email_opted_in or bounced_email or purchase_count <= 0) in method public can_receive_promotion(email_opted_in, bounced_email, purchase_count) from class customer_profile.CustomerProfile",
+			"markup": "**Invert Condition** [if(opted_in and not bounced_email and purchase_count > 0)](https://github.com/Pogut/rm-action-test/pull/14/changes?diff=split#diff-cc5b4b712cbe58c6422b7eb08837c8b9392153d0c8a728fc7c9df32465eae3b7L13) to [if(not email_opted_in or bounced_email or purchase_count <= 0)](https://github.com/Pogut/rm-action-test/pull/14/changes?diff=split#diff-cc5b4b712cbe58c6422b7eb08837c8b9392153d0c8a728fc7c9df32465eae3b7R14) in method [public can_receive_promotion(email_opted_in, bounced_email, purchase_count)](https://github.com/Pogut/rm-action-test/pull/14/changes?diff=split#diff-cc5b4b712cbe58c6422b7eb08837c8b9392153d0c8a728fc7c9df32465eae3b7R13) from class `customer_profile.CustomerProfile`",
+			"leftSideLocations": [
+				{
+					"filePath": "python/customer_profile.py",
+					"startLine": 13,
+					"endLine": 15,
+					"startColumn": 9,
+					"endColumn": 17,
+					"codeElementType": "IF_STATEMENT",
+					"description": "original conditional",
+					"codeElement": "if(opted_in and not bounced_email and purchase_count > 0)"
+				},
+				{
+					"filePath": "python/customer_profile.py",
+					"startLine": 12,
+					"endLine": 17,
+					"startColumn": 1,
+					"endColumn": 1,
+					"codeElementType": "METHOD_DECLARATION",
+					"description": "original method declaration",
+					"codeElement": "public can_receive_promotion(opted_in, bounced_email, purchase_count)"
+				}
+			],
+			"rightSideLocations": [
+				{
+					"filePath": "python/customer_profile.py",
+					"startLine": 14,
+					"endLine": 16,
+					"startColumn": 9,
+					"endColumn": 17,
+					"codeElementType": "IF_STATEMENT",
+					"description": "inverted conditional",
+					"codeElement": "if(not email_opted_in or bounced_email or purchase_count <= 0)"
+				},
+				{
+					"filePath": "python/customer_profile.py",
+					"startLine": 13,
+					"endLine": 18,
+					"startColumn": 1,
+					"endColumn": 1,
+					"codeElementType": "METHOD_DECLARATION",
+					"description": "method declaration with inverted conditional",
+					"codeElement": "public can_receive_promotion(email_opted_in, bounced_email, purchase_count)"
+				}
+			]
+		},
+		{
+			"type": "Rename Parameter",
+			"description": "Rename Parameter opted_in to email_opted_in in method public can_receive_promotion(email_opted_in, bounced_email, purchase_count) from class customer_profile.CustomerProfile",
+			"markup": "**Rename Parameter** [opted_in](https://github.com/Pogut/rm-action-test/pull/14/changes?diff=split#diff-cc5b4b712cbe58c6422b7eb08837c8b9392153d0c8a728fc7c9df32465eae3b7L12) to [email_opted_in](https://github.com/Pogut/rm-action-test/pull/14/changes?diff=split#diff-cc5b4b712cbe58c6422b7eb08837c8b9392153d0c8a728fc7c9df32465eae3b7R13) in method `public can_receive_promotion(email_opted_in, bounced_email, purchase_count)` from class `customer_profile.CustomerProfile`",
+			"leftSideLocations": [
+				{
+					"filePath": "python/customer_profile.py",
+					"startLine": 12,
+					"endLine": 12,
+					"startColumn": 37,
+					"endColumn": 45,
+					"codeElementType": "SINGLE_VARIABLE_DECLARATION",
+					"description": "original variable declaration",
+					"codeElement": "opted_in"
+				},
+				{
+					"filePath": "python/customer_profile.py",
+					"startLine": 13,
+					"endLine": 15,
+					"startColumn": 9,
+					"endColumn": 17,
+					"codeElementType": "IF_STATEMENT",
+					"description": "statement referencing the original variable",
+					"codeElement": null
+				}
+			],
+			"rightSideLocations": [
+				{
+					"filePath": "python/customer_profile.py",
+					"startLine": 13,
+					"endLine": 13,
+					"startColumn": 37,
+					"endColumn": 51,
+					"codeElementType": "SINGLE_VARIABLE_DECLARATION",
+					"description": "renamed variable declaration",
+					"codeElement": "email_opted_in"
+				},
+				{
+					"filePath": "python/customer_profile.py",
+					"startLine": 14,
+					"endLine": 16,
+					"startColumn": 9,
+					"endColumn": 17,
+					"codeElementType": "IF_STATEMENT",
+					"description": "statement referencing the renamed variable",
+					"codeElement": null
+				}
+			]
+		},
+		{
+			"type": "Rename Variable",
+			"description": "Rename Variable points to earned_points in method public add_purchase(amount_cents) from class customer_profile.CustomerProfile",
+			"markup": "**Rename Variable** [points](https://github.com/Pogut/rm-action-test/pull/14/changes?diff=split#diff-cc5b4b712cbe58c6422b7eb08837c8b9392153d0c8a728fc7c9df32465eae3b7L18) to [earned_points](https://github.com/Pogut/rm-action-test/pull/14/changes?diff=split#diff-cc5b4b712cbe58c6422b7eb08837c8b9392153d0c8a728fc7c9df32465eae3b7R19) in method `public add_purchase(amount_cents)` from class `customer_profile.CustomerProfile`",
+			"leftSideLocations": [
+				{
+					"filePath": "python/customer_profile.py",
+					"startLine": 18,
+					"endLine": 18,
+					"startColumn": 9,
+					"endColumn": 37,
+					"codeElementType": "VARIABLE_DECLARATION_STATEMENT",
+					"description": "original variable declaration",
+					"codeElement": "points"
+				},
+				{
+					"filePath": "python/customer_profile.py",
+					"startLine": 18,
+					"endLine": 18,
+					"startColumn": 9,
+					"endColumn": 37,
+					"codeElementType": "EXPRESSION_STATEMENT",
+					"description": "statement referencing the original variable",
+					"codeElement": null
+				},
+				{
+					"filePath": "python/customer_profile.py",
+					"startLine": 19,
+					"endLine": 19,
+					"startColumn": 9,
+					"endColumn": 38,
+					"codeElementType": "EXPRESSION_STATEMENT",
+					"description": "statement referencing the original variable",
+					"codeElement": null
+				}
+			],
+			"rightSideLocations": [
+				{
+					"filePath": "python/customer_profile.py",
+					"startLine": 19,
+					"endLine": 19,
+					"startColumn": 9,
+					"endColumn": 44,
+					"codeElementType": "VARIABLE_DECLARATION_STATEMENT",
+					"description": "renamed variable declaration",
+					"codeElement": "earned_points"
+				},
+				{
+					"filePath": "python/customer_profile.py",
+					"startLine": 19,
+					"endLine": 19,
+					"startColumn": 9,
+					"endColumn": 44,
+					"codeElementType": "EXPRESSION_STATEMENT",
+					"description": "statement referencing the renamed variable",
+					"codeElement": null
+				},
+				{
+					"filePath": "python/customer_profile.py",
+					"startLine": 20,
+					"endLine": 20,
+					"startColumn": 9,
+					"endColumn": 46,
+					"codeElementType": "EXPRESSION_STATEMENT",
+					"description": "statement referencing the renamed variable",
+					"codeElement": null
+				}
+			]
+		},
+		{
+			"type": "Rename Method",
+			"description": "Rename Method protected _format_payment_status(total, discount) renamed to protected _describe_payment_status(total, discount) in class order_processor.OrderProcessor",
+			"markup": "**Rename Method** [protected _format_payment_status(total, discount)](https://github.com/Pogut/rm-action-test/pull/14/changes?diff=split#diff-e4d595da856861f14d2dbc68a5c4c85ec4195e98b9193f57414c5f0f2a7655caL30) renamed to [protected _describe_payment_status(total, discount)](https://github.com/Pogut/rm-action-test/pull/14/changes?diff=split#diff-e4d595da856861f14d2dbc68a5c4c85ec4195e98b9193f57414c5f0f2a7655caR34) in class `order_processor.OrderProcessor`",
+			"leftSideLocations": [
+				{
+					"filePath": "python/order_processor.py",
+					"startLine": 30,
+					"endLine": 35,
+					"startColumn": 1,
+					"endColumn": 1,
+					"codeElementType": "METHOD_DECLARATION",
+					"description": "original method declaration",
+					"codeElement": "protected _format_payment_status(total, discount)"
+				}
+			],
+			"rightSideLocations": [
+				{
+					"filePath": "python/order_processor.py",
+					"startLine": 34,
+					"endLine": 40,
+					"startColumn": 1,
+					"endColumn": 1,
+					"codeElementType": "METHOD_DECLARATION",
+					"description": "renamed method declaration",
+					"codeElement": "protected _describe_payment_status(total, discount)"
+				}
+			]
+		},
+		{
+			"type": "Inline Method",
+			"description": "Inline Method protected _cents_to_dollars(cents) inlined to public build_receipt(buyer_name, unit_price, quantity, discount) in class order_processor.OrderProcessor",
+			"markup": "**Inline Method** [protected _cents_to_dollars(cents)](https://github.com/Pogut/rm-action-test/pull/14/changes?diff=split#diff-e4d595da856861f14d2dbc68a5c4c85ec4195e98b9193f57414c5f0f2a7655caL27) inlined to [public build_receipt(buyer_name, unit_price, quantity, discount)](https://github.com/Pogut/rm-action-test/pull/14/changes?diff=split#diff-e4d595da856861f14d2dbc68a5c4c85ec4195e98b9193f57414c5f0f2a7655caR9) in class `order_processor.OrderProcessor`",
+			"leftSideLocations": [
+				{
+					"filePath": "python/order_processor.py",
+					"startLine": 27,
+					"endLine": 30,
+					"startColumn": 1,
+					"endColumn": 1,
+					"codeElementType": "METHOD_DECLARATION",
+					"description": "inlined method declaration",
+					"codeElement": "protected _cents_to_dollars(cents)"
+				},
+				{
+					"filePath": "python/order_processor.py",
+					"startLine": 28,
+					"endLine": 28,
+					"startColumn": 9,
+					"endColumn": 29,
+					"codeElementType": "RETURN_STATEMENT",
+					"description": "inlined code from inlined method declaration",
+					"codeElement": null
+				},
+				{
+					"filePath": "python/order_processor.py",
+					"startLine": 5,
+					"endLine": 24,
+					"startColumn": 1,
+					"endColumn": 1,
+					"codeElementType": "METHOD_DECLARATION",
+					"description": "target method declaration before inline",
+					"codeElement": "public build_receipt(customer_name, unit_price, quantity, discount)"
+				},
+				{
+					"filePath": "python/order_processor.py",
+					"startLine": 12,
+					"endLine": 12,
+					"startColumn": 19,
+					"endColumn": 48,
+					"codeElementType": "METHOD_INVOCATION",
+					"description": "inlined method invocation",
+					"codeElement": "self._cents_to_dollars(total)"
+				}
+			],
+			"rightSideLocations": [
+				{
+					"filePath": "python/order_processor.py",
+					"startLine": 9,
+					"endLine": 28,
+					"startColumn": 1,
+					"endColumn": 1,
+					"codeElementType": "METHOD_DECLARATION",
+					"description": "target method declaration after inline",
+					"codeElement": "public build_receipt(buyer_name, unit_price, quantity, discount)"
+				},
+				{
+					"filePath": "python/order_processor.py",
+					"startLine": 16,
+					"endLine": 16,
+					"startColumn": 9,
+					"endColumn": 32,
+					"codeElementType": "EXPRESSION_STATEMENT",
+					"description": "inlined code in target method declaration",
+					"codeElement": null
+				}
+			]
+		},
+		{
+			"type": "Extract Method",
+			"description": "Extract Method protected _calculate_total(unit_price, quantity, discount) extracted from public build_receipt(customer_name, unit_price, quantity, discount) in class order_processor.OrderProcessor",
+			"markup": "**Extract Method** [protected _calculate_total(unit_price, quantity, discount)](https://github.com/Pogut/rm-action-test/pull/14/changes?diff=split#diff-e4d595da856861f14d2dbc68a5c4c85ec4195e98b9193f57414c5f0f2a7655caR28) extracted from [public build_receipt(customer_name, unit_price, quantity, discount)](https://github.com/Pogut/rm-action-test/pull/14/changes?diff=split#diff-e4d595da856861f14d2dbc68a5c4c85ec4195e98b9193f57414c5f0f2a7655caL5) in class `order_processor.OrderProcessor`",
+			"leftSideLocations": [
+				{
+					"filePath": "python/order_processor.py",
+					"startLine": 5,
+					"endLine": 24,
+					"startColumn": 1,
+					"endColumn": 1,
+					"codeElementType": "METHOD_DECLARATION",
+					"description": "source method declaration before extraction",
+					"codeElement": "public build_receipt(customer_name, unit_price, quantity, discount)"
+				},
+				{
+					"filePath": "python/order_processor.py",
+					"startLine": 8,
+					"endLine": 8,
+					"startColumn": 9,
+					"endColumn": 56,
+					"codeElementType": "EXPRESSION_STATEMENT",
+					"description": "extracted code from source method declaration",
+					"codeElement": null
+				},
+				{
+					"filePath": "python/order_processor.py",
+					"startLine": 9,
+					"endLine": 9,
+					"startColumn": 9,
+					"endColumn": 42,
+					"codeElementType": "EXPRESSION_STATEMENT",
+					"description": "extracted code from source method declaration",
+					"codeElement": null
+				}
+			],
+			"rightSideLocations": [
+				{
+					"filePath": "python/order_processor.py",
+					"startLine": 28,
+					"endLine": 34,
+					"startColumn": 1,
+					"endColumn": 1,
+					"codeElementType": "METHOD_DECLARATION",
+					"description": "extracted method declaration",
+					"codeElement": "protected _calculate_total(unit_price, quantity, discount)"
+				},
+				{
+					"filePath": "python/order_processor.py",
+					"startLine": 31,
+					"endLine": 31,
+					"startColumn": 9,
+					"endColumn": 66,
+					"codeElementType": "EXPRESSION_STATEMENT",
+					"description": "extracted code to extracted method declaration",
+					"codeElement": null
+				},
+				{
+					"filePath": "python/order_processor.py",
+					"startLine": 32,
+					"endLine": 32,
+					"startColumn": 9,
+					"endColumn": 41,
+					"codeElementType": "RETURN_STATEMENT",
+					"description": "extracted code to extracted method declaration",
+					"codeElement": null
+				},
+				{
+					"filePath": "python/order_processor.py",
+					"startLine": 9,
+					"endLine": 28,
+					"startColumn": 1,
+					"endColumn": 1,
+					"codeElementType": "METHOD_DECLARATION",
+					"description": "source method declaration after extraction",
+					"codeElement": "public build_receipt(buyer_name, unit_price, quantity, discount)"
+				},
+				{
+					"filePath": "python/order_processor.py",
+					"startLine": 10,
+					"endLine": 10,
+					"startColumn": 17,
+					"endColumn": 70,
+					"codeElementType": "METHOD_INVOCATION",
+					"description": "extracted method invocation",
+					"codeElement": "self._calculate_total(unit_price,quantity,discount)"
+				},
+				{
+					"filePath": "python/order_processor.py",
+					"startLine": 29,
+					"endLine": 29,
+					"startColumn": 9,
+					"endColumn": 41,
+					"codeElementType": "EXPRESSION_STATEMENT",
+					"description": "added statement in extracted method declaration",
+					"codeElement": null
+				},
+				{
+					"filePath": "python/order_processor.py",
+					"startLine": 30,
+					"endLine": 30,
+					"startColumn": 9,
+					"endColumn": 50,
+					"codeElementType": "EXPRESSION_STATEMENT",
+					"description": "added statement in extracted method declaration",
+					"codeElement": null
+				}
+			]
+		},
+		{
+			"type": "Rename Parameter",
+			"description": "Rename Parameter customer_name to buyer_name in method public build_receipt(buyer_name, unit_price, quantity, discount) from class order_processor.OrderProcessor",
+			"markup": "**Rename Parameter** [customer_name](https://github.com/Pogut/rm-action-test/pull/14/changes?diff=split#diff-e4d595da856861f14d2dbc68a5c4c85ec4195e98b9193f57414c5f0f2a7655caL5) to [buyer_name](https://github.com/Pogut/rm-action-test/pull/14/changes?diff=split#diff-e4d595da856861f14d2dbc68a5c4c85ec4195e98b9193f57414c5f0f2a7655caR9) in method `public build_receipt(buyer_name, unit_price, quantity, discount)` from class `order_processor.OrderProcessor`",
+			"leftSideLocations": [
+				{
+					"filePath": "python/order_processor.py",
+					"startLine": 5,
+					"endLine": 5,
+					"startColumn": 29,
+					"endColumn": 42,
+					"codeElementType": "SINGLE_VARIABLE_DECLARATION",
+					"description": "original variable declaration",
+					"codeElement": "customer_name"
+				},
+				{
+					"filePath": "python/order_processor.py",
+					"startLine": 11,
+					"endLine": 11,
+					"startColumn": 9,
+					"endColumn": 52,
+					"codeElementType": "EXPRESSION_STATEMENT",
+					"description": "statement referencing the original variable",
+					"codeElement": null
+				}
+			],
+			"rightSideLocations": [
+				{
+					"filePath": "python/order_processor.py",
+					"startLine": 9,
+					"endLine": 9,
+					"startColumn": 29,
+					"endColumn": 39,
+					"codeElementType": "SINGLE_VARIABLE_DECLARATION",
+					"description": "renamed variable declaration",
+					"codeElement": "buyer_name"
+				},
+				{
+					"filePath": "python/order_processor.py",
+					"startLine": 15,
+					"endLine": 15,
+					"startColumn": 9,
+					"endColumn": 67,
+					"codeElementType": "EXPRESSION_STATEMENT",
+					"description": "statement referencing the renamed variable",
+					"codeElement": null
+				}
+			]
+		},
+		{
+			"type": "Pull Up Method",
+			"description": "Pull Up Method public display_name() from class admin_account.AdminAccount to public display_name() from class account.Account",
+			"markup": "**Pull Up Method** [public display_name()](https://github.com/Pogut/rm-action-test/pull/14/changes?diff=split#diff-c91518d0f22b18aaba789e91b0299288aba699e42438524e1044359fd73a944aL6) from class `admin_account.AdminAccount` to [public display_name()](https://github.com/Pogut/rm-action-test/pull/14/changes?diff=split#diff-0a46b46ec15ba919004c2d94fab185f0975ce8683fe73b828e9ce138177c106bR5) from class `account.Account`",
+			"leftSideLocations": [
+				{
+					"filePath": "python/admin_account.py",
+					"startLine": 6,
+					"endLine": 9,
+					"startColumn": 1,
+					"endColumn": 1,
+					"codeElementType": "METHOD_DECLARATION",
+					"description": "original method declaration",
+					"codeElement": "public display_name()"
+				}
+			],
+			"rightSideLocations": [
+				{
+					"filePath": "python/account.py",
+					"startLine": 5,
+					"endLine": 7,
+					"startColumn": 1,
+					"endColumn": 1,
+					"codeElementType": "METHOD_DECLARATION",
+					"description": "pulled up method declaration",
+					"codeElement": "public display_name()"
+				}
+			]
+		},
+		{
+			"type": "Pull Up Attribute",
+			"description": "Pull Up Attribute _username from class admin_account.AdminAccount to _username from class account.Account",
+			"markup": "**Pull Up Attribute** [_username](https://github.com/Pogut/rm-action-test/pull/14/changes?diff=split#diff-c91518d0f22b18aaba789e91b0299288aba699e42438524e1044359fd73a944aL3) from class `admin_account.AdminAccount` to [_username](https://github.com/Pogut/rm-action-test/pull/14/changes?diff=split#diff-0a46b46ec15ba919004c2d94fab185f0975ce8683fe73b828e9ce138177c106bR3) from class `account.Account`",
+			"leftSideLocations": [
+				{
+					"filePath": "python/admin_account.py",
+					"startLine": 3,
+					"endLine": 3,
+					"startColumn": 9,
+					"endColumn": 23,
+					"codeElementType": "FIELD_DECLARATION",
+					"description": "original attribute declaration",
+					"codeElement": "_username"
+				}
+			],
+			"rightSideLocations": [
+				{
+					"filePath": "python/account.py",
+					"startLine": 3,
+					"endLine": 3,
+					"startColumn": 9,
+					"endColumn": 23,
+					"codeElementType": "FIELD_DECLARATION",
+					"description": "pulled up attribute declaration",
+					"codeElement": "_username"
+				}
+			]
+		},
+		{
+			"type": "Pull Up Method",
+			"description": "Pull Up Method public display_name() from class guest_account.GuestAccount to public display_name() from class account.Account",
+			"markup": "**Pull Up Method** [public display_name()](https://github.com/Pogut/rm-action-test/pull/14/changes?diff=split#diff-b1603d432405a7b46eaa79e63d3cab21df969f55e6225aaa4f8ee8321a86d16eL5) from class `guest_account.GuestAccount` to [public display_name()](https://github.com/Pogut/rm-action-test/pull/14/changes?diff=split#diff-0a46b46ec15ba919004c2d94fab185f0975ce8683fe73b828e9ce138177c106bR5) from class `account.Account`",
+			"leftSideLocations": [
+				{
+					"filePath": "python/guest_account.py",
+					"startLine": 5,
+					"endLine": 8,
+					"startColumn": 1,
+					"endColumn": 1,
+					"codeElementType": "METHOD_DECLARATION",
+					"description": "original method declaration",
+					"codeElement": "public display_name()"
+				}
+			],
+			"rightSideLocations": [
+				{
+					"filePath": "python/account.py",
+					"startLine": 5,
+					"endLine": 7,
+					"startColumn": 1,
+					"endColumn": 1,
+					"codeElementType": "METHOD_DECLARATION",
+					"description": "pulled up method declaration",
+					"codeElement": "public display_name()"
+				}
+			]
+		},
+		{
+			"type": "Pull Up Attribute",
+			"description": "Pull Up Attribute _username from class guest_account.GuestAccount to _username from class account.Account",
+			"markup": "**Pull Up Attribute** [_username](https://github.com/Pogut/rm-action-test/pull/14/changes?diff=split#diff-b1603d432405a7b46eaa79e63d3cab21df969f55e6225aaa4f8ee8321a86d16eL3) from class `guest_account.GuestAccount` to [_username](https://github.com/Pogut/rm-action-test/pull/14/changes?diff=split#diff-0a46b46ec15ba919004c2d94fab185f0975ce8683fe73b828e9ce138177c106bR3) from class `account.Account`",
+			"leftSideLocations": [
+				{
+					"filePath": "python/guest_account.py",
+					"startLine": 3,
+					"endLine": 3,
+					"startColumn": 9,
+					"endColumn": 23,
+					"codeElementType": "FIELD_DECLARATION",
+					"description": "original attribute declaration",
+					"codeElement": "_username"
+				}
+			],
+			"rightSideLocations": [
+				{
+					"filePath": "python/account.py",
+					"startLine": 3,
+					"endLine": 3,
+					"startColumn": 9,
+					"endColumn": 23,
+					"codeElementType": "FIELD_DECLARATION",
+					"description": "pulled up attribute declaration",
+					"codeElement": "_username"
+				}
+			]
+		},
+		{
+			"type": "Extract Superclass",
+			"description": "Extract Superclass account.Account from classes [admin_account.AdminAccount, guest_account.GuestAccount]",
+			"markup": "**Extract Superclass** [account.Account](https://github.com/Pogut/rm-action-test/pull/14/changes?diff=split#diff-0a46b46ec15ba919004c2d94fab185f0975ce8683fe73b828e9ce138177c106bR1) from classes `[admin_account.AdminAccount, guest_account.GuestAccount]`",
+			"leftSideLocations": [
+				{
+					"filePath": "python/admin_account.py",
+					"startLine": 1,
+					"endLine": 10,
+					"startColumn": 1,
+					"endColumn": 1,
+					"codeElementType": "TYPE_DECLARATION",
+					"description": "original sub-type declaration",
+					"codeElement": "admin_account.AdminAccount"
+				},
+				{
+					"filePath": "python/guest_account.py",
+					"startLine": 1,
+					"endLine": 9,
+					"startColumn": 1,
+					"endColumn": 1,
+					"codeElementType": "TYPE_DECLARATION",
+					"description": "original sub-type declaration",
+					"codeElement": "guest_account.GuestAccount"
+				}
+			],
+			"rightSideLocations": [
+				{
+					"filePath": "python/admin_account.py",
+					"startLine": 4,
+					"endLine": 11,
+					"startColumn": 1,
+					"endColumn": 1,
+					"codeElementType": "TYPE_DECLARATION",
+					"description": "sub-type declaration after extraction",
+					"codeElement": "admin_account.AdminAccount"
+				},
+				{
+					"filePath": "python/guest_account.py",
+					"startLine": 4,
+					"endLine": 10,
+					"startColumn": 1,
+					"endColumn": 1,
+					"codeElementType": "TYPE_DECLARATION",
+					"description": "sub-type declaration after extraction",
+					"codeElement": "guest_account.GuestAccount"
+				},
+				{
+					"filePath": "python/account.py",
+					"startLine": 1,
+					"endLine": 7,
+					"startColumn": 1,
+					"endColumn": 1,
+					"codeElementType": "TYPE_DECLARATION",
+					"description": "extracted super-type declaration",
+					"codeElement": "account.Account"
+				}
+			]
+		},
+		{
+			"type": "Move Attribute",
+			"description": "Move Attribute _street from class customer_profile.CustomerProfile to _street from class address.Address",
+			"markup": "**Move Attribute** [_street](https://github.com/Pogut/rm-action-test/pull/14/changes?diff=split#diff-cc5b4b712cbe58c6422b7eb08837c8b9392153d0c8a728fc7c9df32465eae3b7L4) from class `customer_profile.CustomerProfile` to [_street](https://github.com/Pogut/rm-action-test/pull/14/changes?diff=split#diff-4e8276de3f40bb7f6e84b38796a1f21a9ed2ae25637621a6e2441894279df552R3) from class `address.Address`",
+			"leftSideLocations": [
+				{
+					"filePath": "python/customer_profile.py",
+					"startLine": 4,
+					"endLine": 4,
+					"startColumn": 9,
+					"endColumn": 21,
+					"codeElementType": "FIELD_DECLARATION",
+					"description": "original attribute declaration",
+					"codeElement": "_street"
+				}
+			],
+			"rightSideLocations": [
+				{
+					"filePath": "python/address.py",
+					"startLine": 3,
+					"endLine": 3,
+					"startColumn": 9,
+					"endColumn": 21,
+					"codeElementType": "FIELD_DECLARATION",
+					"description": "moved attribute declaration",
+					"codeElement": "_street"
+				}
+			]
+		},
+		{
+			"type": "Move Attribute",
+			"description": "Move Attribute _city from class customer_profile.CustomerProfile to _city from class address.Address",
+			"markup": "**Move Attribute** [_city](https://github.com/Pogut/rm-action-test/pull/14/changes?diff=split#diff-cc5b4b712cbe58c6422b7eb08837c8b9392153d0c8a728fc7c9df32465eae3b7L5) from class `customer_profile.CustomerProfile` to [_city](https://github.com/Pogut/rm-action-test/pull/14/changes?diff=split#diff-4e8276de3f40bb7f6e84b38796a1f21a9ed2ae25637621a6e2441894279df552R4) from class `address.Address`",
+			"leftSideLocations": [
+				{
+					"filePath": "python/customer_profile.py",
+					"startLine": 5,
+					"endLine": 5,
+					"startColumn": 9,
+					"endColumn": 19,
+					"codeElementType": "FIELD_DECLARATION",
+					"description": "original attribute declaration",
+					"codeElement": "_city"
+				}
+			],
+			"rightSideLocations": [
+				{
+					"filePath": "python/address.py",
+					"startLine": 4,
+					"endLine": 4,
+					"startColumn": 9,
+					"endColumn": 19,
+					"codeElementType": "FIELD_DECLARATION",
+					"description": "moved attribute declaration",
+					"codeElement": "_city"
+				}
+			]
+		},
+		{
+			"type": "Move Attribute",
+			"description": "Move Attribute _postal_code from class customer_profile.CustomerProfile to _postal_code from class address.Address",
+			"markup": "**Move Attribute** [_postal_code](https://github.com/Pogut/rm-action-test/pull/14/changes?diff=split#diff-cc5b4b712cbe58c6422b7eb08837c8b9392153d0c8a728fc7c9df32465eae3b7L6) from class `customer_profile.CustomerProfile` to [_postal_code](https://github.com/Pogut/rm-action-test/pull/14/changes?diff=split#diff-4e8276de3f40bb7f6e84b38796a1f21a9ed2ae25637621a6e2441894279df552R5) from class `address.Address`",
+			"leftSideLocations": [
+				{
+					"filePath": "python/customer_profile.py",
+					"startLine": 6,
+					"endLine": 6,
+					"startColumn": 9,
+					"endColumn": 26,
+					"codeElementType": "FIELD_DECLARATION",
+					"description": "original attribute declaration",
+					"codeElement": "_postal_code"
+				}
+			],
+			"rightSideLocations": [
+				{
+					"filePath": "python/address.py",
+					"startLine": 5,
+					"endLine": 5,
+					"startColumn": 9,
+					"endColumn": 26,
+					"codeElementType": "FIELD_DECLARATION",
+					"description": "moved attribute declaration",
+					"codeElement": "_postal_code"
+				}
+			]
+		},
+		{
+			"type": "Extract Class",
+			"description": "Extract Class address.Address from class customer_profile.CustomerProfile",
+			"markup": "**Extract Class** [address.Address](https://github.com/Pogut/rm-action-test/pull/14/changes?diff=split#diff-4e8276de3f40bb7f6e84b38796a1f21a9ed2ae25637621a6e2441894279df552R1) from class [customer_profile.CustomerProfile](https://github.com/Pogut/rm-action-test/pull/14/changes?diff=split#diff-cc5b4b712cbe58c6422b7eb08837c8b9392153d0c8a728fc7c9df32465eae3b7L1)",
+			"leftSideLocations": [
+				{
+					"filePath": "python/customer_profile.py",
+					"startLine": 1,
+					"endLine": 19,
+					"startColumn": 1,
+					"endColumn": 1,
+					"codeElementType": "TYPE_DECLARATION",
+					"description": "original type declaration",
+					"codeElement": "customer_profile.CustomerProfile"
+				},
+				{
+					"filePath": "python/customer_profile.py",
+					"startLine": 4,
+					"endLine": 4,
+					"startColumn": 9,
+					"endColumn": 21,
+					"codeElementType": "FIELD_DECLARATION",
+					"description": "original attribute declaration",
+					"codeElement": "_street"
+				},
+				{
+					"filePath": "python/customer_profile.py",
+					"startLine": 5,
+					"endLine": 5,
+					"startColumn": 9,
+					"endColumn": 19,
+					"codeElementType": "FIELD_DECLARATION",
+					"description": "original attribute declaration",
+					"codeElement": "_city"
+				},
+				{
+					"filePath": "python/customer_profile.py",
+					"startLine": 6,
+					"endLine": 6,
+					"startColumn": 9,
+					"endColumn": 26,
+					"codeElementType": "FIELD_DECLARATION",
+					"description": "original attribute declaration",
+					"codeElement": "_postal_code"
+				}
+			],
+			"rightSideLocations": [
+				{
+					"filePath": "python/customer_profile.py",
+					"startLine": 4,
+					"endLine": 24,
+					"startColumn": 1,
+					"endColumn": 1,
+					"codeElementType": "TYPE_DECLARATION",
+					"description": "type declaration after extraction",
+					"codeElement": "customer_profile.CustomerProfile"
+				},
+				{
+					"filePath": "python/address.py",
+					"startLine": 1,
+					"endLine": 10,
+					"startColumn": 1,
+					"endColumn": 1,
+					"codeElementType": "TYPE_DECLARATION",
+					"description": "extracted type declaration",
+					"codeElement": "address.Address"
+				},
+				{
+					"filePath": "python/address.py",
+					"startLine": 3,
+					"endLine": 3,
+					"startColumn": 9,
+					"endColumn": 21,
+					"codeElementType": "FIELD_DECLARATION",
+					"description": "extracted attribute declaration",
+					"codeElement": "_street"
+				},
+				{
+					"filePath": "python/address.py",
+					"startLine": 4,
+					"endLine": 4,
+					"startColumn": 9,
+					"endColumn": 19,
+					"codeElementType": "FIELD_DECLARATION",
+					"description": "extracted attribute declaration",
+					"codeElement": "_city"
+				},
+				{
+					"filePath": "python/address.py",
+					"startLine": 5,
+					"endLine": 5,
+					"startColumn": 9,
+					"endColumn": 26,
+					"codeElementType": "FIELD_DECLARATION",
+					"description": "extracted attribute declaration",
+					"codeElement": "_postal_code"
+				}
+			]
+		},
+		{
+			"type": "Change Method Access Modifier",
+			"description": "Change Method Access Modifier protected to public in method public create_receipt_header(customer_name) from class receipt_formatter.ReceiptFormatter",
+			"markup": "**Change Method Access Modifier** `protected` to `public` in method [public create_receipt_header(customer_name)](https://github.com/Pogut/rm-action-test/pull/14/changes?diff=split#diff-842986e19c92b2166f97f77e1774aa14842715cc460f374f22fc2878e320f4ceR2) from class `receipt_formatter.ReceiptFormatter`",
+			"leftSideLocations": [
+				{
+					"filePath": "python/order_processor.py",
+					"startLine": 24,
+					"endLine": 27,
+					"startColumn": 1,
+					"endColumn": 1,
+					"codeElementType": "METHOD_DECLARATION",
+					"description": "original method declaration",
+					"codeElement": "protected _format_header(customer_name)"
+				}
+			],
+			"rightSideLocations": [
+				{
+					"filePath": "python/receipt_formatter.py",
+					"startLine": 2,
+					"endLine": 4,
+					"startColumn": 1,
+					"endColumn": 1,
+					"codeElementType": "METHOD_DECLARATION",
+					"description": "method declaration with changed access modifier",
+					"codeElement": "public create_receipt_header(customer_name)"
+				}
+			]
+		},
+		{
+			"type": "Move And Rename Method",
+			"description": "Move And Rename Method protected _format_header(customer_name) from class order_processor.OrderProcessor to public create_receipt_header(customer_name) from class receipt_formatter.ReceiptFormatter",
+			"markup": "**Move And Rename Method** [protected _format_header(customer_name)](https://github.com/Pogut/rm-action-test/pull/14/changes?diff=split#diff-e4d595da856861f14d2dbc68a5c4c85ec4195e98b9193f57414c5f0f2a7655caL24) from class `order_processor.OrderProcessor` to [public create_receipt_header(customer_name)](https://github.com/Pogut/rm-action-test/pull/14/changes?diff=split#diff-842986e19c92b2166f97f77e1774aa14842715cc460f374f22fc2878e320f4ceR2) from class `receipt_formatter.ReceiptFormatter`",
+			"leftSideLocations": [
+				{
+					"filePath": "python/order_processor.py",
+					"startLine": 24,
+					"endLine": 27,
+					"startColumn": 1,
+					"endColumn": 1,
+					"codeElementType": "METHOD_DECLARATION",
+					"description": "original method declaration",
+					"codeElement": "protected _format_header(customer_name)"
+				}
+			],
+			"rightSideLocations": [
+				{
+					"filePath": "python/receipt_formatter.py",
+					"startLine": 2,
+					"endLine": 4,
+					"startColumn": 1,
+					"endColumn": 1,
+					"codeElementType": "METHOD_DECLARATION",
+					"description": "moved method declaration",
+					"codeElement": "public create_receipt_header(customer_name)"
+				}
+			]
+		},
+		{
+			"type": "Extract And Move Method",
+			"description": "Extract And Move Method public __init__(username) extracted from public __init__(username) in class admin_account.AdminAccount & moved to class account.Account",
+			"markup": "**Extract And Move Method** [public __init__(username)](https://github.com/Pogut/rm-action-test/pull/14/changes?diff=split#diff-c91518d0f22b18aaba789e91b0299288aba699e42438524e1044359fd73a944aL2) extracted from [public __init__(username)](https://github.com/Pogut/rm-action-test/pull/14/changes?diff=split#diff-0a46b46ec15ba919004c2d94fab185f0975ce8683fe73b828e9ce138177c106bR2) in class `admin_account.AdminAccount` & moved to class `account.Account`",
+			"leftSideLocations": [
+				{
+					"filePath": "python/admin_account.py",
+					"startLine": 2,
+					"endLine": 6,
+					"startColumn": 1,
+					"endColumn": 1,
+					"codeElementType": "METHOD_DECLARATION",
+					"description": "source method declaration before extraction",
+					"codeElement": "public __init__(username)"
+				},
+				{
+					"filePath": "python/admin_account.py",
+					"startLine": 3,
+					"endLine": 3,
+					"startColumn": 9,
+					"endColumn": 34,
+					"codeElementType": "EXPRESSION_STATEMENT",
+					"description": "extracted code from source method declaration",
+					"codeElement": null
+				}
+			],
+			"rightSideLocations": [
+				{
+					"filePath": "python/account.py",
+					"startLine": 2,
+					"endLine": 5,
+					"startColumn": 1,
+					"endColumn": 1,
+					"codeElementType": "METHOD_DECLARATION",
+					"description": "extracted method declaration",
+					"codeElement": "public __init__(username)"
+				},
+				{
+					"filePath": "python/account.py",
+					"startLine": 3,
+					"endLine": 3,
+					"startColumn": 9,
+					"endColumn": 34,
+					"codeElementType": "EXPRESSION_STATEMENT",
+					"description": "extracted code to extracted method declaration",
+					"codeElement": null
+				},
+				{
+					"filePath": "python/admin_account.py",
+					"startLine": 5,
+					"endLine": 9,
+					"startColumn": 1,
+					"endColumn": 1,
+					"codeElementType": "METHOD_DECLARATION",
+					"description": "source method declaration after extraction",
+					"codeElement": "public __init__(username)"
+				},
+				{
+					"filePath": "python/admin_account.py",
+					"startLine": 6,
+					"endLine": 6,
+					"startColumn": 9,
+					"endColumn": 35,
+					"codeElementType": "METHOD_INVOCATION",
+					"description": "extracted method invocation",
+					"codeElement": "super().__init__(username)"
+				}
+			]
+		},
+		{
+			"type": "Extract And Move Method",
+			"description": "Extract And Move Method public __init__(username) extracted from public __init__(username) in class guest_account.GuestAccount & moved to class account.Account",
+			"markup": "**Extract And Move Method** [public __init__(username)](https://github.com/Pogut/rm-action-test/pull/14/changes?diff=split#diff-b1603d432405a7b46eaa79e63d3cab21df969f55e6225aaa4f8ee8321a86d16eL2) extracted from [public __init__(username)](https://github.com/Pogut/rm-action-test/pull/14/changes?diff=split#diff-0a46b46ec15ba919004c2d94fab185f0975ce8683fe73b828e9ce138177c106bR2) in class `guest_account.GuestAccount` & moved to class `account.Account`",
+			"leftSideLocations": [
+				{
+					"filePath": "python/guest_account.py",
+					"startLine": 2,
+					"endLine": 5,
+					"startColumn": 1,
+					"endColumn": 1,
+					"codeElementType": "METHOD_DECLARATION",
+					"description": "source method declaration before extraction",
+					"codeElement": "public __init__(username)"
+				},
+				{
+					"filePath": "python/guest_account.py",
+					"startLine": 3,
+					"endLine": 3,
+					"startColumn": 9,
+					"endColumn": 34,
+					"codeElementType": "EXPRESSION_STATEMENT",
+					"description": "extracted code from source method declaration",
+					"codeElement": null
+				}
+			],
+			"rightSideLocations": [
+				{
+					"filePath": "python/account.py",
+					"startLine": 2,
+					"endLine": 5,
+					"startColumn": 1,
+					"endColumn": 1,
+					"codeElementType": "METHOD_DECLARATION",
+					"description": "extracted method declaration",
+					"codeElement": "public __init__(username)"
+				},
+				{
+					"filePath": "python/account.py",
+					"startLine": 3,
+					"endLine": 3,
+					"startColumn": 9,
+					"endColumn": 34,
+					"codeElementType": "EXPRESSION_STATEMENT",
+					"description": "extracted code to extracted method declaration",
+					"codeElement": null
+				},
+				{
+					"filePath": "python/guest_account.py",
+					"startLine": 5,
+					"endLine": 8,
+					"startColumn": 1,
+					"endColumn": 1,
+					"codeElementType": "METHOD_DECLARATION",
+					"description": "source method declaration after extraction",
+					"codeElement": "public __init__(username)"
+				},
+				{
+					"filePath": "python/guest_account.py",
+					"startLine": 6,
+					"endLine": 6,
+					"startColumn": 9,
+					"endColumn": 35,
+					"codeElementType": "METHOD_INVOCATION",
+					"description": "extracted method invocation",
+					"codeElement": "super().__init__(username)"
+				}
+			]
+		},
+		{
+			"type": "Extract And Move Method",
+			"description": "Extract And Move Method public format() extracted from public mailing_label() in class customer_profile.CustomerProfile & moved to class address.Address",
+			"markup": "**Extract And Move Method** [public format()](https://github.com/Pogut/rm-action-test/pull/14/changes?diff=split#diff-4e8276de3f40bb7f6e84b38796a1f21a9ed2ae25637621a6e2441894279df552R7) extracted from [public mailing_label()](https://github.com/Pogut/rm-action-test/pull/14/changes?diff=split#diff-cc5b4b712cbe58c6422b7eb08837c8b9392153d0c8a728fc7c9df32465eae3b7L9) in class `customer_profile.CustomerProfile` & moved to class `address.Address`",
+			"leftSideLocations": [
+				{
+					"filePath": "python/customer_profile.py",
+					"startLine": 9,
+					"endLine": 12,
+					"startColumn": 1,
+					"endColumn": 1,
+					"codeElementType": "METHOD_DECLARATION",
+					"description": "source method declaration before extraction",
+					"codeElement": "public mailing_label()"
+				},
+				{
+					"filePath": "python/customer_profile.py",
+					"startLine": 10,
+					"endLine": 10,
+					"startColumn": 9,
+					"endColumn": 86,
+					"codeElementType": "RETURN_STATEMENT",
+					"description": "extracted code from source method declaration",
+					"codeElement": null
+				}
+			],
+			"rightSideLocations": [
+				{
+					"filePath": "python/address.py",
+					"startLine": 7,
+					"endLine": 10,
+					"startColumn": 1,
+					"endColumn": 1,
+					"codeElementType": "METHOD_DECLARATION",
+					"description": "extracted method declaration",
+					"codeElement": "public format()"
+				},
+				{
+					"filePath": "python/address.py",
+					"startLine": 8,
+					"endLine": 8,
+					"startColumn": 9,
+					"endColumn": 67,
+					"codeElementType": "RETURN_STATEMENT",
+					"description": "extracted code to extracted method declaration",
+					"codeElement": null
+				},
+				{
+					"filePath": "python/customer_profile.py",
+					"startLine": 10,
+					"endLine": 13,
+					"startColumn": 1,
+					"endColumn": 1,
+					"codeElementType": "METHOD_DECLARATION",
+					"description": "source method declaration after extraction",
+					"codeElement": "public mailing_label()"
+				},
+				{
+					"filePath": "python/customer_profile.py",
+					"startLine": 11,
+					"endLine": 11,
+					"startColumn": 41,
+					"endColumn": 63,
+					"codeElementType": "METHOD_INVOCATION",
+					"description": "extracted method invocation",
+					"codeElement": "self._address.format()"
+				}
+			]
+		},
+		{
+			"type": "Extract Superclass",
+			"description": "Extract Superclass account.Account from class admin_account.AdminAccount",
+			"markup": "**Extract Superclass** [account.Account](https://github.com/Pogut/rm-action-test/pull/14/changes?diff=split#diff-0a46b46ec15ba919004c2d94fab185f0975ce8683fe73b828e9ce138177c106bR1) from class [admin_account.AdminAccount](https://github.com/Pogut/rm-action-test/pull/14/changes?diff=split#diff-c91518d0f22b18aaba789e91b0299288aba699e42438524e1044359fd73a944aL1)",
+			"leftSideLocations": [
+				{
+					"filePath": "python/admin_account.py",
+					"startLine": 1,
+					"endLine": 10,
+					"startColumn": 1,
+					"endColumn": 1,
+					"codeElementType": "TYPE_DECLARATION",
+					"description": "original type declaration",
+					"codeElement": "admin_account.AdminAccount"
+				}
+			],
+			"rightSideLocations": [
+				{
+					"filePath": "python/admin_account.py",
+					"startLine": 4,
+					"endLine": 11,
+					"startColumn": 1,
+					"endColumn": 1,
+					"codeElementType": "TYPE_DECLARATION",
+					"description": "type declaration after extraction",
+					"codeElement": "admin_account.AdminAccount"
+				},
+				{
+					"filePath": "python/account.py",
+					"startLine": 1,
+					"endLine": 7,
+					"startColumn": 1,
+					"endColumn": 1,
+					"codeElementType": "TYPE_DECLARATION",
+					"description": "extracted type declaration",
+					"codeElement": "account.Account"
+				}
+			]
+		},
+		{
+			"type": "Extract Superclass",
+			"description": "Extract Superclass account.Account from class guest_account.GuestAccount",
+			"markup": "**Extract Superclass** [account.Account](https://github.com/Pogut/rm-action-test/pull/14/changes?diff=split#diff-0a46b46ec15ba919004c2d94fab185f0975ce8683fe73b828e9ce138177c106bR1) from class [guest_account.GuestAccount](https://github.com/Pogut/rm-action-test/pull/14/changes?diff=split#diff-b1603d432405a7b46eaa79e63d3cab21df969f55e6225aaa4f8ee8321a86d16eL1)",
+			"leftSideLocations": [
+				{
+					"filePath": "python/guest_account.py",
+					"startLine": 1,
+					"endLine": 9,
+					"startColumn": 1,
+					"endColumn": 1,
+					"codeElementType": "TYPE_DECLARATION",
+					"description": "original type declaration",
+					"codeElement": "guest_account.GuestAccount"
+				}
+			],
+			"rightSideLocations": [
+				{
+					"filePath": "python/guest_account.py",
+					"startLine": 4,
+					"endLine": 10,
+					"startColumn": 1,
+					"endColumn": 1,
+					"codeElementType": "TYPE_DECLARATION",
+					"description": "type declaration after extraction",
+					"codeElement": "guest_account.GuestAccount"
+				},
+				{
+					"filePath": "python/account.py",
+					"startLine": 1,
+					"endLine": 7,
+					"startColumn": 1,
+					"endColumn": 1,
+					"codeElementType": "TYPE_DECLARATION",
+					"description": "extracted type declaration",
+					"codeElement": "account.Account"
+				}
+			]
+		}
+	]
+}
