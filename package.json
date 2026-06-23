@@ -4,8 +4,8 @@
   "private": true,
   "description": "Chrome extension that overlays refactoringminer-action's detected refactorings onto GitHub diffs.",
   "scripts": {
-    "test": "node test/config.test.js && node test/highlight/highlight.test.js",
-    "test:highlight": "node test/highlight/highlight.test.js",
+    "test": "node test/config.test.js && node test/highlight/highlight.test.js && node test/highlight/recycle.test.js",
+    "test:highlight": "node test/highlight/highlight.test.js && node test/highlight/recycle.test.js",
     "test:highlight:update": "UPDATE=1 node test/highlight/highlight.test.js",
     "fixtures:capture": "node test/highlight/capture-fixtures.js"
   },

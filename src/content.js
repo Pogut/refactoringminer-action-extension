@@ -65,11 +65,15 @@ var RMX = window.RMX || (window.RMX = {});
 
     const used = new Set();
     let painted = 0;
+    // Track every cell this pass paints, then drop highlights left on cells that
+    // virtualization recycled to a non-target line (see overlay.startPass).
+    RMX.overlay.startPass();
     refactorings.forEach((r, index) => {
       const summary = summarize(r);
       painted += paintSide(r.leftSideLocations, 'L', r.type, summary, index, digests, used);
       painted += paintSide(r.rightSideLocations, 'R', r.type, summary, index, digests, used);
     });
+    RMX.overlay.endPass();
 
     RMX.overlay.showLegend(Array.from(used));
     RMX.overlay.applySelection(); // re-apply neon selection to any newly mounted cells

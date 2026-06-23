@@ -50,6 +50,17 @@ a golden diff** — that diff is the documentation of what moved.
 The build fails on any `error` and on any drift from the committed findings, so
 new warnings can't sneak in unreviewed.
 
+## Virtualization recycling ([recycle.test.js](recycle.test.js))
+
+The golden suite paints a static, fully-mounted DOM once. The `/changes` diff is
+a **virtualized React list**: it recycles a DOM node to render a different line
+as you scroll, leaving our `rmx-hl` class + `data-rmx-*` attributes on a line no
+refactoring references (the "line 28 lit up out of nowhere" bug). `recycle.test.js`
+mounts a fixture, mutates a painted node the way React's reconciler would, forces
+an additive re-paint, and asserts the stale highlight is reconciled away. The fix
+is `overlay.startPass()`/`endPass()` — each paint records the cells it touches and
+clears any still-classed cell it didn't.
+
 ## Known, catalogued glitches
 
 - **Python ranges overshoot by one line** (`range-exceeds-file`, 9 cases in
