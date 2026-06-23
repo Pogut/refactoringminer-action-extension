@@ -6,6 +6,14 @@ var RMX = window.RMX || (window.RMX = {});
 (function () {
   let currentRefactorings = null;
 
+  // Load stamp: logged once per injection so you can confirm at a glance which
+  // build is actually running in the tab (reloading the *page* re-injects the
+  // cached build; only reloading the *extension* picks up new src). Bump the
+  // version in manifest.json when you change code. Guarded for the test harness,
+  // where chrome.runtime is a stub without getManifest.
+  const build = (chrome.runtime.getManifest && chrome.runtime.getManifest().version) || 'dev';
+  console.info(`[RMX] content script loaded — build ${build}`);
+
   async function run() {
     const loc = RMX.config.parseLocation();
     if (!RMX.views.pick(loc) || !RMX.config.feedUrl(loc)) return deactivate();

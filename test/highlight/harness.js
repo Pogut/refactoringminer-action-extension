@@ -85,6 +85,7 @@ function buildWorld({ feed, meta, beforeDir, afterDir }) {
     runtime: {
       lastError: null,
       sendMessage: (_msg, cb) => cb({ ok: true, feed }),
+      getManifest: () => ({ version: 'test' }),
     },
   };
 
@@ -103,7 +104,9 @@ function buildWorld({ feed, meta, beforeDir, afterDir }) {
     const origInfo = window.console.info ? window.console.info.bind(window.console) : () => {};
     window.console.info = (...args) => {
       origInfo(...args);
-      if (String(args[0]).startsWith('[RMX]')) setTimeout(finish, 30); // let applySelection settle
+      // Match the render-complete line specifically (not the load stamp, which
+      // also starts with [RMX]), so we collect cells only after painting.
+      if (/line-spans highlighted/.test(String(args[0]))) setTimeout(finish, 30);
     };
 
     SCRIPTS.forEach((f) => window.eval(fs.readFileSync(path.join(SRC, f), 'utf8')));
