@@ -61,6 +61,19 @@ an additive re-paint, and asserts the stale highlight is reconciled away. The fi
 is `overlay.startPass()`/`endPass()` — each paint records the cells it touches and
 clears any still-classed cell it didn't.
 
+## Split-view anchor collision ([split-collision.test.js](split-collision.test.js))
+
+In the `/changes` **split** view GitHub gives the two cells of an aligned row the
+**same** `data-line-anchor` (the right line's). So `RMX.github.lineCells` keyed on
+`data-line-anchor` matched *both* columns, and a right-side `inserted` highlight
+(e.g. `calculateTotal`'s `}` at R27) leaked onto the left-column cell on that row
+— reported as "left line 28 lit up out of nowhere." The real cells carry their
+true side/line in `data-diff-side` ("left"/"right") + `data-line-number`, so
+`lineCells` now matches on those (scoped to the file by digest) instead of the
+ambiguous anchor. `split-collision.test.js` builds the colliding row and asserts
+R27 and L28 resolve to different, correct cells. The golden harness can't surface
+this (it builds unique classic-view ids), so it's modelled directly here.
+
 ## Known, catalogued glitches
 
 - **Python ranges overshoot by one line** (`range-exceeds-file`, 9 cases in
