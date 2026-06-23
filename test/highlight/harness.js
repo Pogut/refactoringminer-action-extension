@@ -60,10 +60,13 @@ function mountSide(doc, container, tree, side) {
   });
 }
 
-// Render one fixture and resolve with the raw painted cells. `meta` supplies the
-// PR page URL parseLocation needs; `feed` is handed straight back by the stubbed
-// service worker, so feedUrl's value is irrelevant here.
-function renderFixture({ feed, meta, beforeDir, afterDir }) {
+// Build a loaded diff world for a fixture: a jsdom window with the before/after
+// cells mounted, the feed/crypto globals injected, and the extension's content
+// scripts evaluated. Resolves once the first paint settles. Returns the window
+// (and `sha256Hex`) so tests can poke the DOM — e.g. simulate virtualization
+// recycling — and trigger re-paints. renderFixture is the thin "just give me the
+// painted cells" wrapper used by the golden suite.
+function buildWorld({ feed, meta, beforeDir, afterDir }) {
   const url = `https://github.com/${meta.owner}/${meta.repo}/pull/${meta.prNumber}/files`;
   const dom = new JSDOM('<!DOCTYPE html><body><div id="diff"></div></body>', {
     url,
@@ -90,12 +93,12 @@ function renderFixture({ feed, meta, beforeDir, afterDir }) {
   mountSide(window.document, container, readTree(afterDir), 'R');
 
   // Resolve when content.js logs its completion line, or after a hard timeout.
-  return new Promise((resolve) => {
+  const ready = new Promise((resolve) => {
     let done = false;
     const finish = () => {
       if (done) return;
       done = true;
-      resolve(collectCells(window));
+      resolve();
     };
     const origInfo = window.console.info ? window.console.info.bind(window.console) : () => {};
     window.console.info = (...args) => {
@@ -106,6 +109,21 @@ function renderFixture({ feed, meta, beforeDir, afterDir }) {
     SCRIPTS.forEach((f) => window.eval(fs.readFileSync(path.join(SRC, f), 'utf8')));
     setTimeout(finish, 4000); // safety net if the log never fires
   });
+
+  return { window, ready };
+}
+
+function renderFixture(opts) {
+  const { window, ready } = buildWorld(opts);
+  return ready.then(() => collectCells(window));
+}
+
+// Nudge the page so content.js's MutationObserver fires an additive re-paint
+// (the scroll path), then resolve after its 250ms debounce settles. This is how
+// a test exercises re-painting over a DOM that changed since the first paint.
+function triggerRepaint(window, waitMs = 600) {
+  window.document.body.appendChild(window.document.createElement('span'));
+  return new Promise((resolve) => setTimeout(resolve, waitMs));
 }
 
 // Read every highlighted cell into a flat record the report/linter consume.
@@ -126,4 +144,4 @@ function collectCells(window) {
   return cells;
 }
 
-module.exports = { renderFixture, readTree, sha256Hex };
+module.exports = { renderFixture, buildWorld, triggerRepaint, collectCells, readTree, sha256Hex };

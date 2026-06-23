@@ -78,14 +78,37 @@ RMX.overlay = (function () {
     document.head.appendChild(s);
   }
 
+  function clearCell(el) {
+    el.classList.remove(CLASS, FLASH, SEL, ON);
+    el.removeAttribute('data-rmx-cat');
+    el.removeAttribute('data-rmx-desc');
+    el.removeAttribute('data-rmx-index');
+    el.removeAttribute('data-rmx-side');
+    el.removeAttribute('data-rmx-file');
+  }
+
   function clearAll() {
+    document.querySelectorAll('.' + CLASS).forEach(clearCell);
+  }
+
+  // --- paint reconciliation ------------------------------------------------
+  // The /changes diff virtualizes rows: React *recycles* a DOM node to render a
+  // different line as you scroll, rewriting the text/anchor it manages but
+  // leaving our class + data-rmx-* attributes on it. Additive re-paints (the
+  // scroll path) never clearAll, so that node keeps a highlight for a line no
+  // refactoring references. To stop those stale highlights, each paint pass
+  // records every cell it (re)touches; endPass() then strips any still-classed
+  // cell that wasn't touched — i.e. one that was recycled to a non-target line.
+  let paintedThisPass = null;
+  function startPass() {
+    paintedThisPass = new Set();
+  }
+  function endPass() {
+    if (!paintedThisPass) return;
+    const touched = paintedThisPass;
+    paintedThisPass = null;
     document.querySelectorAll('.' + CLASS).forEach((el) => {
-      el.classList.remove(CLASS, FLASH, SEL, ON);
-      el.removeAttribute('data-rmx-cat');
-      el.removeAttribute('data-rmx-desc');
-      el.removeAttribute('data-rmx-index');
-      el.removeAttribute('data-rmx-side');
-      el.removeAttribute('data-rmx-file');
+      if (!touched.has(el)) clearCell(el);
     });
   }
 
@@ -136,6 +159,7 @@ RMX.overlay = (function () {
       // next method/class), but never trim the range's own opening line.
       if (line === endLine && line !== startLine && startsDeclaration(cells, line)) continue;
       cells.forEach((cell) => {
+        if (paintedThisPass) paintedThisPass.add(cell);
         cell.classList.add(CLASS);
         cell.setAttribute('data-rmx-side', side);
         if (filePath) cell.setAttribute('data-rmx-file', filePath);
@@ -422,7 +446,7 @@ RMX.overlay = (function () {
   }
 
   return {
-    ensureStyle, clearAll, highlightRange, installTooltip,
+    ensureStyle, clearAll, startPass, endPass, highlightRange, installTooltip,
     showLegend, hideLegend, select, applySelection, clearSelection, scrollToRefactoring,
   };
 })();
