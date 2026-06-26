@@ -72,5 +72,7 @@ Feed shape (RefactoringMiner's classic `-json` output):
 ## Dev
 
 ```
-npm test   # dependency-free Node checks for the URL/feed logic
+npx playwright install chromium   # one-time: fetch the browser build
+npm test                          # browser E2E: loads the extension into Chromium,
+                                  # drives the live rm-action-test PRs (see test/e2e/)
 ```

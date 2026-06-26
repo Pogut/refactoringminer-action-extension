@@ -1,8 +1,8 @@
 const { defineConfig } = require('@playwright/test');
 
-// Browser E2E config. These tests load the real extension into Chromium and hit
-// live github.com + gh-pages, so they're deliberately separate from `npm test`
-// (the offline jsdom + URL checks). Run with `npm run test:e2e`.
+// Browser E2E config — the project's only test suite. These tests load the real
+// extension into Chromium and hit live github.com + gh-pages. Run with `npm test`
+// (or `npm run test:headed` to watch it drive a real window).
 module.exports = defineConfig({
   testDir: './test/e2e',
   // Live network + a real diff render; generous but bounded.

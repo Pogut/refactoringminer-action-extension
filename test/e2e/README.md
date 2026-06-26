@@ -3,30 +3,22 @@
 Loads **this extension unpacked into a real Chromium** and drives the actual
 `github.com` PR diffs in the [`Pogut/rm-action-test`](https://github.com/Pogut/rm-action-test)
 sandbox, fetching the real RefactoringMiner feeds the action published to
-gh-pages. This is the layer the offline [`test/highlight`](../highlight) jsdom
-harness **can't** reach:
+gh-pages. This is the project's only test suite: it exercises the full browser
+path end to end — the service-worker cross-origin feed fetch, the **real** GitHub
+diff DOM (and its markup drift), Turbo nav, tooltip render, and comment-link
+selection — none of which can be checked without a real browser.
 
-| Path | jsdom harness | this suite |
-|---|---|---|
-| `config.js` / `github.js` digest + feed-URL logic | ✅ | ✅ |
-| overlay painting over a *modelled* classic DOM | ✅ | — |
-| service-worker cross-origin feed fetch | stubbed | ✅ real |
-| **real GitHub diff DOM** (id on the line-number `<td>`, code in the sibling `.blob-code`) | ❌ modelled wrong | ✅ |
-| live GitHub markup drift | ❌ | ✅ |
-| tooltip render + comment-link hash selection | partial | ✅ |
-
-> The jsdom harness models each diff line as a single id'd cell that *contains*
-> the code. Real classic GitHub puts the `diff-<digest><L\|R><line>` id on the
-> empty line-**number** `<td>` and the source in a sibling `.blob-code` cell.
-> That mismatch is why this suite exists — and `src/github.js`'s `nextBlobCode`
-> resolution is what makes the overlay paint on the real page.
+> A key real-DOM detail this suite pins: on the classic diff GitHub puts the
+> `diff-<digest><L\|R><line>` id on the **empty line-number `<td>`**, with the
+> source in a sibling `.blob-code` cell. `src/github.js`'s `nextBlobCode`
+> resolution is what makes the overlay actually paint on the real page.
 
 ## Running
 
 ```sh
-npm run test:e2e           # headless (new headless mode loads the extension)
-npm run test:e2e:headed    # watch it drive a real window — use when a selector breaks
-npx playwright test -g java   # one PR
+npm test                    # headless (new headless mode loads the extension)
+npm run test:headed         # watch it drive a real window — use when a selector breaks
+npx playwright test -g java # one PR
 ```
 
 First run only, install the browser build:

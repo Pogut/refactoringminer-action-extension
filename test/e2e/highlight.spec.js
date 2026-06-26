@@ -1,7 +1,7 @@
 // Real-browser end-to-end tests. For every sandbox PR we open the actual
 // github.com diff with the extension loaded and assert the overlay paints from
-// the live gh-pages feed — the full pipeline the offline jsdom harness can't
-// reach: service-worker cross-origin fetch → content.js → real GitHub line cells.
+// the live gh-pages feed — the full pipeline end to end: service-worker
+// cross-origin fetch → content.js → real GitHub line cells.
 //
 // Assertions are derived from the live feed (sandbox.fetchFeed), not hard-coded,
 // so a feed change surfaces as a real behaviour change rather than a stale

@@ -1,10 +1,8 @@
 // The live sandbox the browser E2E tests drive: the real Pogut/rm-action-test
-// PRs whose RefactoringMiner feeds are published on gh-pages. These are the same
-// PRs the offline jsdom harness snapshots (see test/highlight/fixtures.config.js),
-// but here we hit the *real* github.com diff with the extension loaded, so we
-// exercise the browser-only paths jsdom can't: the service-worker cross-origin
-// feed fetch, the live GitHub DOM (and its drift), Turbo nav, and the
-// virtualized diff re-paint.
+// PRs whose RefactoringMiner feeds are published on gh-pages. We hit the *real*
+// github.com diff with the extension loaded, exercising the full browser path:
+// the service-worker cross-origin feed fetch, the live GitHub DOM (and its
+// drift), Turbo nav, and the virtualized diff re-paint.
 const crypto = require('crypto');
 
 const OWNER = 'Pogut';
