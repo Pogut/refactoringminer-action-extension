@@ -7,9 +7,12 @@
     "test": "node test/config.test.js && node test/highlight/highlight.test.js && node test/highlight/recycle.test.js",
     "test:highlight": "node test/highlight/highlight.test.js && node test/highlight/recycle.test.js",
     "test:highlight:update": "UPDATE=1 node test/highlight/highlight.test.js",
-    "fixtures:capture": "node test/highlight/capture-fixtures.js"
+    "fixtures:capture": "node test/highlight/capture-fixtures.js",
+    "test:e2e": "playwright test",
+    "test:e2e:headed": "HEADED=1 playwright test --headed"
   },
   "devDependencies": {
+    "@playwright/test": "^1.50.0",
     "jsdom": "^29.1.1"
   }
 }
