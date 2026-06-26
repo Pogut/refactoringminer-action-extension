@@ -33,6 +33,14 @@ function deepLinkTarget(refactorings) {
   return null;
 }
 
+// The clickable source cell for a line. The classic diff puts the `diff-<…>` id on
+// the line-*number* <td>; the actual code (what a user clicks) is the row's
+// sibling .blob-code cell, possibly past an empty-cell spacer. Clicking the code
+// cell — not the number cell — avoids triggering GitHub's own line-anchor handler.
+function codeCellOf(page, anchor) {
+  return page.locator(`xpath=//td[@id="${anchor}"]/following-sibling::td[contains(@class,"blob-code")][1]`);
+}
+
 // The extension must actually have loaded — proven by its service worker being
 // reachable — before any of the per-PR expectations make sense.
 test('extension service worker boots', async ({ serviceWorker }) => {
@@ -111,5 +119,84 @@ test.describe('PR #14 interactions', () => {
     const cell = page.locator(`#${anchor}, [data-line-anchor="${anchor}"]`).first();
     await expect(cell).toHaveClass(/rmx-hl/, { timeout: 10_000 });
     await expect(cell).toHaveClass(/rmx-sel/, { timeout: 10_000 });
+  });
+});
+
+// --- colour correctness ----------------------------------------------------
+// Each row pins one line to the exact category (colour) the overlay must paint
+// it. Every row was confirmed against the live page AND makes semantic sense for
+// the refactoring, so a row reads as documentation: Rename → "updated" (blue);
+// Move → "movedOut" (orange) on the source side, "movedIn" (teal) on the
+// destination; Inline removes the body → "deleted" (red); an Encapsulate getter
+// is new code → "inserted" (green). If categorize() regresses, the exact line
+// that changed colour fails — by name.
+const COLOURS = [
+  // Rename Attribute: the same field, renamed → "updated" on both sides.
+  { pr: 9, file: 'CustomerProfile.java', side: 'L', line: 2, cat: 'updated', what: 'Rename Attribute (old name)' },
+  { pr: 9, file: 'CustomerProfile.java', side: 'R', line: 2, cat: 'updated', what: 'Rename Attribute (new name)' },
+  // Move Attribute: source line leaves, destination line arrives.
+  { pr: 9, file: 'CustomerProfile.java', side: 'L', line: 3, cat: 'movedOut', what: 'Move Attribute (source)' },
+  { pr: 9, file: 'Address.java', side: 'R', line: 2, cat: 'movedIn', what: 'Move Attribute (destination)' },
+  // Inline Method: the inlined method body is removed.
+  { pr: 9, file: 'OrderProcessor.java', side: 'L', line: 11, cat: 'deleted', what: 'Inline Method (removed body)' },
+  // Encapsulate Attribute: the generated getter is brand-new code.
+  { pr: 9, file: 'CustomerProfile.java', side: 'R', line: 28, cat: 'inserted', what: 'Encapsulate Attribute (added getter)' },
+  // The same colour rules hold in another language (Kotlin Move Attribute).
+  { pr: 12, file: 'kotlin/CustomerProfile.kt', side: 'L', line: 4, cat: 'movedOut', what: 'Move Attribute (source)' },
+  { pr: 12, file: 'kotlin/Address.kt', side: 'R', line: 3, cat: 'movedIn', what: 'Move Attribute (destination)' },
+];
+
+for (const pr of [...new Set(COLOURS.map((c) => c.pr))]) {
+  test(`PR #${pr}: each line carries the colour matching its refactoring`, async ({ page }) => {
+    await page.goto(sb.filesUrl(pr), { waitUntil: 'domcontentloaded' });
+    await waitForOverlay(page);
+    for (const c of COLOURS.filter((x) => x.pr === pr)) {
+      const where = `${c.what} @ ${c.file} ${c.side}${c.line}`;
+      const cell = page.locator(`#${sb.lineAnchor(c.file, c.side, c.line)}`);
+      await expect(cell, `${where}: should be highlighted`).toHaveClass(/rmx-hl/);
+      await expect(cell, `${where}: expected colour "${c.cat}"`).toHaveAttribute('data-rmx-cat', c.cat);
+    }
+  });
+}
+
+// --- click-to-pair selection (the gold "blink on both sides") --------------
+// Clicking any highlighted line must light the WHOLE refactoring in the gold
+// selection on BOTH sides — so the user sees a change's counterpart. We use a
+// Move Attribute in PR #9: its source (left) and destination (right) are
+// different files/lines, so "both sides lit" is unambiguous.
+test.describe('click-to-pair selection', () => {
+  const PR = 9;
+  const SRC = sb.lineAnchor('CustomerProfile.java', 'L', 3); // movedOut (source)
+  const DST = sb.lineAnchor('Address.java', 'R', 2); //         movedIn (destination)
+
+  test('clicking the right side lights the left counterpart', async ({ page }) => {
+    await page.goto(sb.filesUrl(PR), { waitUntil: 'domcontentloaded' });
+    await waitForOverlay(page);
+    const src = page.locator(`#${SRC}`);
+    const dst = page.locator(`#${DST}`);
+
+    // Both painted, nothing selected yet.
+    await expect(src).toHaveClass(/rmx-hl/);
+    await expect(dst).toHaveClass(/rmx-hl/);
+    await expect(src).not.toHaveClass(/rmx-sel/);
+
+    await codeCellOf(page, DST).click(); // click the destination line (right side)
+
+    await expect(dst, 'clicked line is selected').toHaveClass(/rmx-sel/);
+    await expect(src, 'counterpart on the OTHER side is selected too').toHaveClass(/rmx-sel/);
+    // The gold "on" fill is applied (it blinks; the class appears on the cell).
+    await expect(dst, 'gold blink fill applied').toHaveClass(/rmx-on/);
+  });
+
+  test('clicking the left side lights the right counterpart', async ({ page }) => {
+    await page.goto(sb.filesUrl(PR), { waitUntil: 'domcontentloaded' });
+    await waitForOverlay(page);
+    const src = page.locator(`#${SRC}`);
+    const dst = page.locator(`#${DST}`);
+
+    await codeCellOf(page, SRC).click(); // click the source line (left side)
+
+    await expect(src, 'clicked line is selected').toHaveClass(/rmx-sel/);
+    await expect(dst, 'counterpart on the OTHER side is selected too').toHaveClass(/rmx-sel/);
   });
 });

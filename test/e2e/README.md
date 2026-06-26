@@ -38,13 +38,24 @@ classic-view code path.
   for its MV3 service worker, mirrors `[RMX] …` console logs onto the page.
 - `sandbox.js` — the PR→feed map and the `sha256(filePath)` line-anchor helper
   (mirrors how the action and `src/github.js` key diff lines).
-- `highlight.spec.js` — per PR: highlights appear, only on files the feed names,
-  the reported refactoring count equals the feed's, the legend shows. On PR #14:
-  tooltip shows the feed description on hover, and an action comment-link hash
-  (`#diff-<digest>R<line>`) neon-selects the refactoring it points at.
+- `highlight.spec.js`:
+  - **per PR** — highlights appear, only on files the feed names, the reported
+    refactoring count equals the feed's, the legend shows.
+  - **colour correctness** — a hand-verified table pins specific lines to the
+    exact category (colour) they must paint: Rename → `updated` (blue), Move →
+    `movedOut`/`movedIn` (orange/teal), Inline → `deleted` (red), Encapsulate
+    getter → `inserted` (green). A regression in `categorize()` fails the exact
+    line that changed colour.
+  - **click-to-pair selection** — clicking a highlighted line lights the whole
+    refactoring in gold (`rmx-sel` + the blinking `rmx-on` fill) on **both**
+    sides; verified with a Move Attribute whose source (left) and destination
+    (right) are different files, so "both sides lit" is unambiguous.
+  - **PR #14** — tooltip shows the feed description on hover; an action
+    comment-link hash (`#diff-<digest>R<line>`) neon-selects the refactoring.
 
-Assertions are derived from the **live feed**, not hard-coded, so a feed change
-surfaces as a behaviour change rather than a stale number.
+Most assertions are derived from the **live feed**, not hard-coded. The colour and
+click-to-pair tests use a small explicit table (confirmed against the live page),
+so each row doubles as readable documentation of expected behaviour.
 
 ## Adding a PR
 
