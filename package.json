@@ -4,6 +4,11 @@
   "private": true,
   "description": "Chrome extension that overlays refactoringminer-action's detected refactorings onto GitHub diffs.",
   "scripts": {
-    "test": "node test/config.test.js"
+    "test": "playwright test",
+    "test:headed": "HEADED=1 playwright test --headed",
+    "test:auth": "node test/e2e/capture-auth.js"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.50.0"
   }
 }
