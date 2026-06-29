@@ -212,7 +212,7 @@ var RMX = window.RMX || (window.RMX = {});
     RMX.github.resetCache();
     setTimeout(run, 300);
   }
-
+  // to run when you move between pages
   document.addEventListener('turbo:load', schedule);
   document.addEventListener('pjax:end', schedule);
   window.addEventListener('popstate', schedule);
