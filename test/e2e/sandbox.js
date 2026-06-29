@@ -36,6 +36,37 @@ function filesUrl(prNumber) {
   return `https://github.com/${OWNER}/${REPO}/pull/${prNumber}/files`;
 }
 
+// The new "Preview" React diff. Logged-out visitors are redirected to /files;
+// only an authenticated session (with the Preview diff enabled) sees it.
+function changesUrl(prNumber) {
+  return `https://github.com/${OWNER}/${REPO}/pull/${prNumber}/changes`;
+}
+
+// A selector that finds a line cell in EITHER diff UI: the classic table puts the
+// anchor on an element id; the Preview React diff puts it on data-line-anchor.
+// Both equal diff-<digest><side><line>, so one selector serves both suites.
+function cellSelector(filePath, side, line) {
+  const a = lineAnchor(filePath, side, line);
+  return `#${a}, [data-line-anchor="${a}"]`;
+}
+
+// Hand-verified line→colour expectations, shared by the classic and Preview
+// suites (the painted category must match across both views). Each row was
+// confirmed against the live page AND makes semantic sense for the refactoring:
+// Rename → updated (blue); Move → movedOut (orange) on the source side / movedIn
+// (teal) on the destination; Inline removes the body → deleted (red); an
+// Encapsulate getter is new code → inserted (green).
+const COLOURS = [
+  { pr: 9, file: 'CustomerProfile.java', side: 'L', line: 2, cat: 'updated', what: 'Rename Attribute (old name)' },
+  { pr: 9, file: 'CustomerProfile.java', side: 'R', line: 2, cat: 'updated', what: 'Rename Attribute (new name)' },
+  { pr: 9, file: 'CustomerProfile.java', side: 'L', line: 3, cat: 'movedOut', what: 'Move Attribute (source)' },
+  { pr: 9, file: 'Address.java', side: 'R', line: 2, cat: 'movedIn', what: 'Move Attribute (destination)' },
+  { pr: 9, file: 'OrderProcessor.java', side: 'L', line: 11, cat: 'deleted', what: 'Inline Method (removed body)' },
+  { pr: 9, file: 'CustomerProfile.java', side: 'R', line: 28, cat: 'inserted', what: 'Encapsulate Attribute (added getter)' },
+  { pr: 12, file: 'kotlin/CustomerProfile.kt', side: 'L', line: 4, cat: 'movedOut', what: 'Move Attribute (source)' },
+  { pr: 12, file: 'kotlin/Address.kt', side: 'R', line: 3, cat: 'movedIn', what: 'Move Attribute (destination)' },
+];
+
 // The published feed, fetched straight from gh-pages (Node 22 has global fetch).
 // Tests derive their expectations from this rather than hard-coding, so a feed
 // change shows up as a behaviour change, not a stale assertion.
@@ -54,4 +85,8 @@ function refactoringsOf(feed) {
   return [];
 }
 
-module.exports = { OWNER, REPO, PRS, digest, lineAnchor, filesUrl, fetchFeed, refactoringsOf };
+module.exports = {
+  OWNER, REPO, PRS, COLOURS,
+  digest, lineAnchor, cellSelector,
+  filesUrl, changesUrl, fetchFeed, refactoringsOf,
+};

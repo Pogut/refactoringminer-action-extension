@@ -123,34 +123,15 @@ test.describe('PR #14 interactions', () => {
 });
 
 // --- colour correctness ----------------------------------------------------
-// Each row pins one line to the exact category (colour) the overlay must paint
-// it. Every row was confirmed against the live page AND makes semantic sense for
-// the refactoring, so a row reads as documentation: Rename → "updated" (blue);
-// Move → "movedOut" (orange) on the source side, "movedIn" (teal) on the
-// destination; Inline removes the body → "deleted" (red); an Encapsulate getter
-// is new code → "inserted" (green). If categorize() regresses, the exact line
-// that changed colour fails — by name.
-const COLOURS = [
-  // Rename Attribute: the same field, renamed → "updated" on both sides.
-  { pr: 9, file: 'CustomerProfile.java', side: 'L', line: 2, cat: 'updated', what: 'Rename Attribute (old name)' },
-  { pr: 9, file: 'CustomerProfile.java', side: 'R', line: 2, cat: 'updated', what: 'Rename Attribute (new name)' },
-  // Move Attribute: source line leaves, destination line arrives.
-  { pr: 9, file: 'CustomerProfile.java', side: 'L', line: 3, cat: 'movedOut', what: 'Move Attribute (source)' },
-  { pr: 9, file: 'Address.java', side: 'R', line: 2, cat: 'movedIn', what: 'Move Attribute (destination)' },
-  // Inline Method: the inlined method body is removed.
-  { pr: 9, file: 'OrderProcessor.java', side: 'L', line: 11, cat: 'deleted', what: 'Inline Method (removed body)' },
-  // Encapsulate Attribute: the generated getter is brand-new code.
-  { pr: 9, file: 'CustomerProfile.java', side: 'R', line: 28, cat: 'inserted', what: 'Encapsulate Attribute (added getter)' },
-  // The same colour rules hold in another language (Kotlin Move Attribute).
-  { pr: 12, file: 'kotlin/CustomerProfile.kt', side: 'L', line: 4, cat: 'movedOut', what: 'Move Attribute (source)' },
-  { pr: 12, file: 'kotlin/Address.kt', side: 'R', line: 3, cat: 'movedIn', what: 'Move Attribute (destination)' },
-];
-
-for (const pr of [...new Set(COLOURS.map((c) => c.pr))]) {
+// Pin specific lines to the exact category (colour) the overlay must paint. The
+// expectations live in sandbox.js (sb.COLOURS), shared with the Preview suite so
+// both views must agree. If categorize() regresses, the exact line that changed
+// colour fails — by name.
+for (const pr of [...new Set(sb.COLOURS.map((c) => c.pr))]) {
   test(`PR #${pr}: each line carries the colour matching its refactoring`, async ({ page }) => {
     await page.goto(sb.filesUrl(pr), { waitUntil: 'domcontentloaded' });
     await waitForOverlay(page);
-    for (const c of COLOURS.filter((x) => x.pr === pr)) {
+    for (const c of sb.COLOURS.filter((x) => x.pr === pr)) {
       const where = `${c.what} @ ${c.file} ${c.side}${c.line}`;
       const cell = page.locator(`#${sb.lineAnchor(c.file, c.side, c.line)}`);
       await expect(cell, `${where}: should be highlighted`).toHaveClass(/rmx-hl/);
