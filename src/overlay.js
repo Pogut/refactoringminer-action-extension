@@ -32,9 +32,9 @@ RMX.overlay = (function () {
     s.id = 'rmx-style';
     s.textContent = `
       ${catRules}
-      .${CLASS}.${SEL}[data-rmx-side="L"]{box-shadow:inset 3px 0 0 #be185d,0 0 0 2px #be185d !important;transition:background-color .18s ease;}
+      .${CLASS}.${SEL}[data-rmx-side="L"]{box-shadow:inset 3px 0 0 #be185d,0 0 0 2px #be185d !important;transition:background-color 2s ease-in-out;}
       .${CLASS}.${SEL}[data-rmx-side="L"].${ON}{background:#ec4899 !important;}
-      .${CLASS}.${SEL}[data-rmx-side="R"]{box-shadow:inset 3px 0 0 #6d28d9,0 0 0 2px #6d28d9 !important;transition:background-color .18s ease;}
+      .${CLASS}.${SEL}[data-rmx-side="R"]{box-shadow:inset 3px 0 0 #6d28d9,0 0 0 2px #6d28d9 !important;transition:background-color 2s ease-in-out;}
       .${CLASS}.${SEL}[data-rmx-side="R"].${ON}{background:#7c3aed !important;}
       .${TIP}{position:absolute;z-index:2147483647;max-width:460px;white-space:pre-wrap;
         background:#1f2328;color:#fff;padding:6px 9px;border-radius:6px;pointer-events:none;
@@ -183,7 +183,7 @@ RMX.overlay = (function () {
   let selectedIndices = [];
   let blinkOn = false;
   let blinkTimer = null;
-  const BLINK_MS = 1500; // per phase (cursor-like)
+  const BLINK_MS = 2500; // half-cycle — matches half of PIN_BLINK_MS so full period = 5s
 
   // Marks every cell of the selected refactoring(s) and sets its fill to the
   // current blink phase. Additive + idempotent, so scroll re-paints just sync
@@ -203,23 +203,28 @@ RMX.overlay = (function () {
     document.querySelectorAll('.' + SEL).forEach((el) => el.classList.remove(SEL, ON));
   }
 
-  // Select on click: blink the darker-yellow fill on/off like a text cursor.
+  // Select on click: blink the fill in phase with the pinned bars' CSS animation.
   function select(indices) {
     removeSelectionClasses();
     selectedIndices = indices.slice();
-    clearInterval(blinkTimer);
-    blinkOn = true;
+    clearTimeout(blinkTimer);
+
+    // Align to the shared blinkEpoch clock so inline and pinned bars pulse together.
+    const elapsed = (Date.now() - blinkEpoch) % PIN_BLINK_MS;
+    blinkOn = elapsed < BLINK_MS;
     applySelection();
-    blinkTimer = setInterval(() => {
+
+    const timeUntilNext = blinkOn ? (BLINK_MS - elapsed) : (PIN_BLINK_MS - elapsed);
+    function tick() {
       blinkOn = !blinkOn;
-      // Just flip the fill on already-selected cells — cheap, and avoids
-      // rebuilding the pinned bars on every blink tick.
       document.querySelectorAll(`.${CLASS}.${SEL}`).forEach((el) => el.classList.toggle(ON, blinkOn));
-    }, BLINK_MS);
+      blinkTimer = setTimeout(tick, BLINK_MS);
+    }
+    blinkTimer = setTimeout(tick, timeUntilNext);
   }
 
   function clearSelection() {
-    clearInterval(blinkTimer);
+    clearTimeout(blinkTimer);
     selectedIndices = [];
     blinkOn = false;
     removeSelectionClasses();
