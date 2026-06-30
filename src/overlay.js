@@ -78,6 +78,15 @@ RMX.overlay = (function () {
       .rmx-pin .rmx-pin-stripe{width:4px;align-self:stretch;flex:0 0 auto;}
       .rmx-pin .rmx-pin-meta{color:var(--fgColor-muted,#656d76);flex:0 0 auto;}
       .rmx-pin .rmx-pin-code{overflow:hidden;text-overflow:ellipsis;opacity:.92;}
+      .rmx-pin-toggle{pointer-events:auto;cursor:pointer;display:flex;align-items:center;
+        justify-content:center;gap:6px;height:22px;padding:0 14px;white-space:nowrap;
+        background:var(--bgColor-muted,#f6f8fa);color:var(--fgColor-muted,#656d76);
+        font:11px/22px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+        box-shadow:0 1px 3px rgba(31,35,40,.1);user-select:none;transition:background .12s,color .12s;}
+      .rmx-pin-toggle:hover{color:var(--fgColor-default,#1f2328);background:var(--bgColor-neutral,#eaeef2);}
+      #rmx-pin-top .rmx-pin-toggle{border-bottom:1px solid var(--borderColor-default,#d0d7de);}
+      #rmx-pin-bottom .rmx-pin-toggle{border-top:1px solid var(--borderColor-default,#d0d7de);}
+      .rmx-pin-toggle-caret{font-size:10px;font-weight:700;}
     `;
     document.head.appendChild(s);
   }
@@ -228,6 +237,8 @@ RMX.overlay = (function () {
     selectedIndices = [];
     blinkOn = false;
     removeSelectionClasses();
+    stackCollapsed.top = false;
+    stackCollapsed.bottom = false;
     clearPins();
   }
 
@@ -239,22 +250,45 @@ RMX.overlay = (function () {
   const PIN_BLINK_MS = 5000; // bar pulse period (slower than the in-diff blink)
   const blinkEpoch = Date.now(); // shared clock so rebuilt bars stay in phase
   let topLayer = null;
+  let topToggle = null;
   let bottomLayer = null;
+  let bottomToggle = null;
   let pinRaf = null;
+  const stackCollapsed = { top: false, bottom: false };
+
+  function makePinToggle(key) {
+    const toggle = document.createElement('div');
+    toggle.className = 'rmx-pin-toggle';
+    toggle.style.display = 'none';
+    toggle.addEventListener('click', (e) => {
+      e.stopPropagation();
+      stackCollapsed[key] = !stackCollapsed[key];
+      updatePins();
+    });
+    return toggle;
+  }
 
   function ensurePinLayers() {
     if (topLayer) return;
     topLayer = document.createElement('div');
     topLayer.id = 'rmx-pin-top';
+    topToggle = makePinToggle('top');
+    topLayer.appendChild(topToggle);
+
     bottomLayer = document.createElement('div');
     bottomLayer.id = 'rmx-pin-bottom';
+    bottomToggle = makePinToggle('bottom');
+    bottomLayer.appendChild(bottomToggle);
+
     document.body.appendChild(topLayer);
     document.body.appendChild(bottomLayer);
   }
 
   function clearPins() {
-    if (topLayer) topLayer.textContent = '';
-    if (bottomLayer) bottomLayer.textContent = '';
+    if (topLayer) topLayer.querySelectorAll('.rmx-pin').forEach((el) => el.remove());
+    if (bottomLayer) bottomLayer.querySelectorAll('.rmx-pin').forEach((el) => el.remove());
+    if (topToggle) topToggle.style.display = 'none';
+    if (bottomToggle) bottomToggle.style.display = 'none';
   }
 
   function schedulePins() {
@@ -301,35 +335,59 @@ RMX.overlay = (function () {
   }
 
   function renderStack(layer, entries) {
-    layer.textContent = '';
-    entries.forEach((entry) => {
-      const m = /^diff-[0-9a-f]{64}([LR])(\d+)$/.exec(entry.anchor) || [];
-      const cat = entry.cell.getAttribute('data-rmx-cat');
-      const file = (entry.cell.getAttribute('data-rmx-file') || '').split('/').pop();
+    // Remove only bar rows — the persistent toggle stays in the DOM so hover is never interrupted.
+    layer.querySelectorAll('.rmx-pin').forEach((el) => el.remove());
 
-      const side = entry.cell.getAttribute('data-rmx-side');
-      const bar = document.createElement('div');
-      bar.className = 'rmx-pin' + (side ? ' rmx-pin-' + side : '');
-      // Negative delay = start mid-cycle at the shared phase, so bars rebuilt on
-      // scroll resume the pulse seamlessly instead of restarting it.
-      bar.style.animationDuration = (PIN_BLINK_MS / 1000) + 's';
-      bar.style.animationDelay = '-' + (((Date.now() - blinkEpoch) % PIN_BLINK_MS) / 1000) + 's';
-      const stripe = document.createElement('span');
-      stripe.className = 'rmx-pin-stripe';
-      stripe.style.background = side === 'L' ? '#be185d' : side === 'R' ? '#6d28d9' : (cat && CATS[cat] ? CATS[cat].bar : '');
-      const meta = document.createElement('span');
-      meta.className = 'rmx-pin-meta';
-      meta.textContent = `${file}:${m[1] || ''}${m[2] || ''}`;
-      const code = document.createElement('span');
-      code.className = 'rmx-pin-code';
-      code.textContent = (entry.cell.textContent || '').trim().slice(0, 160);
+    const isTop = layer.id === 'rmx-pin-top';
+    const toggle = isTop ? topToggle : bottomToggle;
+    const key = isTop ? 'top' : 'bottom';
+    const collapsed = stackCollapsed[key];
 
-      bar.appendChild(stripe);
-      bar.appendChild(meta);
-      bar.appendChild(code);
-      bar.addEventListener('click', () => entry.cell.scrollIntoView({ behavior: 'smooth', block: 'center' }));
-      layer.appendChild(bar);
-    });
+    if (!entries.length) {
+      toggle.style.display = 'none';
+      return;
+    }
+
+    if (!collapsed) {
+      entries.forEach((entry) => {
+        const m = /^diff-[0-9a-f]{64}([LR])(\d+)$/.exec(entry.anchor) || [];
+        const cat = entry.cell.getAttribute('data-rmx-cat');
+        const file = (entry.cell.getAttribute('data-rmx-file') || '').split('/').pop();
+
+        const side = entry.cell.getAttribute('data-rmx-side');
+        const bar = document.createElement('div');
+        bar.className = 'rmx-pin' + (side ? ' rmx-pin-' + side : '');
+        // Negative delay = start mid-cycle at the shared phase, so bars rebuilt on
+        // scroll resume the pulse seamlessly instead of restarting it.
+        bar.style.animationDuration = (PIN_BLINK_MS / 1000) + 's';
+        bar.style.animationDelay = '-' + (((Date.now() - blinkEpoch) % PIN_BLINK_MS) / 1000) + 's';
+        const stripe = document.createElement('span');
+        stripe.className = 'rmx-pin-stripe';
+        stripe.style.background = side === 'L' ? '#be185d' : side === 'R' ? '#6d28d9' : (cat && CATS[cat] ? CATS[cat].bar : '');
+        const meta = document.createElement('span');
+        meta.className = 'rmx-pin-meta';
+        meta.textContent = `${file}:${m[1] || ''}${m[2] || ''}`;
+        const code = document.createElement('span');
+        code.className = 'rmx-pin-code';
+        code.textContent = (entry.cell.textContent || '').trim().slice(0, 160);
+
+        bar.appendChild(stripe);
+        bar.appendChild(meta);
+        bar.appendChild(code);
+        bar.addEventListener('click', () => entry.cell.scrollIntoView({ behavior: 'smooth', block: 'center' }));
+        // Insert before the toggle so the toggle always stays last in DOM:
+        // last = bottom of top stack (column), top of bottom stack (column-reverse).
+        layer.insertBefore(bar, toggle);
+      });
+    }
+
+    // Update the persistent toggle's label in-place (no recreation = no hover flicker).
+    // Arrow points toward the bars: ▲ when bars are above the toggle (top stack expanded),
+    // ▼ when bars are below (bottom stack expanded), reversed when collapsed.
+    const n = entries.length;
+    const caret = (isTop !== collapsed) ? '▲' : '▼';
+    toggle.innerHTML = `<span class="rmx-pin-toggle-caret">${caret}</span><span>${n} line${n !== 1 ? 's' : ''} off screen</span>`;
+    toggle.style.display = '';
   }
 
   function inViewport(el) {
