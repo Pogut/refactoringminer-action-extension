@@ -32,8 +32,10 @@ RMX.overlay = (function () {
     s.id = 'rmx-style';
     s.textContent = `
       ${catRules}
-      .${CLASS}.${SEL}{box-shadow:inset 3px 0 0 #b59f00,0 0 0 2px #b59f00 !important;transition:background-color .18s ease;}
-      .${CLASS}.${SEL}.${ON}{background:#c2a000 !important;}
+      .${CLASS}.${SEL}[data-rmx-side="L"]{box-shadow:inset 3px 0 0 #be185d,0 0 0 2px #be185d !important;transition:background-color .18s ease;}
+      .${CLASS}.${SEL}[data-rmx-side="L"].${ON}{background:#ec4899 !important;}
+      .${CLASS}.${SEL}[data-rmx-side="R"]{box-shadow:inset 3px 0 0 #6d28d9,0 0 0 2px #6d28d9 !important;transition:background-color .18s ease;}
+      .${CLASS}.${SEL}[data-rmx-side="R"].${ON}{background:#7c3aed !important;}
       .${TIP}{position:absolute;z-index:2147483647;max-width:460px;white-space:pre-wrap;
         background:#1f2328;color:#fff;padding:6px 9px;border-radius:6px;pointer-events:none;
         font:12px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;opacity:0;transition:opacity .08s;}
@@ -67,11 +69,13 @@ RMX.overlay = (function () {
         height:28px;padding:0 12px;white-space:nowrap;overflow:hidden;
         font:12px/28px ui-monospace,SFMono-Regular,Menlo,monospace;
         color:var(--fgColor-default,#1f2328);box-shadow:0 1px 5px rgba(31,35,40,.16);
-        animation:rmx-pin-blink 1.8s ease-in-out infinite;}
-      @keyframes rmx-pin-blink{0%,100%{background:var(--bgColor-default,#fff);}50%{background:#c2a000;}}
+        animation:rmx-pin-blink-L 1.8s ease-in-out infinite;}
+      .rmx-pin.rmx-pin-R{animation-name:rmx-pin-blink-R;}
+      @keyframes rmx-pin-blink-L{0%,100%{background:var(--bgColor-default,#fff);}50%{background:#ec4899;}}
+      @keyframes rmx-pin-blink-R{0%,100%{background:var(--bgColor-default,#fff);}50%{background:#7c3aed;}}
       #rmx-pin-top .rmx-pin{border-bottom:1px solid var(--borderColor-muted,#d8dee4);}
       #rmx-pin-bottom .rmx-pin{border-top:1px solid var(--borderColor-muted,#d8dee4);}
-      .rmx-pin .rmx-pin-stripe{width:4px;align-self:stretch;flex:0 0 auto;background:#b59f00;}
+      .rmx-pin .rmx-pin-stripe{width:4px;align-self:stretch;flex:0 0 auto;}
       .rmx-pin .rmx-pin-meta{color:var(--fgColor-muted,#656d76);flex:0 0 auto;}
       .rmx-pin .rmx-pin-code{overflow:hidden;text-overflow:ellipsis;opacity:.92;}
     `;
@@ -179,7 +183,7 @@ RMX.overlay = (function () {
   let selectedIndices = [];
   let blinkOn = false;
   let blinkTimer = null;
-  const BLINK_MS = 550; // per phase (cursor-like)
+  const BLINK_MS = 1500; // per phase (cursor-like)
 
   // Marks every cell of the selected refactoring(s) and sets its fill to the
   // current blink phase. Additive + idempotent, so scroll re-paints just sync
@@ -227,7 +231,7 @@ RMX.overlay = (function () {
   // top edge (when scrolled below them) or bottom edge (above them), stacked in
   // document order. Clones, not the real rows — GitHub virtualizes the table.
   const TOP_ZONE = 56; // approx. height of GitHub's sticky header region
-  const PIN_BLINK_MS = 1800; // bar pulse period (slower than the in-diff blink)
+  const PIN_BLINK_MS = 5000; // bar pulse period (slower than the in-diff blink)
   const blinkEpoch = Date.now(); // shared clock so rebuilt bars stay in phase
   let topLayer = null;
   let bottomLayer = null;
@@ -298,14 +302,16 @@ RMX.overlay = (function () {
       const cat = entry.cell.getAttribute('data-rmx-cat');
       const file = (entry.cell.getAttribute('data-rmx-file') || '').split('/').pop();
 
+      const side = entry.cell.getAttribute('data-rmx-side');
       const bar = document.createElement('div');
-      bar.className = 'rmx-pin';
+      bar.className = 'rmx-pin' + (side ? ' rmx-pin-' + side : '');
       // Negative delay = start mid-cycle at the shared phase, so bars rebuilt on
       // scroll resume the pulse seamlessly instead of restarting it.
+      bar.style.animationDuration = (PIN_BLINK_MS / 1000) + 's';
       bar.style.animationDelay = '-' + (((Date.now() - blinkEpoch) % PIN_BLINK_MS) / 1000) + 's';
       const stripe = document.createElement('span');
       stripe.className = 'rmx-pin-stripe';
-      if (cat && CATS[cat]) stripe.style.background = CATS[cat].bar;
+      stripe.style.background = side === 'L' ? '#be185d' : side === 'R' ? '#6d28d9' : (cat && CATS[cat] ? CATS[cat].bar : '');
       const meta = document.createElement('span');
       meta.className = 'rmx-pin-meta';
       meta.textContent = `${file}:${m[1] || ''}${m[2] || ''}`;
