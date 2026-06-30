@@ -1,10 +1,16 @@
-// Authenticated end-to-end tests against GitHub's new "Preview" diff (/changes) —
-// the logged-in experience (image 2). They exercise the code paths the classic
-// suite can't reach: the data-line-anchor cell resolution, the virtualized diff,
-// and the pinned-line bars that appear when a selected line scrolls out of view.
+// The project's end-to-end suite — driven entirely against GitHub's logged-in
+// "Preview" diff (/changes), the React view real users see day to day and the
+// only view that the extension targets. We load the real extension into Chromium
+// with a saved GitHub session, open the live Pogut/rm-action-test PRs, and assert
+// the overlay paints/behaves from the live gh-pages feed: the full browser path
+// end to end (service-worker cross-origin fetch → content.js → the virtualized
+// data-line-anchor cells), colour mapping, click-to-pair selection on BOTH sides,
+// the left/right side-colour distinction, tooltips, deep links, the attention
+// blink, and the pinned-line bars.
 //
 // These need a saved GitHub session. Capture it once: `npm run test:auth`. Until
-// then the whole file is skipped (so `npm test` stays green when logged out).
+// then the whole suite is skipped (so `npm test` stays green when logged out).
+// (The classic logged-out /files diff is intentionally NOT supported.)
 const { authedTest: test, expect } = require('./fixtures');
 const sb = require('./sandbox');
 const { hasAuth } = require('./auth');
@@ -23,27 +29,99 @@ async function openChanges(page, pr) {
   await waitForOverlay(page);
 }
 
-test('paints on the Preview diff via data-line-anchor', async ({ page }) => {
-  const feed = await sb.fetchFeed(12);
-  await openChanges(page, 12);
+// First single-line right-side location in the feed — guaranteed paintable (a
+// single line is never trimmed as an enclosing container) and addressable by the
+// same hash the action's PR comment links use. Returns null if the feed has none.
+function deepLinkTarget(refactorings) {
+  for (const r of refactorings) {
+    for (const loc of r.rightSideLocations || []) {
+      if (loc.startLine === loc.endLine) {
+        return { filePath: loc.filePath, line: loc.startLine, summaryType: r.type };
+      }
+    }
+  }
+  return null;
+}
 
-  // The Preview diff keys cells with data-line-anchor (not element ids); painted
-  // cells carrying it prove the overlay took the React-diff path, not the classic one.
-  expect(await page.locator('[data-line-anchor^="diff-"]').count(), 'Preview diff anchors present').toBeGreaterThan(0);
-  expect(await page.locator('.rmx-hl[data-line-anchor]').count(), 'painted via the data-line-anchor path').toBeGreaterThan(0);
+// Discover a refactoring whose left AND right cells are both mounted in the live
+// (virtualized) Preview diff, returning their anchors. Self-calibrating so the
+// "both sides" tests don't depend on the diff's exact line layout per PR.
+function findMountedPair(page) {
+  return page.evaluate(() => {
+    const byIdx = {};
+    document.querySelectorAll('.rmx-hl[data-rmx-index]').forEach((el) => {
+      const side = el.getAttribute('data-rmx-side');
+      const anchor = el.getAttribute('data-line-anchor') || el.id;
+      if (!side || !anchor) return;
+      el.getAttribute('data-rmx-index').split(' ').forEach((i) => {
+        byIdx[i] = byIdx[i] || {};
+        byIdx[i][side] = byIdx[i][side] || anchor;
+      });
+    });
+    const i = Object.keys(byIdx).find((k) => byIdx[k].L && byIdx[k].R);
+    return i ? { left: byIdx[i].L, right: byIdx[i].R } : null;
+  });
+}
 
-  const reported = page.rmxLogs.find((l) => l.includes('refactorings'));
-  expect(reported).toContain(`[RMX] ${sb.refactoringsOf(feed).length} refactorings`);
-  await expect(page.locator('#rmx-legend')).toBeVisible();
+// The extension must actually have loaded — proven by its service worker being
+// reachable — before any of the per-PR expectations make sense.
+test('extension service worker boots', async ({ serviceWorker }) => {
+  expect(serviceWorker.url()).toContain('service-worker.js');
 });
 
-// Same colour contract as the classic suite, now on the Preview diff. The React
-// diff virtualizes rows AND content.js debounces its re-paint ~250ms after rows
-// mount, so we scroll the whole diff in steps, pause past that debounce so freshly
-// mounted rows get painted, and accumulate every line's colour before scrolling
-// unmounts it again — then assert from that map. (Addressing a line directly races
-// virtualization; GitHub's Preview diff also won't reliably scroll-to-hash for an
-// off-screen file in headless.)
+// --- per-PR painting from the live feed -------------------------------------
+// For every sandbox PR: the overlay paints on the Preview diff (via the
+// data-line-anchor cell path), only on files the feed actually names, reports the
+// feed's refactoring count, and shows the legend. Assertions are derived from the
+// live feed (sandbox.fetchFeed), not hard-coded, so a feed change surfaces as a
+// real behaviour change rather than a stale number.
+for (const pr of sb.PRS) {
+  test.describe(`PR #${pr.n} (${pr.lang})`, () => {
+    test('paints highlights from the live feed', async ({ page }) => {
+      const feed = await sb.fetchFeed(pr.n);
+      const refactorings = sb.refactoringsOf(feed);
+      const feedFiles = new Set();
+      refactorings.forEach((r) => {
+        (r.leftSideLocations || []).forEach((l) => feedFiles.add(l.filePath));
+        (r.rightSideLocations || []).forEach((l) => feedFiles.add(l.filePath));
+      });
+
+      await openChanges(page, pr.n);
+
+      // Something painted, and via the Preview diff's data-line-anchor cells
+      // (not classic element ids) — proof the overlay took the React-diff path.
+      const cells = page.locator('.rmx-hl');
+      expect(await cells.count()).toBeGreaterThan(0);
+      expect(await page.locator('.rmx-hl[data-line-anchor]').count(), 'painted via the data-line-anchor path').toBeGreaterThan(0);
+
+      // Every painted cell belongs to a file the feed actually names — i.e. the
+      // overlay never colours an unrelated line (a digest/selector mismatch
+      // against live GitHub would surface here).
+      const paintedFiles = await cells.evaluateAll((els) =>
+        Array.from(new Set(els.map((e) => e.getAttribute('data-rmx-file')).filter(Boolean))),
+      );
+      expect(paintedFiles.length).toBeGreaterThan(0);
+      for (const f of paintedFiles) expect(feedFiles).toContain(f);
+
+      // The overlay reported the same refactoring count the feed carries.
+      const reported = page.rmxLogs.find((l) => l.includes('refactorings'));
+      expect(reported, `expected an [RMX] log; got ${JSON.stringify(page.rmxLogs)}`).toBeTruthy();
+      expect(reported).toContain(`[RMX] ${refactorings.length} refactorings`);
+
+      // Legend is shown (the diff has at least one categorised refactoring).
+      await expect(page.locator('#rmx-legend')).toBeVisible();
+      expect(await page.locator('#rmx-legend .rmx-lg-row').count()).toBeGreaterThan(0);
+    });
+  });
+}
+
+// --- colour correctness -----------------------------------------------------
+// Pin specific lines to the exact category (colour) the overlay must paint. The
+// React diff virtualizes rows AND content.js debounces its re-paint ~250ms after
+// rows mount, so we scroll the whole diff in steps, pause past that debounce so
+// freshly mounted rows get painted, and accumulate every line's colour before
+// scrolling unmounts it again — then assert from that map. (Addressing a line
+// directly races virtualization.)
 async function paintedCategories(page) {
   const grab = () =>
     page.evaluate(() => {
@@ -67,7 +145,7 @@ async function paintedCategories(page) {
 }
 
 for (const pr of [...new Set(sb.COLOURS.map((c) => c.pr))]) {
-  test(`PR #${pr}: each rendered line carries the colour matching its refactoring (Preview)`, async ({ page }) => {
+  test(`PR #${pr}: each rendered line carries the colour matching its refactoring`, async ({ page }) => {
     await openChanges(page, pr);
     const painted = await paintedCategories(page);
     const rows = sb.COLOURS.filter((x) => x.pr === pr);
@@ -91,8 +169,7 @@ for (const pr of [...new Set(sb.COLOURS.map((c) => c.pr))]) {
         cat = (await cell.count()) ? await cell.getAttribute('data-rmx-cat') : undefined;
       }
 
-      // Absent line = GitHub's Preview diff didn't render it in headless (the
-      // classic suite verifies this colour exhaustively, so we don't fail on it).
+      // Absent line = GitHub's Preview diff didn't render it in headless.
       // A line that IS rendered but unpainted (cat === null) is a real bug → fails.
       if (cat === undefined) {
         unrendered.push(where);
@@ -103,7 +180,7 @@ for (const pr of [...new Set(sb.COLOURS.map((c) => c.pr))]) {
     }
 
     if (unrendered.length) {
-      console.warn(`  Preview diff didn't render (covered by the classic suite): ${unrendered.join('; ')}`);
+      console.warn(`  Preview diff didn't render these lines in headless: ${unrendered.join('; ')}`);
     }
     // Guard against a vacuous pass: most rows must actually render and verify.
     expect(verified, `only ${verified}/${rows.length} colour rows rendered on the Preview diff`).toBeGreaterThanOrEqual(
@@ -112,30 +189,18 @@ for (const pr of [...new Set(sb.COLOURS.map((c) => c.pr))]) {
   });
 }
 
-// Clicking a highlighted line lights the whole refactoring in gold on BOTH sides.
-// Self-calibrating: we find any refactoring whose left and right are both mounted,
-// so the test doesn't depend on the Preview diff's exact line layout.
-test('clicking a line selects its counterpart on both sides (Preview)', async ({ page }) => {
+// --- click-to-pair selection (the gold "blink on both sides") ---------------
+// Clicking any highlighted line must light the WHOLE refactoring in the gold
+// selection on BOTH sides — so the user sees a change's counterpart. Self-
+// calibrating: we find a refactoring whose left and right are both mounted.
+test('clicking a line selects its counterpart on both sides', async ({ page }) => {
   await openChanges(page, 9);
 
-  const pair = await page.evaluate(() => {
-    const byIdx = {};
-    document.querySelectorAll('.rmx-hl[data-rmx-index]').forEach((el) => {
-      const side = el.getAttribute('data-rmx-side');
-      const anchor = el.getAttribute('data-line-anchor') || el.id;
-      if (!side || !anchor) return;
-      el.getAttribute('data-rmx-index').split(' ').forEach((i) => {
-        byIdx[i] = byIdx[i] || {};
-        byIdx[i][side] = byIdx[i][side] || anchor;
-      });
-    });
-    const i = Object.keys(byIdx).find((k) => byIdx[k].L && byIdx[k].R);
-    return i ? { left: byIdx[i].L, right: byIdx[i].R } : null;
-  });
+  const pair = await findMountedPair(page);
   expect(pair, 'expected a refactoring with both sides mounted on the Preview diff').toBeTruthy();
 
-  const left = page.locator(`[data-line-anchor="${pair.left}"]`).first();
-  const right = page.locator(`[data-line-anchor="${pair.right}"]`).first();
+  const left = page.locator(`[data-line-anchor="${pair.left}"][data-rmx-side="L"]`).first();
+  const right = page.locator(`[data-line-anchor="${pair.right}"][data-rmx-side="R"]`).first();
 
   await expect(right).not.toHaveClass(/rmx-sel/);
   await right.click();
@@ -144,19 +209,111 @@ test('clicking a line selects its counterpart on both sides (Preview)', async ({
   await expect(right, 'gold blink fill applied').toHaveClass(/rmx-on/);
 });
 
-// Pinned-line peek (Preview-only): a selected line that scrolls out of view is
-// mirrored as a floating bar at the top/bottom edge. Select, scroll the diff away,
-// and the bar should appear.
-test('selected lines that scroll away show pinned bars (Preview)', async ({ page }) => {
+// --- left/right side colour distinction -------------------------------------
+// Selecting a refactoring colours BOTH counterpart cells, but the two sides must
+// be visually distinguishable at a glance: the left ("before") cell gets a
+// hot-pink outline + fill, the right ("after") cell a violet one. We assert real
+// *computed* CSS — not just that a class name is present — so a regression that
+// ships the wrong hex value, or swaps the L/R CSS rules, fails here even though
+// the class names would still look correct. Self-calibrating on a mounted pair.
+test('left cell paints hot pink, right cell paints violet, on selection', async ({ page }) => {
   await openChanges(page, 9);
 
-  // Select a refactoring (any painted line will do).
+  const pair = await findMountedPair(page);
+  expect(pair, 'expected a refactoring with both sides mounted on the Preview diff').toBeTruthy();
+
+  // Mirrors src/overlay.js's CSS literals (#be185d/#ec4899 left, #6d28d9/#7c3aed
+  // right) as the rgb() form getComputedStyle() returns them in Chromium.
+  const LEFT_OUTLINE = 'rgb(190, 24, 93)'; //   #be185d
+  const LEFT_FILL = 'rgb(236, 72, 153)'; //     #ec4899
+  const RIGHT_OUTLINE = 'rgb(109, 40, 217)'; // #6d28d9
+  const RIGHT_FILL = 'rgb(124, 58, 237)'; //    #7c3aed
+
+  const left = page.locator(`[data-line-anchor="${pair.left}"][data-rmx-side="L"]`).first();
+  const right = page.locator(`[data-line-anchor="${pair.right}"][data-rmx-side="R"]`).first();
+
+  await right.click();
+  await expect(left).toHaveClass(/rmx-sel/);
+  await expect(right).toHaveClass(/rmx-sel/);
+
+  // The outline (box-shadow) is present in both blink phases, so it's a stable
+  // signal regardless of timing. Web-first toHaveCSS re-resolves each poll, so a
+  // scroll/settle re-paint can't produce a detached-node read.
+  await expect(left, 'left (before) cell outline should be hot pink').toHaveCSS('box-shadow', new RegExp(escapeRe(LEFT_OUTLINE)));
+  await expect(right, 'right (after) cell outline should be violet').toHaveCSS('box-shadow', new RegExp(escapeRe(RIGHT_OUTLINE)));
+
+  // The "on" fill: the blink toggles it, and the background-color transition
+  // means it settles exactly on the fill colour during the on-hold — toHaveCSS
+  // polls until it catches that.
+  await expect(left, 'left fill colour').toHaveCSS('background-color', LEFT_FILL);
+  await expect(right, 'right fill colour').toHaveCSS('background-color', RIGHT_FILL);
+});
+
+function escapeRe(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// --- tooltip + deep link (exercised on PR #14, the richest feed) ------------
+test.describe('PR #14 interactions', () => {
+  const PR = 14;
+
+  test('tooltip shows the refactoring description on hover', async ({ page }) => {
+    await openChanges(page, PR);
+
+    const cell = page.locator('.rmx-hl[data-rmx-desc]').first();
+    await cell.scrollIntoViewIfNeeded();
+    const expected = await cell.getAttribute('data-rmx-desc');
+    expect(expected, 'highlighted cell should carry a description').toBeTruthy();
+
+    await cell.hover();
+    const tip = page.locator('.rmx-tip');
+    await expect(tip).toHaveText(expected, { timeout: 5_000 });
+    await expect(tip).toHaveCSS('opacity', '1');
+  });
+
+  test('action comment-link hash selects the refactoring it points at', async ({ page }) => {
+    const feed = await sb.fetchFeed(PR);
+    const target = deepLinkTarget(sb.refactoringsOf(feed));
+    expect(target, 'feed should have a single-line right location to deep-link to').toBeTruthy();
+
+    const anchor = sb.lineAnchor(target.filePath, 'R', target.line);
+    await page.goto(`${sb.changesUrl(PR)}#${anchor}`, { waitUntil: 'domcontentloaded' });
+    expect(page.url(), 'session should keep us on /changes').toContain('/changes');
+    await waitForOverlay(page);
+
+    // The Preview diff virtualizes rows: bring the target file into view so the
+    // line mounts and gets painted, then the re-paint's handleDeepLink selects it.
+    const file = page.locator(`#diff-${sb.digest(target.filePath)}, [data-line-anchor="diff-${sb.digest(target.filePath)}"]`).first();
+    if (await file.count()) {
+      await file.scrollIntoViewIfNeeded().catch(() => {});
+      await page.waitForTimeout(500);
+    }
+
+    const cell = page.locator(`[data-line-anchor="${anchor}"][data-rmx-side="R"], #${anchor}`).first();
+    await expect(cell).toHaveClass(/rmx-hl/, { timeout: 10_000 });
+    await expect(cell).toHaveClass(/rmx-sel/, { timeout: 10_000 });
+  });
+});
+
+// NOTE: the classic suite measured the attention blink's fast-then-slow CADENCE
+// by counting `class`-attribute mutations on the selected cell. That isn't
+// portable to the live Preview diff: GitHub's React diff rewrites a row's
+// className on its own re-renders (and content.js re-paints ~every 250ms), so the
+// selected cell's `class` mutates independently of the blink and swamps the
+// signal. The blink's actual effect — the gold `rmx-on` fill applied on
+// selection — is still asserted by the click-to-pair and left/right tests above.
+
+// --- pinned-line bars (Preview-only) ----------------------------------------
+// A selected line that scrolls out of view is mirrored as a floating bar at the
+// top/bottom edge.
+test('selected lines that scroll away show pinned bars', async ({ page }) => {
+  await openChanges(page, 9);
+
   const first = page.locator('.rmx-hl[data-rmx-index]').first();
   await first.scrollIntoViewIfNeeded();
   await first.click();
   await expect(page.locator('.rmx-sel').first()).toBeVisible();
 
-  // Scroll far enough that the selection leaves the viewport.
   await page.mouse.move(640, 400); // put the cursor over the diff so the wheel scrolls it
   for (let i = 0; i < 6; i++) await page.mouse.wheel(0, 1200);
 
@@ -167,10 +324,7 @@ test('selected lines that scroll away show pinned bars (Preview)', async ({ page
 });
 
 // Select a refactoring and scroll it off-screen far enough that a pinned bar
-// (and its toggle) appears. Shared setup for the three tests below — returns
-// whichever stack ('#rmx-pin-top' or '#rmx-pin-bottom') actually got the bar,
-// since which edge it lands on depends on where the selected line started
-// relative to the viewport, not something worth hard-coding per PR.
+// (and its toggle) appears. Shared setup — returns whichever stack got the bar.
 async function selectAndPinOffscreen(page, pr) {
   await openChanges(page, pr);
   const first = page.locator('.rmx-hl[data-rmx-index]').first();
@@ -190,12 +344,10 @@ async function selectAndPinOffscreen(page, pr) {
   return page.locator(isTop ? '#rmx-pin-top' : '#rmx-pin-bottom');
 }
 
-// --- pinned bar colour matches side (Preview-only) --------------------------
 // The pinned bar's left stripe must use the same side colour as the inline
-// highlight (pink for left/before, violet for right/after, src/overlay.js),
-// so the cue stays consistent wherever a selected line surfaces — inline or
-// pinned. Checked via real computed CSS, not just the rmx-pin-L/R class name.
-test('pinned bars use the side colour — left pink, right violet (Preview)', async ({ page }) => {
+// highlight (pink for left/before, violet for right/after), so the cue stays
+// consistent wherever a selected line surfaces. Checked via real computed CSS.
+test('pinned bars use the side colour — left pink, right violet', async ({ page }) => {
   const stack = await selectAndPinOffscreen(page, 9);
   const pin = stack.locator('.rmx-pin').first();
 
@@ -206,24 +358,21 @@ test('pinned bars use the side colour — left pink, right violet (Preview)', as
 
   const expected = side === 'L' ? 'rgb(190, 24, 93)' : 'rgb(109, 40, 217)'; // #be185d / #6d28d9
   // Web-first, auto-retrying: re-resolves the stripe on every poll. Scroll/settle
-  // events on the live Preview diff keep firing renderStack(), which removes and
-  // recreates the .rmx-pin bars (src/overlay.js); reading computed style through a
-  // manually-held handle could hit a detached node — getComputedStyle then returns
-  // "" for every property. toHaveCSS re-queries each poll, so a mid-flight re-paint
-  // is retried instead of failing.
+  // events keep firing renderStack(), which removes and recreates the .rmx-pin
+  // bars (src/overlay.js); reading computed style through a manually-held handle
+  // could hit a detached node — getComputedStyle then returns "" for every
+  // property. toHaveCSS re-queries each poll, so a mid-flight re-paint is retried.
   await expect(
     pin.locator('.rmx-pin-stripe'),
     `${side === 'L' ? 'left' : 'right'} pin stripe colour`,
   ).toHaveCSS('background-color', expected);
 });
 
-// --- collapsible pinned-bar toggle (Preview-only) ---------------------------
-// Each pin stack has a persistent toggle ("▲/▼ N lines off screen") at the
-// content-facing edge that collapses/expands its bars without clearing the
-// selection. We assert the bar rows actually appear/disappear from the DOM
-// (renderStack() adds/removes .rmx-pin elements) — not just a CSS class on
-// the layer — and that the caret flips direction to reflect the new state.
-test('the pinned-bar toggle collapses and re-expands the stack (Preview)', async ({ page }) => {
+// Each pin stack has a persistent toggle ("▲/▼ N lines off screen") that
+// collapses/expands its bars without clearing the selection. We assert the bar
+// rows actually appear/disappear from the DOM (not just a CSS class on the layer)
+// and that the caret flips direction to reflect the new state.
+test('the pinned-bar toggle collapses and re-expands the stack', async ({ page }) => {
   const stack = await selectAndPinOffscreen(page, 9);
   const toggle = stack.locator('.rmx-pin-toggle');
 
@@ -252,18 +401,15 @@ test('the pinned-bar toggle collapses and re-expands the stack (Preview)', async
 // (`layer.textContent = ''`), destroying and recreating the toggle element on
 // every scroll tick — so :hover state was lost mid-hover, producing a visible
 // flicker. The fix made the toggle a node created once in ensurePinLayers();
-// renderStack() now only removes/rebuilds the .rmx-pin bar rows and leaves
-// the toggle alone.
+// renderStack() now only removes/rebuilds the .rmx-pin bar rows.
 //
 // We can't observe ":hover didn't flicker" from outside the browser, but DOM
-// node identity is a precise, equivalent proxy: tag the live toggle element
-// with a throwaway JS property (deliberately NOT a DOM attribute — an
-// attribute could in principle be copied during a refactor; a plain JS
-// property set via assignment can only ever live on the exact object it was
-// set on, so it cannot survive a remove()+createElement() cycle). If a future
-// change reintroduces wholesale layer clearing, this test fails because the
-// tag is gone after the next forced re-paint.
-test('the pinned-bar toggle DOM node survives scroll-triggered re-paints (Preview)', async ({ page }) => {
+// node identity is a precise proxy: tag the live toggle with a throwaway JS
+// property (NOT a DOM attribute — a plain JS property set via assignment can only
+// live on the exact object it was set on, so it cannot survive a
+// remove()+createElement() cycle). If a future change reintroduces wholesale
+// layer clearing, this fails because the tag is gone after the next re-paint.
+test('the pinned-bar toggle DOM node survives scroll-triggered re-paints', async ({ page }) => {
   await selectAndPinOffscreen(page, 9);
 
   const tagged = await page.evaluate(() => {
@@ -274,10 +420,8 @@ test('the pinned-bar toggle DOM node survives scroll-triggered re-paints (Previe
   });
   expect(tagged, 'expected a toggle element to tag').toBe(true);
 
-  // Force several more scroll-driven re-paints — updatePins()/renderStack()
-  // run unconditionally on every captured scroll event while a selection is
-  // active (src/overlay.js), so this reliably re-exercises the exact code
-  // path that used to wipe the toggle, without needing a large scroll.
+  // Force several more scroll-driven re-paints — updatePins()/renderStack() run
+  // unconditionally on every captured scroll event while a selection is active.
   for (let i = 0; i < 6; i++) {
     await page.mouse.wheel(0, 200);
     await page.waitForTimeout(50);
