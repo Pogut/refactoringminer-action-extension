@@ -181,3 +181,151 @@ test.describe('click-to-pair selection', () => {
     await expect(dst, 'counterpart on the OTHER side is selected too').toHaveClass(/rmx-sel/);
   });
 });
+
+// --- left/right side colour distinction -------------------------------------
+// Selecting a refactoring colours BOTH counterpart cells, but the two sides
+// must be visually distinguishable at a glance: the left ("before") cell gets
+// a hot-pink outline + fill, the right ("after") cell gets a violet one. We
+// assert real *computed* CSS — not just that a class name is present — so a
+// regression that ships the wrong hex value, or swaps the L/R CSS rules,
+// fails here even though the class names would still look correct.
+//
+// Re-uses PR #9's Move Attribute pair from the click-to-pair test above
+// (source=left in CustomerProfile.java, destination=right in Address.java —
+// different files), so "which cell is left vs right" is unambiguous.
+test.describe('left/right side colour distinction', () => {
+  const PR = 9;
+  const SRC = sb.lineAnchor('CustomerProfile.java', 'L', 3); // movedOut (source, LEFT)
+  const DST = sb.lineAnchor('Address.java', 'R', 2); //         movedIn (destination, RIGHT)
+
+  // Mirrors src/overlay.js's CSS literals (#be185d/#ec4899 left, #6d28d9/#7c3aed
+  // right) as the rgb() form getComputedStyle() returns them in Chromium.
+  const LEFT_OUTLINE = 'rgb(190, 24, 93)'; //   #be185d
+  const LEFT_FILL = 'rgb(236, 72, 153)'; //     #ec4899
+  const RIGHT_OUTLINE = 'rgb(109, 40, 217)'; // #6d28d9
+  const RIGHT_FILL = 'rgb(124, 58, 237)'; //    #7c3aed
+
+  test('left cell paints hot pink, right cell paints violet, on selection', async ({ page }) => {
+    await page.goto(sb.filesUrl(PR), { waitUntil: 'domcontentloaded' });
+    await waitForOverlay(page);
+
+    await codeCellOf(page, DST).click(); // selects both SRC (left) and DST (right)
+
+    const src = page.locator(`#${SRC}`);
+    const dst = page.locator(`#${DST}`);
+    await expect(src).toHaveClass(/rmx-sel/);
+    await expect(dst).toHaveClass(/rmx-sel/);
+
+    // The outline (box-shadow) is present in both blink phases, so it's a
+    // stable signal regardless of timing. Checked as a substring because the
+    // shorthand also carries the offset/blur/spread values around the colour.
+    const srcShadow = await src.evaluate((el) => getComputedStyle(el).boxShadow);
+    const dstShadow = await dst.evaluate((el) => getComputedStyle(el).boxShadow);
+    expect(srcShadow, 'left (before) cell outline should be hot pink').toContain(LEFT_OUTLINE);
+    expect(dstShadow, 'right (after) cell outline should be violet').toContain(RIGHT_OUTLINE);
+
+    // select() sets blinkOn = true synchronously, before any timer fires, so
+    // the "on" fill is already applied by the time .click() resolves —
+    // checking it needs no wait (same guarantee the click-to-pair test above
+    // relies on for `rmx-on`).
+    await expect(src, 'left cell carries the on-phase class').toHaveClass(/rmx-on/);
+    await expect(dst, 'right cell carries the on-phase class').toHaveClass(/rmx-on/);
+    await expect(src, 'left fill colour').toHaveCSS('background-color', LEFT_FILL);
+    await expect(dst, 'right fill colour').toHaveCSS('background-color', RIGHT_FILL);
+  });
+});
+
+// --- attention blink: fast first, then settles into a slow pulse -----------
+// On selection the fill blinks fast for a few cycles to catch the user's eye,
+// then settles into the slow synced pulse shared with the pinned bars
+// (src/overlay.js: ATTENTION_BLINKS, BLINK_FAST_MS, BLINK_MS). Exact timings
+// are a UX-tuning detail, so rather than pinning millisecond gaps we assert
+// the SHAPE of the toggle-rate curve: many class-toggle events bunched in the
+// first ~1.5s, then a clearly lower rate for the next ~2.5s. That holds even
+// if the constants are retuned by ~100ms, and only breaks if the fast-then-
+// slow behaviour itself regresses (e.g. reverting to one constant rate).
+//
+// Measurement: a MutationObserver is attached to the selected cell's `class`
+// attribute from INSIDE the page (page.evaluate), not polled from Playwright,
+// so the captured timestamps reflect real browser timer/paint timing instead
+// of Playwright↔browser round-trip jitter. Every classList.add/toggle call in
+// overlay.js's select()/fastTick()/slowTick() mutates `class`; synchronous
+// mutations to the same attribute within one task coalesce into a single
+// MutationObserver record, so one record == one user-visible blink state
+// change (the very first record is the click itself).
+//
+// page.evaluate's returned promise only resolves once the in-page promise
+// does (after the full observation window), so it's started WITHOUT an
+// `await` and raced against the click via Promise.all — awaiting it first
+// would block Playwright before the click ever happened.
+test.describe('attention blink (fast-then-slow)', () => {
+  const PR = 9;
+  const TARGET = sb.lineAnchor('CustomerProfile.java', 'L', 3);
+  const FAST_WINDOW_MS = 1500; //   generous vs. the ~1s attention phase the feature targets
+  const TOTAL_OBSERVE_MS = 4000; // FAST_WINDOW_MS + a slow-phase sampling window
+
+  test('toggles several times quickly, then drops to a slow steady pulse', async ({ page }) => {
+    await page.goto(sb.filesUrl(PR), { waitUntil: 'domcontentloaded' });
+    await waitForOverlay(page);
+
+    const [timestamps] = await Promise.all([
+      page.evaluate(
+        ({ sel, totalMs }) =>
+          new Promise((resolve) => {
+            const target = document.querySelector(sel);
+            const t0 = performance.now();
+            const stamps = [];
+            const mo = new MutationObserver(() => stamps.push(performance.now() - t0));
+            mo.observe(target, { attributes: true, attributeFilter: ['class'] });
+            setTimeout(() => {
+              mo.disconnect();
+              resolve(stamps);
+            }, totalMs);
+          }),
+        { sel: `#${TARGET}`, totalMs: TOTAL_OBSERVE_MS },
+      ),
+      (async () => {
+        await page.waitForTimeout(50); // let the observer attach before the click fires
+        await codeCellOf(page, TARGET).click();
+      })(),
+    ]);
+
+    expect(timestamps.length, `expected several class-toggle events, got ${JSON.stringify(timestamps)}`).toBeGreaterThan(3);
+
+    const fast = timestamps.filter((t) => t <= FAST_WINDOW_MS);
+    const slow = timestamps.filter((t) => t > FAST_WINDOW_MS);
+
+    // Attention phase = 3 blinks = 6 toggles, plus the initial click toggle =
+    // 7 events expected; assert a generous lower bound so CI jitter can't flake it.
+    expect(
+      fast.length,
+      `expected several fast toggles within ${FAST_WINDOW_MS}ms, got ${JSON.stringify(timestamps)}`,
+    ).toBeGreaterThanOrEqual(5);
+
+    // Each gap between fast-phase toggles should be well under the slow
+    // pulse's 2500ms half-cycle — this characterises them as actually "fast",
+    // not merely "early".
+    const fastGaps = fast.slice(1).map((t, i) => t - fast[i]);
+    for (const gap of fastGaps) {
+      expect(gap, `fast-phase gap of ${gap}ms should be well under the slow pulse rate`).toBeLessThan(600);
+    }
+
+    // After the attention window the toggle rate must drop sharply: a steady
+    // pulse ticks roughly once per 2500ms half-cycle, so at most a couple of
+    // slow-phase ticks should land in the remaining ~2.5s.
+    expect(
+      slow.length,
+      `expected the blink to slow down after ${FAST_WINDOW_MS}ms, got ${JSON.stringify(timestamps)}`,
+    ).toBeLessThanOrEqual(2);
+
+    // The core contract: toggle RATE during attention must be unambiguously
+    // higher than the steady-state rate — not just "more events" (a longer
+    // window would trivially have more), but more per second.
+    const fastRate = fast.length / (FAST_WINDOW_MS / 1000);
+    const slowRate = slow.length / ((TOTAL_OBSERVE_MS - FAST_WINDOW_MS) / 1000);
+    const minRequiredFastRate = Math.max(slowRate * 3, 1);
+    expect(fastRate, 'attention-phase blink rate should be much higher than the steady pulse').toBeGreaterThan(
+      minRequiredFastRate,
+    );
+  });
+});
