@@ -165,3 +165,130 @@ test('selected lines that scroll away show pinned bars (Preview)', async ({ page
     'a pinned bar should mirror the off-screen selected line',
   ).toBeVisible({ timeout: 10_000 });
 });
+
+// Select a refactoring and scroll it off-screen far enough that a pinned bar
+// (and its toggle) appears. Shared setup for the three tests below — returns
+// whichever stack ('#rmx-pin-top' or '#rmx-pin-bottom') actually got the bar,
+// since which edge it lands on depends on where the selected line started
+// relative to the viewport, not something worth hard-coding per PR.
+async function selectAndPinOffscreen(page, pr) {
+  await openChanges(page, pr);
+  const first = page.locator('.rmx-hl[data-rmx-index]').first();
+  await first.scrollIntoViewIfNeeded();
+  await first.click();
+  await expect(page.locator('.rmx-sel').first()).toBeVisible();
+
+  await page.mouse.move(640, 400); // cursor over the diff so the wheel scrolls it
+  for (let i = 0; i < 6; i++) await page.mouse.wheel(0, 1200);
+
+  await expect(
+    page.locator('#rmx-pin-top .rmx-pin, #rmx-pin-bottom .rmx-pin').first(),
+    'a pinned bar should mirror the off-screen selected line',
+  ).toBeVisible({ timeout: 10_000 });
+
+  const isTop = await page.locator('#rmx-pin-top .rmx-pin').count();
+  return page.locator(isTop ? '#rmx-pin-top' : '#rmx-pin-bottom');
+}
+
+// --- pinned bar colour matches side (Preview-only) --------------------------
+// The pinned bar's left stripe must use the same side colour as the inline
+// highlight (pink for left/before, violet for right/after, src/overlay.js),
+// so the cue stays consistent wherever a selected line surfaces — inline or
+// pinned. Checked via real computed CSS, not just the rmx-pin-L/R class name.
+test('pinned bars use the side colour — left pink, right violet (Preview)', async ({ page }) => {
+  const stack = await selectAndPinOffscreen(page, 9);
+  const pin = stack.locator('.rmx-pin').first();
+
+  const side = await pin.evaluate((el) =>
+    el.classList.contains('rmx-pin-L') ? 'L' : el.classList.contains('rmx-pin-R') ? 'R' : null,
+  );
+  expect(side, 'pinned bar should carry a side class (rmx-pin-L or rmx-pin-R)').toBeTruthy();
+
+  const expected = side === 'L' ? 'rgb(190, 24, 93)' : 'rgb(109, 40, 217)'; // #be185d / #6d28d9
+  // Web-first, auto-retrying: re-resolves the stripe on every poll. Scroll/settle
+  // events on the live Preview diff keep firing renderStack(), which removes and
+  // recreates the .rmx-pin bars (src/overlay.js); reading computed style through a
+  // manually-held handle could hit a detached node — getComputedStyle then returns
+  // "" for every property. toHaveCSS re-queries each poll, so a mid-flight re-paint
+  // is retried instead of failing.
+  await expect(
+    pin.locator('.rmx-pin-stripe'),
+    `${side === 'L' ? 'left' : 'right'} pin stripe colour`,
+  ).toHaveCSS('background-color', expected);
+});
+
+// --- collapsible pinned-bar toggle (Preview-only) ---------------------------
+// Each pin stack has a persistent toggle ("▲/▼ N lines off screen") at the
+// content-facing edge that collapses/expands its bars without clearing the
+// selection. We assert the bar rows actually appear/disappear from the DOM
+// (renderStack() adds/removes .rmx-pin elements) — not just a CSS class on
+// the layer — and that the caret flips direction to reflect the new state.
+test('the pinned-bar toggle collapses and re-expands the stack (Preview)', async ({ page }) => {
+  const stack = await selectAndPinOffscreen(page, 9);
+  const toggle = stack.locator('.rmx-pin-toggle');
+
+  await expect(toggle, 'toggle should appear once a line is pinned').toBeVisible();
+  await expect(toggle).toContainText(/lines? off screen/);
+
+  const barsBefore = await stack.locator('.rmx-pin').count();
+  expect(barsBefore, 'bars should be visible before collapsing').toBeGreaterThan(0);
+  const caretBefore = await toggle.locator('.rmx-pin-toggle-caret').textContent();
+
+  await toggle.click();
+  await expect(stack.locator('.rmx-pin'), 'bars removed from the DOM while collapsed').toHaveCount(0);
+  await expect(toggle, 'the toggle itself must stay visible while collapsed').toBeVisible();
+  const caretAfterCollapse = await toggle.locator('.rmx-pin-toggle-caret').textContent();
+  expect(caretAfterCollapse, 'caret should flip direction on collapse').not.toBe(caretBefore);
+
+  await toggle.click();
+  await expect(stack.locator('.rmx-pin').first(), 'bars rebuilt on expand').toBeVisible();
+  expect(await stack.locator('.rmx-pin').count()).toBe(barsBefore);
+  const caretAfterExpand = await toggle.locator('.rmx-pin-toggle-caret').textContent();
+  expect(caretAfterExpand, 'caret should flip back on re-expand').toBe(caretBefore);
+});
+
+// --- toggle DOM-node persistence — regression test for the hover-glitch fix -
+// Bug history: scroll-driven re-paints used to rebuild the WHOLE pin layer
+// (`layer.textContent = ''`), destroying and recreating the toggle element on
+// every scroll tick — so :hover state was lost mid-hover, producing a visible
+// flicker. The fix made the toggle a node created once in ensurePinLayers();
+// renderStack() now only removes/rebuilds the .rmx-pin bar rows and leaves
+// the toggle alone.
+//
+// We can't observe ":hover didn't flicker" from outside the browser, but DOM
+// node identity is a precise, equivalent proxy: tag the live toggle element
+// with a throwaway JS property (deliberately NOT a DOM attribute — an
+// attribute could in principle be copied during a refactor; a plain JS
+// property set via assignment can only ever live on the exact object it was
+// set on, so it cannot survive a remove()+createElement() cycle). If a future
+// change reintroduces wholesale layer clearing, this test fails because the
+// tag is gone after the next forced re-paint.
+test('the pinned-bar toggle DOM node survives scroll-triggered re-paints (Preview)', async ({ page }) => {
+  await selectAndPinOffscreen(page, 9);
+
+  const tagged = await page.evaluate(() => {
+    const toggle = document.querySelector('#rmx-pin-top .rmx-pin-toggle, #rmx-pin-bottom .rmx-pin-toggle');
+    if (!toggle) return false;
+    toggle.__rmxTestTag = 'stable-node';
+    return true;
+  });
+  expect(tagged, 'expected a toggle element to tag').toBe(true);
+
+  // Force several more scroll-driven re-paints — updatePins()/renderStack()
+  // run unconditionally on every captured scroll event while a selection is
+  // active (src/overlay.js), so this reliably re-exercises the exact code
+  // path that used to wipe the toggle, without needing a large scroll.
+  for (let i = 0; i < 6; i++) {
+    await page.mouse.wheel(0, 200);
+    await page.waitForTimeout(50);
+  }
+
+  const stillTagged = await page.evaluate(
+    () =>
+      document.querySelector('#rmx-pin-top .rmx-pin-toggle, #rmx-pin-bottom .rmx-pin-toggle')?.__rmxTestTag ===
+      'stable-node',
+  );
+  expect(stillTagged, 'toggle element identity should survive re-paints — recreation would lose this JS-only tag').toBe(
+    true,
+  );
+});
