@@ -73,6 +73,8 @@ RMX.overlay = (function () {
       .rmx-pin.rmx-pin-R{animation-name:rmx-pin-blink-R;}
       @keyframes rmx-pin-blink-L{0%,100%{background:var(--bgColor-default,#fff);}50%{background:#ec4899;}}
       @keyframes rmx-pin-blink-R{0%,100%{background:var(--bgColor-default,#fff);}50%{background:#7c3aed;}}
+      @keyframes rmx-pin-fast-L{0%,49%{background:var(--bgColor-default,#fff);}50%,100%{background:#ec4899;}}
+      @keyframes rmx-pin-fast-R{0%,49%{background:var(--bgColor-default,#fff);}50%,100%{background:#7c3aed;}}
       #rmx-pin-top .rmx-pin{border-bottom:1px solid var(--borderColor-muted,#d8dee4);}
       #rmx-pin-bottom .rmx-pin{border-top:1px solid var(--borderColor-muted,#d8dee4);}
       .rmx-pin .rmx-pin-stripe{width:4px;align-self:stretch;flex:0 0 auto;}
@@ -192,48 +194,72 @@ RMX.overlay = (function () {
   let selectedIndices = [];
   let blinkOn = false;
   let blinkTimer = null;
-  const BLINK_MS = 2500; // half-cycle — matches half of PIN_BLINK_MS so full period = 5s
+  let inAttentionPhase = false;
+  const ATTENTION_BLINKS = 3;   // number of fast blinks before settling into slow pulse
+  const BLINK_FAST_MS = 167;    // per phase during attention (~3 blinks in ~1 second)
+  const BLINK_MS = 2500;        // half-cycle — matches half of PIN_BLINK_MS so full period = 5s
 
   // Marks every cell of the selected refactoring(s) and sets its fill to the
   // current blink phase. Additive + idempotent, so scroll re-paints just sync
-  // newly mounted cells to the current phase. SEL keeps the gold outline always;
-  // ON (the darker-yellow fill) is what blinks off and on.
+  // newly mounted cells to the current phase. SEL keeps the outline always;
+  // ON (the fill) is what blinks. During the attention phase transitions are
+  // suppressed so the fast blink is a crisp binary flash.
   function applySelection() {
     selectedIndices.forEach((i) => {
       document.querySelectorAll(`.${CLASS}[data-rmx-index~="${i}"]`).forEach((el) => {
         el.classList.add(SEL);
         el.classList.toggle(ON, blinkOn);
+        el.style.transitionDuration = inAttentionPhase ? '0s' : '';
       });
     });
-    schedulePins(); // refresh the pinned-line peek as cells (re)mount
+    schedulePins();
   }
 
   function removeSelectionClasses() {
-    document.querySelectorAll('.' + SEL).forEach((el) => el.classList.remove(SEL, ON));
+    document.querySelectorAll('.' + SEL).forEach((el) => {
+      el.classList.remove(SEL, ON);
+      el.style.transitionDuration = '';
+    });
   }
 
-  // Select on click: blink the fill in phase with the pinned bars' CSS animation.
   function select(indices) {
     removeSelectionClasses();
     selectedIndices = indices.slice();
     clearTimeout(blinkTimer);
 
-    // Align to the shared blinkEpoch clock so inline and pinned bars pulse together.
-    const elapsed = (Date.now() - blinkEpoch) % PIN_BLINK_MS;
-    blinkOn = elapsed < BLINK_MS;
+    // Phase 1: ATTENTION_BLINKS fast crisp flashes to grab the user's eye.
+    inAttentionPhase = true;
+    blinkOn = true;
     applySelection();
-
-    const timeUntilNext = blinkOn ? (BLINK_MS - elapsed) : (PIN_BLINK_MS - elapsed);
-    function tick() {
+    let togglesLeft = ATTENTION_BLINKS * 2; // each blink = one on + one off toggle
+    function fastTick() {
       blinkOn = !blinkOn;
       document.querySelectorAll(`.${CLASS}.${SEL}`).forEach((el) => el.classList.toggle(ON, blinkOn));
-      blinkTimer = setTimeout(tick, BLINK_MS);
+      if (--togglesLeft > 0) {
+        blinkTimer = setTimeout(fastTick, BLINK_FAST_MS);
+        return;
+      }
+      // Phase 2: attention done — restore transitions and settle into slow synced pulse.
+      inAttentionPhase = false;
+      document.querySelectorAll(`.${CLASS}.${SEL}`).forEach((el) => { el.style.transitionDuration = ''; });
+      schedulePins();
+      const elapsed = (Date.now() - blinkEpoch) % PIN_BLINK_MS;
+      blinkOn = elapsed < BLINK_MS;
+      document.querySelectorAll(`.${CLASS}.${SEL}`).forEach((el) => el.classList.toggle(ON, blinkOn));
+      const timeUntilNext = blinkOn ? (BLINK_MS - elapsed) : (PIN_BLINK_MS - elapsed);
+      function slowTick() {
+        blinkOn = !blinkOn;
+        document.querySelectorAll(`.${CLASS}.${SEL}`).forEach((el) => el.classList.toggle(ON, blinkOn));
+        blinkTimer = setTimeout(slowTick, BLINK_MS);
+      }
+      blinkTimer = setTimeout(slowTick, timeUntilNext);
     }
-    blinkTimer = setTimeout(tick, timeUntilNext);
+    blinkTimer = setTimeout(fastTick, BLINK_FAST_MS);
   }
 
   function clearSelection() {
     clearTimeout(blinkTimer);
+    inAttentionPhase = false;
     selectedIndices = [];
     blinkOn = false;
     removeSelectionClasses();
@@ -359,8 +385,16 @@ RMX.overlay = (function () {
         bar.className = 'rmx-pin' + (side ? ' rmx-pin-' + side : '');
         // Negative delay = start mid-cycle at the shared phase, so bars rebuilt on
         // scroll resume the pulse seamlessly instead of restarting it.
-        bar.style.animationDuration = (PIN_BLINK_MS / 1000) + 's';
-        bar.style.animationDelay = '-' + (((Date.now() - blinkEpoch) % PIN_BLINK_MS) / 1000) + 's';
+        if (inAttentionPhase) {
+          const fastPeriod = BLINK_FAST_MS * 2;
+          bar.style.animationName = side === 'R' ? 'rmx-pin-fast-R' : 'rmx-pin-fast-L';
+          bar.style.animationDuration = (fastPeriod / 1000) + 's';
+          bar.style.animationTimingFunction = 'linear';
+          bar.style.animationDelay = '-' + ((Date.now() - blinkEpoch) % fastPeriod / 1000) + 's';
+        } else {
+          bar.style.animationDuration = (PIN_BLINK_MS / 1000) + 's';
+          bar.style.animationDelay = '-' + (((Date.now() - blinkEpoch) % PIN_BLINK_MS) / 1000) + 's';
+        }
         const stripe = document.createElement('span');
         stripe.className = 'rmx-pin-stripe';
         stripe.style.background = side === 'L' ? '#be185d' : side === 'R' ? '#6d28d9' : (cat && CATS[cat] ? CATS[cat].bar : '');
