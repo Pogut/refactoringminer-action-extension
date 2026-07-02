@@ -506,7 +506,7 @@ RMX.overlay = (function () {
       panel.id = 'rmx-legend';
       const head = document.createElement('div');
       head.className = 'rmx-lg-head';
-      head.innerHTML = '<span>Refactorings</span><span class="rmx-lg-caret">▾</span>';
+      head.innerHTML = '<span>Legend</span><span class="rmx-lg-caret">▾</span>';
       head.addEventListener('click', () => panel.classList.toggle('rmx-collapsed'));
       const body = document.createElement('div');
       body.className = 'rmx-lg-body';

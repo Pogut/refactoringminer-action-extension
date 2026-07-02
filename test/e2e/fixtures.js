@@ -53,6 +53,13 @@ function makeTest(authed) {
     // `[RMX] N refactorings, M line-spans highlighted`, which we assert on).
     page: async ({ context, serviceWorker }, use) => {
       const page = await context.newPage();
+      // GitHub's own analytics beacon (collector.github.com/github/collect)
+      // intermittently 503s, which shows up as a "Failed to load resource" error
+      // in the console/UI-mode panel — pure noise from GitHub, unrelated to the
+      // extension. Short-circuit it with an empty 204 so it never errors.
+      await page.route('https://collector.github.com/**', (route) =>
+        route.fulfill({ status: 204, body: '' }),
+      );
       page.rmxLogs = [];
       page.on('console', (msg) => {
         const t = msg.text();
