@@ -53,12 +53,11 @@ var RMX = window.RMX || (window.RMX = {});
     }
   }
 
-  // Tear down overlays + legend when we land on a page with nothing to show
-  // (e.g. navigating away from the PR diff via Turbo).
+  // Tear down tagged cells + any selection when we land on a page with nothing
+  // to show (e.g. navigating away from the PR diff via Turbo).
   function deactivate() {
     currentRefactorings = null;
     RMX.overlay.clearAll();
-    RMX.overlay.hideLegend();
   }
 
   // The action publishes RefactoringMiner's native export `{ url, refactorings }`;
@@ -73,13 +72,13 @@ var RMX = window.RMX || (window.RMX = {});
   // --- rendering ------------------------------------------------------------
 
   // `additive` re-paints without clearing first — used by the scroll observer so
-  // existing highlights and the neon selection (and its fade) aren't disturbed
-  // as the virtualized diff mounts new rows.
+  // the tagged cells and the neon selection (and its fade) aren't disturbed as
+  // the virtualized diff mounts new rows.
   async function render(refactorings, additive) {
     if (!additive) RMX.overlay.clearAll();
     RMX.overlay.installTooltip();
 
-    // Precompute each file's digest (sha256(path)) once so painting is sync.
+    // Precompute each file's digest (sha256(path)) once so tagging is sync.
     const paths = new Set();
     refactorings.forEach((r) => {
       (r.leftSideLocations || []).forEach((cr) => paths.add(cr.filePath));
@@ -92,38 +91,39 @@ var RMX = window.RMX || (window.RMX = {});
       }),
     );
 
-    const used = new Set();
-    let painted = 0;
-    // Track every cell this pass paints, then drop highlights left on cells that
+    let tagged = 0;
+    // Track every cell this pass tags, then drop tags left on cells that
     // virtualization recycled to a non-target line (see overlay.startPass).
     RMX.overlay.startPass();
     refactorings.forEach((r, index) => {
       const summary = summarize(r);
-      painted += paintSide(r.leftSideLocations, 'L', r.type, summary, index, digests, used);
-      painted += paintSide(r.rightSideLocations, 'R', r.type, summary, index, digests, used);
+      tagged += paintSide(r.leftSideLocations, 'L', summary, index, digests);
+      tagged += paintSide(r.rightSideLocations, 'R', summary, index, digests);
     });
     RMX.overlay.endPass();
 
-    RMX.overlay.showLegend(Array.from(used));
     RMX.overlay.applySelection(); // re-apply neon selection to any newly mounted cells
-    console.info(`[RMX] ${refactorings.length} refactorings, ${painted} line-spans highlighted`);
+    console.info(`[RMX] ${refactorings.length} refactorings, ${tagged} line-spans tagged`);
     handleDeepLink();
   }
 
-  function paintSide(locations, side, type, summary, index, digests, used) {
+  // Tags the diff cells for each of a side's locations so the click/deep-link
+  // selection can find and blink them. Cells carry no visible style until
+  // selected — only the refactoring index, side, file, and hover summary.
+  function paintSide(locations, side, summary, index, digests) {
     const locs = locations || [];
-    // Decide how each location is shown, applied identically to left and right so
-    // related parts stay consistent:
+    // Decide which lines a location contributes, applied identically to left and
+    // right so related parts stay consistent:
     //   • A newly created declaration (added getter, extracted method/type) is
-    //     genuine new code → highlight it in full.
+    //     genuine new code → tag it in full.
     //   • Otherwise a big enclosing method/type declaration is context: skip it
-    //     when the side has a finer location to show instead, or — when it's the
+    //     when the side has a finer location to tag instead, or — when it's the
     //     only location (Rename/Pull Up/Move/Change-modifier on a whole method or
-    //     type) — colour just its header line so the side still shows without
+    //     type) — tag just its header line so the side is still selectable without
     //     flooding the diff.
     //   • Anything finer (statement, field, param, conditional…) → full range.
     const hasFiner = locs.some((cr) => !isContainer(cr));
-    let painted = 0;
+    let tagged = 0;
     locs.forEach((cr) => {
       let startLine = cr.startLine;
       let endLine = cr.endLine;
@@ -131,22 +131,19 @@ var RMX = window.RMX || (window.RMX = {});
         if (hasFiner) return;
         endLine = startLine; // declaration-only refactoring → header line only
       }
-      const category = categorize(type, side, cr.description);
-      used.add(category); // legend reflects every category in the feed, mounted or not
       const digest = digests[cr.filePath];
       if (!digest) return;
-      painted += RMX.overlay.highlightRange({
+      tagged += RMX.overlay.highlightRange({
         digest,
         side,
         startLine,
         endLine,
-        category,
         summary,
         index,
         filePath: cr.filePath,
       });
     });
-    return painted;
+    return tagged;
   }
 
   // A whole enclosing method/class declaration spanning multiple lines.
@@ -165,25 +162,6 @@ var RMX = window.RMX || (window.RMX = {});
   function isNewDeclaration(loc) {
     const d = (loc.description || '').toLowerCase();
     return d.indexOf('added') !== -1 || d.indexOf('extracted') !== -1;
-  }
-
-  // Map a location to one of RefactoringMiner's legend colours. Approximated
-  // from the refactoring type, the diff side, and the location's role (the
-  // action-level kind isn't carried in this feed).
-  function categorize(type, side, desc) {
-    const d = (desc || '').toLowerCase();
-    const t = (type || '').toLowerCase();
-    if (d.indexOf('moved') !== -1 || d.indexOf('pulled up') !== -1 || t.indexOf('move') === 0 || t.indexOf('pull up') === 0) {
-      return side === 'R' ? 'movedIn' : 'movedOut';
-    }
-    if (d.indexOf('inlined') !== -1) return side === 'R' ? 'inserted' : 'deleted';
-    if (d.indexOf('extracted') !== -1 || d.indexOf('added') !== -1 || t.indexOf('extract') === 0) {
-      return side === 'R' ? 'inserted' : 'updated';
-    }
-    if (d.indexOf('renamed') !== -1 || t.indexOf('rename') === 0 || t.indexOf('change') === 0 || d.indexOf('referencing') !== -1) {
-      return 'updated';
-    }
-    return side === 'R' ? 'inserted' : 'deleted';
   }
 
   // Concise one-liner, e.g. "Rename Attribute: _full_name → _display_name".
@@ -221,8 +199,8 @@ var RMX = window.RMX || (window.RMX = {});
 
   // --- lifecycle ------------------------------------------------------------
 
-  // The /changes diff is virtualized: rows mount as you scroll. Re-paint
-  // (debounced) when the diff DOM grows, so newly mounted lines get coloured.
+  // The /changes diff is virtualized: rows mount as you scroll. Re-tag
+  // (debounced) when the diff DOM grows, so newly mounted lines get tagged.
   // We observe childList only, so our own class/attribute writes don't re-trigger.
   let observer = null;
   let repaintTimer = null;

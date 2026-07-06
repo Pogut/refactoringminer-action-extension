@@ -42,8 +42,10 @@ Feed shape (RefactoringMiner's classic `-json` output):
 1. `chrome://extensions` → enable **Developer mode**.
 2. **Load unpacked** → select this folder.
 3. Open a PR **Files changed** page on a repo whose action has published a feed.
-   Changed lines involved in a refactoring get a coloured gutter; hover for the
-   refactoring type/description.
+   Click a line involved in a refactoring (or follow a line link from the action's
+   PR comment) and the whole refactoring blinks in neon on both sides, with its
+   off-screen lines pinned to the top/bottom edge; hover a line for its
+   type/description.
 
 ## Architecture
 
@@ -51,7 +53,7 @@ Feed shape (RefactoringMiner's classic `-json` output):
 |------|------|
 | `src/config.js` | URL parsing + feed-path construction (mirrors the action) |
 | `src/github.js` | `filePath → diff-<pathDigest>`; locate a line cell by id |
-| `src/overlay.js` | view-agnostic renderer: highlight / tooltip / scroll |
+| `src/overlay.js` | view-agnostic renderer: tag cells / blink selection / pins / tooltip |
 | `src/messaging.js` | content → service-worker fetch bridge |
 | `src/service-worker.js` | cross-origin feed fetch + per-URL cache |
 | `src/views.js` | view adapters (files = active, commit = stub) |
