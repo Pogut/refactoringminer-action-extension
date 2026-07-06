@@ -26,10 +26,31 @@ var RMX = window.RMX || (window.RMX = {});
     }
     const commit = firstCommit(feed);
     if (!commit || !Array.isArray(commit.refactorings)) return deactivate();
+    // The site serves one root feed (the latest deploy replaces the whole site),
+    // so it may belong to a different PR than the one on screen. Only paint when
+    // the feed is actually for this PR — otherwise we'd overlay another PR's
+    // refactorings onto this diff.
+    if (!feedIsForPr(commit.url, loc)) return deactivate();
 
     currentRefactorings = commit.refactorings;
     await render(currentRefactorings);
     observe();
+  }
+
+  // True when the fetched feed's PR url matches the PR we're viewing. `firstCommit`
+  // carries `feed.url` for the native export and the per-commit url for the wrapped
+  // form, so this covers both. Case-insensitive: GitHub owner/repo aren't case
+  // sensitive, and the feed echoes whatever casing the PR was analysed under.
+  function feedIsForPr(url, loc) {
+    if (!url || !loc || !loc.prNumber) return false;
+    try {
+      return (
+        new URL(url).pathname.toLowerCase() ===
+        `/${loc.owner}/${loc.repo}/pull/${loc.prNumber}`.toLowerCase()
+      );
+    } catch (_) {
+      return false;
+    }
   }
 
   // Tear down overlays + legend when we land on a page with nothing to show

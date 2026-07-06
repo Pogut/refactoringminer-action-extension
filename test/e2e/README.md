@@ -93,5 +93,7 @@ behaviour.
 ## Adding a PR
 
 The feed must already be published (probe
-`https://pogut.github.io/rm-action-test/refactorings/pr-<n>/refactorings.json`).
+`https://pogut.github.io/rm-action-test/refactorings.json`). Note the site now
+serves a single root feed for the most-recently-deployed PR, so only that PR's
+feed is live at a time — see the NOTE in [`sandbox.js`](sandbox.js).
 Add a `{ n, lang }` row to `PRS` in [`sandbox.js`](sandbox.js).

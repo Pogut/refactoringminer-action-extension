@@ -6,10 +6,13 @@
 var RMX = window.RMX || (window.RMX = {});
 
 RMX.config = (function () {
-  // Must mirror refactoringminer-action's publish layout (publisher.js +
-  // exporter.js): the feed sits one level above the interactive `list/` view.
-  //   https://<owner>.github.io/<repo>/refactorings/pr-<n>/refactorings.json
-  const PAGES_ROOT = 'refactorings';
+  // Must mirror refactoringminer-action's publish layout (export.js): the
+  // Actions-based Pages deploy uploads the exported web/ dir as the site ROOT,
+  // so the feed sits at the root alongside the interactive `list/` view.
+  //   https://<owner>.github.io/<repo>/refactorings.json
+  // The deploy replaces the whole site each run, so this root feed always
+  // belongs to the most-recently-deployed PR — content.js verifies it matches
+  // the PR on screen before painting (see feedIsForPr).
   const FEED_FILE = 'refactorings.json';
 
   // Recognise the three pages we can overlay and extract owner/repo/PR/commit.
@@ -40,14 +43,12 @@ RMX.config = (function () {
     return null;
   }
 
-  // The action publishes one feed per PR; commit-only pages (no PR number) have
-  // no feed yet, so this returns null and the overlay stays off there.
+  // The published site holds a single root feed (the latest deployed PR);
+  // commit-only pages (no PR number) never carry one, so this returns null and
+  // the overlay stays off there.
   function feedUrl(loc) {
     if (!loc || !loc.prNumber) return null;
-    return (
-      `https://${loc.owner.toLowerCase()}.github.io/${loc.repo}` +
-      `/${PAGES_ROOT}/pr-${loc.prNumber}/${FEED_FILE}`
-    );
+    return `https://${loc.owner.toLowerCase()}.github.io/${loc.repo}/${FEED_FILE}`;
   }
 
   return { parseLocation, feedUrl };

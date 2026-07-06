@@ -8,9 +8,15 @@ const crypto = require('crypto');
 const OWNER = 'Pogut';
 const REPO = 'rm-action-test';
 
+// NOTE: the action now deploys Pages via GitHub Actions, which serves a single
+// root feed (https://pogut.github.io/rm-action-test/refactorings.json) for
+// whichever PR deployed last — earlier PRs' feeds no longer coexist. This
+// multi-PR table therefore only fully passes for the currently-deployed PR;
+// the suite needs reworking to a single-PR model (or the action needs merge
+// logic to keep per-PR feeds) before the whole table is meaningful again.
+//
 // One row per PR that has a published feed. `lang` is just for readable test
-// titles. Keep in sync with which gh-pages feeds exist (probe
-// https://pogut.github.io/rm-action-test/refactorings/pr-<n>/refactorings.json).
+// titles.
 const PRS = [
   { n: 9, lang: 'java' },
   { n: 12, lang: 'kotlin' },
@@ -71,7 +77,10 @@ const COLOURS = [
 // Tests derive their expectations from this rather than hard-coding, so a feed
 // change shows up as a behaviour change, not a stale assertion.
 async function fetchFeed(prNumber) {
-  const url = `https://${OWNER.toLowerCase()}.github.io/${REPO}/refactorings/pr-${prNumber}/refactorings.json`;
+  // The Actions-based Pages deploy publishes a single root feed for the latest
+  // deployed PR (each deploy replaces the whole site), so only the most recently
+  // published PR resolves here — see the NOTE in the module header.
+  const url = `https://${OWNER.toLowerCase()}.github.io/${REPO}/refactorings.json`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`feed for pr-${prNumber} returned ${res.status} (${url})`);
   return res.json();
