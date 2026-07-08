@@ -85,7 +85,7 @@ pair), so it doesn't depend on the diff's exact layout.
 ## Adding a PR
 
 The feed must already be published (probe
-`https://pogut.github.io/rm-action-test/refactorings.json`). Note the site now
-serves a single root feed for the most-recently-deployed PR, so only that PR's
-feed is live at a time — see the NOTE in [`sandbox.js`](sandbox.js).
+`https://pogut.github.io/rm-action-test/refactorings/pr-<n>/refactorings.json`).
+The action bundles every PR under its own `pr-<n>/` folder, so PRs coexist — but
+each must have been run under the action at least once so its folder exists.
 Add a `{ n, lang }` row to `PRS` in [`sandbox.js`](sandbox.js).

@@ -26,10 +26,9 @@ var RMX = window.RMX || (window.RMX = {});
     }
     const commit = firstCommit(feed);
     if (!commit || !Array.isArray(commit.refactorings)) return deactivate();
-    // The site serves one root feed (the latest deploy replaces the whole site),
-    // so it may belong to a different PR than the one on screen. Only paint when
-    // the feed is actually for this PR — otherwise we'd overlay another PR's
-    // refactorings onto this diff.
+    // Sanity guard: confirm the fetched feed really is for the PR on screen before
+    // painting, so a wrong feed published under this PR's path can't overlay
+    // another PR's refactorings onto this diff.
     if (!feedIsForPr(commit.url, loc)) return deactivate();
 
     currentRefactorings = commit.refactorings;
