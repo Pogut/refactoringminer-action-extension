@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "RefactoringMiner Action — Diff Overlay",
+  "name": "Refactoring-Aware-Commit-Review",
   "version": "3.0.0",
   "description": "Overlays the refactorings detected by the RefactoringMiner GitHub Action directly onto GitHub PR and commit diffs.",
   "permissions": [
