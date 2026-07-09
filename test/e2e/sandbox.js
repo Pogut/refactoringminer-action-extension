@@ -9,8 +9,9 @@ const OWNER = 'Pogut';
 const REPO = 'rm-action-test';
 
 // One row per PR that has a published feed. `lang` is just for readable test
-// titles. Keep in sync with which gh-pages feeds exist (probe
-// https://pogut.github.io/rm-action-test/refactorings/pr-<n>/refactorings.json).
+// titles. The action bundles every PR under refactorings/pr-<n>/, so these
+// coexist — each must have been (re)run under the action at least once so its
+// folder exists in the current pages-store.
 const PRS = [
   { n: 9, lang: 'java' },
   { n: 12, lang: 'kotlin' },
@@ -50,23 +51,6 @@ function cellSelector(filePath, side, line) {
   return `#${a}, [data-line-anchor="${a}"]`;
 }
 
-// Hand-verified line→colour expectations, shared by the classic and Preview
-// suites (the painted category must match across both views). Each row was
-// confirmed against the live page AND makes semantic sense for the refactoring:
-// Rename → updated (blue); Move → movedOut (orange) on the source side / movedIn
-// (teal) on the destination; Inline removes the body → deleted (red); an
-// Encapsulate getter is new code → inserted (green).
-const COLOURS = [
-  { pr: 9, file: 'CustomerProfile.java', side: 'L', line: 2, cat: 'updated', what: 'Rename Attribute (old name)' },
-  { pr: 9, file: 'CustomerProfile.java', side: 'R', line: 2, cat: 'updated', what: 'Rename Attribute (new name)' },
-  { pr: 9, file: 'CustomerProfile.java', side: 'L', line: 3, cat: 'movedOut', what: 'Move Attribute (source)' },
-  { pr: 9, file: 'Address.java', side: 'R', line: 2, cat: 'movedIn', what: 'Move Attribute (destination)' },
-  { pr: 9, file: 'OrderProcessor.java', side: 'L', line: 11, cat: 'deleted', what: 'Inline Method (removed body)' },
-  { pr: 9, file: 'CustomerProfile.java', side: 'R', line: 28, cat: 'inserted', what: 'Encapsulate Attribute (added getter)' },
-  { pr: 12, file: 'kotlin/CustomerProfile.kt', side: 'L', line: 4, cat: 'movedOut', what: 'Move Attribute (source)' },
-  { pr: 12, file: 'kotlin/Address.kt', side: 'R', line: 3, cat: 'movedIn', what: 'Move Attribute (destination)' },
-];
-
 // The published feed, fetched straight from gh-pages (Node 22 has global fetch).
 // Tests derive their expectations from this rather than hard-coding, so a feed
 // change shows up as a behaviour change, not a stale assertion.
@@ -86,7 +70,7 @@ function refactoringsOf(feed) {
 }
 
 module.exports = {
-  OWNER, REPO, PRS, COLOURS,
+  OWNER, REPO, PRS,
   digest, lineAnchor, cellSelector,
   filesUrl, changesUrl, fetchFeed, refactoringsOf,
 };

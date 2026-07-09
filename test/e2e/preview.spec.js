@@ -2,11 +2,11 @@
 // "Preview" diff (/changes), the React view real users see day to day and the
 // only view that the extension targets. We load the real extension into Chromium
 // with a saved GitHub session, open the live Pogut/rm-action-test PRs, and assert
-// the overlay paints/behaves from the live gh-pages feed: the full browser path
-// end to end (service-worker cross-origin fetch → content.js → the virtualized
-// data-line-anchor cells), colour mapping, click-to-pair selection on BOTH sides,
-// the left/right side-colour distinction, tooltips, deep links, the attention
-// blink, and the pinned-line bars.
+// the overlay tags cells/behaves from the live gh-pages feed: the full browser
+// path end to end (service-worker cross-origin fetch → content.js → the
+// virtualized data-line-anchor cells), click-to-pair selection on BOTH sides,
+// the left/right selection-colour distinction, tooltips, deep links, the
+// attention blink, and the pinned-line bars.
 //
 // These need a saved GitHub session. Capture it once: `npm run test:auth`. Until
 // then the whole suite is skipped (so `npm test` stays green when logged out).
@@ -69,15 +69,15 @@ test('extension service worker boots', async ({ serviceWorker }) => {
   expect(serviceWorker.url()).toContain('service-worker.js');
 });
 
-// --- per-PR painting from the live feed -------------------------------------
-// For every sandbox PR: the overlay paints on the Preview diff (via the
-// data-line-anchor cell path), only on files the feed actually names, reports the
-// feed's refactoring count, and shows the legend. Assertions are derived from the
-// live feed (sandbox.fetchFeed), not hard-coded, so a feed change surfaces as a
-// real behaviour change rather than a stale number.
+// --- per-PR cell tagging from the live feed ---------------------------------
+// For every sandbox PR: the overlay tags cells on the Preview diff (via the
+// data-line-anchor cell path), only on files the feed actually names, and reports
+// the feed's refactoring count. Assertions are derived from the live feed
+// (sandbox.fetchFeed), not hard-coded, so a feed change surfaces as a real
+// behaviour change rather than a stale number.
 for (const pr of sb.PRS) {
   test.describe(`PR #${pr.n} (${pr.lang})`, () => {
-    test('paints highlights from the live feed', async ({ page }) => {
+    test('tags refactoring lines from the live feed', async ({ page }) => {
       const feed = await sb.fetchFeed(pr.n); // download real JSON feed from GitHub pages
       const refactorings = sb.refactoringsOf(feed);
       const feedFiles = new Set();
@@ -108,86 +108,38 @@ for (const pr of sb.PRS) {
       expect(reported, `expected an [RMX] log; got ${JSON.stringify(page.rmxLogs)}`).toBeTruthy();
       expect(reported).toContain(`[RMX] ${refactorings.length} refactorings`);
 
-      // Legend is shown (the diff has at least one categorised refactoring).
-      await expect(page.locator('#rmx-legend')).toBeVisible();
-      expect(await page.locator('#rmx-legend .rmx-lg-row').count()).toBeGreaterThan(0);
+      // The report panel lists every refactoring in the feed (one row each).
+      await expect(page.locator('#rmx-report')).toBeVisible();
+      expect(await page.locator('#rmx-report .rmx-rp-row').count()).toBe(refactorings.length);
     });
   });
 }
 
-// --- colour correctness -----------------------------------------------------
-// Pin specific lines to the exact category (colour) the overlay must paint. The
-// React diff virtualizes rows AND content.js debounces its re-paint ~250ms after
-// rows mount, so we scroll the whole diff in steps, pause past that debounce so
-// freshly mounted rows get painted, and accumulate every line's colour before
-// scrolling unmounts it again — then assert from that map. (Addressing a line
-// directly races virtualization.)
-async function paintedCategories(page) {
-  const grab = () =>
-    page.evaluate(() => {
-      const o = {};
-      document.querySelectorAll('.rmx-hl[data-rmx-cat]').forEach((el) => {
-        const a = el.getAttribute('data-line-anchor') || el.id;
-        if (a) o[a] = el.getAttribute('data-rmx-cat');
-      });
-      return o;
-    });
-  const map = {};
-  await page.mouse.move(640, 400); // hover the diff so the wheel scrolls it
-  await page.waitForTimeout(400);
-  Object.assign(map, await grab());
-  for (let i = 0; i < 18; i++) {
-    await page.mouse.wheel(0, 1000);
-    await page.waitForTimeout(350); // > content.js's ~250ms repaint debounce, so new rows are painted
-    Object.assign(map, await grab());
-  }
-  return map;
-}
+// --- refactorings report panel ---------------------------------------------
+// The bottom-left panel lists every refactoring; a row click selects (blinks)
+// that refactoring on the diff, and the header collapses/expands the list.
+test.describe('report panel (PR #14)', () => {
+  test('a row click selects the refactoring; header collapses the list', async ({ page }) => {
+    await openChanges(page, 14);
+    const panel = page.locator('#rmx-report');
+    await expect(panel).toBeVisible();
 
-for (const pr of [...new Set(sb.COLOURS.map((c) => c.pr))]) {
-  test(`PR #${pr}: each rendered line carries the colour matching its refactoring`, async ({ page }) => {
-    await openChanges(page, pr);
-    const painted = await paintedCategories(page);
-    const rows = sb.COLOURS.filter((x) => x.pr === pr);
-    const unrendered = [];
-    let verified = 0;
+    const rows = panel.locator('.rmx-rp-row');
+    expect(await rows.count()).toBeGreaterThan(0);
 
-    for (const c of rows) {
-      const where = `${c.what} @ ${c.file} ${c.side}${c.line}`;
-      const anchor = sb.lineAnchor(c.file, c.side, c.line);
-      let cat = painted[anchor];
+    // Clicking a row selects its refactoring (a tagged cell gains rmx-sel).
+    await rows.first().click();
+    await expect(page.locator('.rmx-hl.rmx-sel').first()).toBeVisible({ timeout: 10_000 });
 
-      // Not painted during the sweep — bring its file container into view so the
-      // virtualized rows mount, then read the line directly.
-      if (cat === undefined) {
-        const file = page.locator(`#diff-${sb.digest(c.file)}, [data-line-anchor="diff-${sb.digest(c.file)}"]`).first();
-        if (await file.count()) {
-          await file.scrollIntoViewIfNeeded().catch(() => {});
-          await page.waitForTimeout(500);
-        }
-        const cell = page.locator(`[data-line-anchor="${anchor}"], #${anchor}`).first();
-        cat = (await cell.count()) ? await cell.getAttribute('data-rmx-cat') : undefined;
-      }
-
-      // Absent line = GitHub's Preview diff didn't render it in headless.
-      // A line that IS rendered but unpainted (cat === null) is a real bug → fails.
-      if (cat === undefined) {
-        unrendered.push(where);
-        continue;
-      }
-      verified++;
-      expect(cat, `${where} → expected colour "${c.cat}"`).toBe(c.cat);
-    }
-
-    if (unrendered.length) {
-      console.warn(`  Preview diff didn't render these lines in headless: ${unrendered.join('; ')}`);
-    }
-    // Guard against a vacuous pass: most rows must actually render and verify.
-    expect(verified, `only ${verified}/${rows.length} colour rows rendered on the Preview diff`).toBeGreaterThanOrEqual(
-      Math.ceil(rows.length * 0.6),
-    );
+    // The header toggles the body without tearing down the panel.
+    await expect(panel.locator('.rmx-rp-body')).toBeVisible();
+    await panel.locator('.rmx-rp-head').click();
+    await expect(panel).toHaveClass(/rmx-collapsed/);
+    await expect(panel.locator('.rmx-rp-body')).toBeHidden();
+    await panel.locator('.rmx-rp-head').click();
+    await expect(panel.locator('.rmx-rp-body')).toBeVisible();
   });
-}
+});
 
 // --- click-to-pair selection (the gold "blink on both sides") ---------------
 // Clicking any highlighted line must light the WHOLE refactoring in the gold

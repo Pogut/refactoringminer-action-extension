@@ -1,12 +1,16 @@
 {
   "manifest_version": 3,
-  "name": "RefactoringMiner Action — Diff Overlay",
-  "version": "0.3.0",
+  "name": "Refactoring-Aware-Commit-Review",
+  "version": "3.0.0",
   "description": "Overlays the refactorings detected by the RefactoringMiner GitHub Action directly onto GitHub PR and commit diffs.",
+  "permissions": [
+    "storage"
+  ],
   "host_permissions": [
     "https://github.com/*",
     "https://*.github.io/*"
   ],
+  "options_page": "options.html",
   "background": {
     "service_worker": "src/service-worker.js"
   },
@@ -23,6 +27,7 @@
         "src/github.js",
         "src/overlay.js",
         "src/messaging.js",
+        "src/rm.js",
         "src/views.js",
         "src/content.js"
       ],

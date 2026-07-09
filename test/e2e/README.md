@@ -5,8 +5,8 @@ Loads **this extension unpacked into a real Chromium** and drives the actual
 sandbox, fetching the real RefactoringMiner feeds the action published to
 gh-pages. It exercises the full browser path end to end — the service-worker
 cross-origin feed fetch, the **real** GitHub diff DOM (and its markup drift),
-tooltip render, colour mapping, and the click-to-pair selection — none of which
-can be checked without a real browser.
+tooltip render, and the click-to-pair selection — none of which can be checked
+without a real browser.
 
 ## One view: the logged-in "Preview" diff
 
@@ -55,27 +55,20 @@ exists the whole suite is **skipped**, so `npm test` stays green when logged out
   for its MV3 service worker, injects the saved GitHub session, and mirrors
   `[RMX] …` console logs onto the page.
 - `sandbox.js` — the PR→feed map, the `sha256(filePath)` anchor + `cellSelector`,
-  the shared `COLOURS` table, and `fetchFeed()`. `auth.js` / `capture-auth.js`
-  manage the saved GitHub session.
+  and `fetchFeed()`. `auth.js` / `capture-auth.js` manage the saved GitHub session.
 - `preview.spec.js`:
-  - **per PR** — highlights paint (via the `data-line-anchor` cell path), only on
-    files the feed names, the reported refactoring count equals the feed's, the
-    legend shows.
-  - **colour correctness** — a hand-verified table (`sandbox.js`) pins specific
-    lines to the exact category (colour) they must paint: Rename → `updated`
-    (blue), Move → `movedOut`/`movedIn` (orange/teal), Inline → `deleted` (red),
-    Encapsulate getter → `inserted` (green). The diff is virtualized, so the test
-    scrolls it in steps and accumulates each line's colour before scrolling
-    unmounts it; rows GitHub never renders in headless are reported and skipped
-    (with a floor so the pass can't be vacuous).
-  - **click-to-pair selection** — clicking a highlighted line lights the whole
+  - **per PR** — refactoring lines are tagged (via the `data-line-anchor` cell
+    path), only on files the feed names, and the reported refactoring count equals
+    the feed's. (Tagged cells carry no colour of their own — they only light up
+    when selected.)
+  - **click-to-pair selection** — clicking a tagged line lights the whole
     refactoring in gold (`rmx-sel` + the blinking `rmx-on` fill) on **both** sides.
     Self-calibrating: it discovers a refactoring whose left and right cells are
     both mounted, so it doesn't depend on the diff's exact layout.
-  - **left/right side colour distinction** — the left ("before") cell paints a
-    hot-pink outline + fill, the right ("after") cell a violet one. Asserted with
-    real *computed* CSS, so a wrong hex or a swapped L/R rule fails here even
-    though the class names would still look correct.
+  - **left/right selection colour distinction** — on selection the left
+    ("before") cell paints a hot-pink outline + fill, the right ("after") cell a
+    violet one. Asserted with real *computed* CSS, so a wrong hex or a swapped L/R
+    rule fails here even though the class names would still look correct.
   - **PR #14** — tooltip shows the feed description on hover; an action
     comment-link hash (`#diff-<digest>R<line>`) neon-selects the refactoring it
     points at (the test scrolls the target file into view so the virtualized row
@@ -85,13 +78,14 @@ exists the whole suite is **skipped**, so `npm test` stays green when logged out
     removes the bar rows while staying put; and the toggle DOM node survives
     scroll re-paints (a regression test for a past hover-flicker bug).
 
-Most assertions are derived from the **live feed**, not hard-coded. The colour
-and click-to-pair tests use a small explicit table / self-calibration (confirmed
-against the live page), so each row doubles as readable documentation of expected
-behaviour.
+Most assertions are derived from the **live feed**, not hard-coded. The
+click-to-pair test self-calibrates against the live page (discovering a mounted
+pair), so it doesn't depend on the diff's exact layout.
 
 ## Adding a PR
 
 The feed must already be published (probe
 `https://pogut.github.io/rm-action-test/refactorings/pr-<n>/refactorings.json`).
+The action bundles every PR under its own `pr-<n>/` folder, so PRs coexist — but
+each must have been run under the action at least once so its folder exists.
 Add a `{ n, lang }` row to `PRS` in [`sandbox.js`](sandbox.js).

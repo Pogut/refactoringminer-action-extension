@@ -14,30 +14,99 @@ var RMX = window.RMX || (window.RMX = {});
   const build = (chrome.runtime.getManifest && chrome.runtime.getManifest().version) || 'dev';
   console.info(`[RMX] content script loaded — build ${build}`);
 
+  // Dual data sources: PR "Files changed" pages read the action's published
+  // per-PR feed; commit pages (which have no feed) fall back to the hosted
+  // RefactoringMiner service. Both land as a plain refactorings array that feeds
+  // the same renderer + report panel.
   async function run() {
     const loc = RMX.config.parseLocation();
-    if (!RMX.views.pick(loc) || !RMX.config.feedUrl(loc)) return deactivate();
+    if (!RMX.views.pick(loc)) return deactivate();
 
-    let feed;
-    try {
-      feed = await RMX.messaging.fetchFeed(RMX.config.feedUrl(loc));
-    } catch (e) {
-      return deactivate(); // no feed published for this PR
+    let refactorings;
+    if (loc.commitSha) {
+      refactorings = await commitRefactorings(loc);
+      if (refactorings === null) return; // hard failure — report already shows the error
+    } else if (loc.prNumber) {
+      refactorings = await prRefactorings(loc);
+      if (refactorings === null) return deactivate();
+    } else {
+      return deactivate();
     }
-    const commit = firstCommit(feed);
-    if (!commit || !Array.isArray(commit.refactorings)) return deactivate();
 
-    currentRefactorings = commit.refactorings;
+    currentRefactorings = refactorings;
     await render(currentRefactorings);
+    RMX.overlay.showReport(reportRows(currentRefactorings));
     observe();
   }
 
-  // Tear down overlays + legend when we land on a page with nothing to show
-  // (e.g. navigating away from the PR diff via Turbo).
+  // Commit page: ask the RefactoringMiner service (RMX.rm). Returns the array
+  // (possibly empty) on success, or null when the service errored — in which case
+  // the report panel is left showing that error and the caller stops.
+  async function commitRefactorings(loc) {
+    RMX.overlay.reportLoading('Analysing commit with RefactoringMiner…');
+    let data;
+    try {
+      data = await RMX.rm.fetchCommit(RMX.config.gitUrl(loc), loc.commitSha);
+    } catch (e) {
+      RMX.overlay.clearAll();
+      RMX.overlay.reportError(e.message || 'RefactoringMiner service unavailable.');
+      return null;
+    }
+    const commit = firstCommit(data);
+    if (!commit || !commitMatches(commit, loc) || !Array.isArray(commit.refactorings)) return [];
+    return commit.refactorings;
+  }
+
+  // PR page: use the action's published per-PR feed. Returns the array, or null
+  // when there's no usable feed (so the overlay stays off — the repo may not run
+  // the action, in which case there's no PR-aggregate source to fall back to).
+  async function prRefactorings(loc) {
+    const url = RMX.config.feedUrl(loc);
+    if (!url) return null;
+    let feed;
+    try {
+      feed = await RMX.messaging.fetchFeed(url);
+    } catch (e) {
+      return null; // no feed published for this PR
+    }
+    const commit = firstCommit(feed);
+    // Sanity guard: confirm the fetched feed really is for the PR on screen, so a
+    // wrong feed published under this PR's path can't overlay another PR's data.
+    if (!commit || !Array.isArray(commit.refactorings) || !feedIsForPr(commit.url, loc)) return null;
+    return commit.refactorings;
+  }
+
+  // The RefactoringMiner service echoes the commit it analysed; confirm it's the
+  // one on screen before painting. Unverifiable (no sha1) → don't block.
+  function commitMatches(commit, loc) {
+    const sha = (commit.sha1 || '').toLowerCase();
+    const want = (loc.commitSha || '').toLowerCase();
+    if (!sha || !want) return true;
+    return sha.startsWith(want) || want.startsWith(sha);
+  }
+
+  // True when the fetched feed's PR url matches the PR we're viewing. `firstCommit`
+  // carries `feed.url` for the native export and the per-commit url for the wrapped
+  // form, so this covers both. Case-insensitive: GitHub owner/repo aren't case
+  // sensitive, and the feed echoes whatever casing the PR was analysed under.
+  function feedIsForPr(url, loc) {
+    if (!url || !loc || !loc.prNumber) return false;
+    try {
+      return (
+        new URL(url).pathname.toLowerCase() ===
+        `/${loc.owner}/${loc.repo}/pull/${loc.prNumber}`.toLowerCase()
+      );
+    } catch (_) {
+      return false;
+    }
+  }
+
+  // Tear down tagged cells, the report panel, and any selection when we land on a
+  // page with nothing to show (e.g. navigating away from the diff via Turbo).
   function deactivate() {
     currentRefactorings = null;
     RMX.overlay.clearAll();
-    RMX.overlay.hideLegend();
+    RMX.overlay.hideReport();
   }
 
   // The action publishes RefactoringMiner's native export `{ url, refactorings }`;
@@ -52,13 +121,13 @@ var RMX = window.RMX || (window.RMX = {});
   // --- rendering ------------------------------------------------------------
 
   // `additive` re-paints without clearing first — used by the scroll observer so
-  // existing highlights and the neon selection (and its fade) aren't disturbed
-  // as the virtualized diff mounts new rows.
+  // the tagged cells and the neon selection (and its fade) aren't disturbed as
+  // the virtualized diff mounts new rows.
   async function render(refactorings, additive) {
     if (!additive) RMX.overlay.clearAll();
     RMX.overlay.installTooltip();
 
-    // Precompute each file's digest (sha256(path)) once so painting is sync.
+    // Precompute each file's digest (sha256(path)) once so tagging is sync.
     const paths = new Set();
     refactorings.forEach((r) => {
       (r.leftSideLocations || []).forEach((cr) => paths.add(cr.filePath));
@@ -71,38 +140,39 @@ var RMX = window.RMX || (window.RMX = {});
       }),
     );
 
-    const used = new Set();
-    let painted = 0;
-    // Track every cell this pass paints, then drop highlights left on cells that
+    let tagged = 0;
+    // Track every cell this pass tags, then drop tags left on cells that
     // virtualization recycled to a non-target line (see overlay.startPass).
     RMX.overlay.startPass();
     refactorings.forEach((r, index) => {
       const summary = summarize(r);
-      painted += paintSide(r.leftSideLocations, 'L', r.type, summary, index, digests, used);
-      painted += paintSide(r.rightSideLocations, 'R', r.type, summary, index, digests, used);
+      tagged += paintSide(r.leftSideLocations, 'L', summary, index, digests);
+      tagged += paintSide(r.rightSideLocations, 'R', summary, index, digests);
     });
     RMX.overlay.endPass();
 
-    RMX.overlay.showLegend(Array.from(used));
     RMX.overlay.applySelection(); // re-apply neon selection to any newly mounted cells
-    console.info(`[RMX] ${refactorings.length} refactorings, ${painted} line-spans highlighted`);
+    console.info(`[RMX] ${refactorings.length} refactorings, ${tagged} line-spans tagged`);
     handleDeepLink();
   }
 
-  function paintSide(locations, side, type, summary, index, digests, used) {
+  // Tags the diff cells for each of a side's locations so the click/deep-link
+  // selection can find and blink them. Cells carry no visible style until
+  // selected — only the refactoring index, side, file, and hover summary.
+  function paintSide(locations, side, summary, index, digests) {
     const locs = locations || [];
-    // Decide how each location is shown, applied identically to left and right so
-    // related parts stay consistent:
+    // Decide which lines a location contributes, applied identically to left and
+    // right so related parts stay consistent:
     //   • A newly created declaration (added getter, extracted method/type) is
-    //     genuine new code → highlight it in full.
+    //     genuine new code → tag it in full.
     //   • Otherwise a big enclosing method/type declaration is context: skip it
-    //     when the side has a finer location to show instead, or — when it's the
+    //     when the side has a finer location to tag instead, or — when it's the
     //     only location (Rename/Pull Up/Move/Change-modifier on a whole method or
-    //     type) — colour just its header line so the side still shows without
+    //     type) — tag just its header line so the side is still selectable without
     //     flooding the diff.
     //   • Anything finer (statement, field, param, conditional…) → full range.
     const hasFiner = locs.some((cr) => !isContainer(cr));
-    let painted = 0;
+    let tagged = 0;
     locs.forEach((cr) => {
       let startLine = cr.startLine;
       let endLine = cr.endLine;
@@ -110,22 +180,19 @@ var RMX = window.RMX || (window.RMX = {});
         if (hasFiner) return;
         endLine = startLine; // declaration-only refactoring → header line only
       }
-      const category = categorize(type, side, cr.description);
-      used.add(category); // legend reflects every category in the feed, mounted or not
       const digest = digests[cr.filePath];
       if (!digest) return;
-      painted += RMX.overlay.highlightRange({
+      tagged += RMX.overlay.highlightRange({
         digest,
         side,
         startLine,
         endLine,
-        category,
         summary,
         index,
         filePath: cr.filePath,
       });
     });
-    return painted;
+    return tagged;
   }
 
   // A whole enclosing method/class declaration spanning multiple lines.
@@ -146,25 +213,6 @@ var RMX = window.RMX || (window.RMX = {});
     return d.indexOf('added') !== -1 || d.indexOf('extracted') !== -1;
   }
 
-  // Map a location to one of RefactoringMiner's legend colours. Approximated
-  // from the refactoring type, the diff side, and the location's role (the
-  // action-level kind isn't carried in this feed).
-  function categorize(type, side, desc) {
-    const d = (desc || '').toLowerCase();
-    const t = (type || '').toLowerCase();
-    if (d.indexOf('moved') !== -1 || d.indexOf('pulled up') !== -1 || t.indexOf('move') === 0 || t.indexOf('pull up') === 0) {
-      return side === 'R' ? 'movedIn' : 'movedOut';
-    }
-    if (d.indexOf('inlined') !== -1) return side === 'R' ? 'inserted' : 'deleted';
-    if (d.indexOf('extracted') !== -1 || d.indexOf('added') !== -1 || t.indexOf('extract') === 0) {
-      return side === 'R' ? 'inserted' : 'updated';
-    }
-    if (d.indexOf('renamed') !== -1 || t.indexOf('rename') === 0 || t.indexOf('change') === 0 || d.indexOf('referencing') !== -1) {
-      return 'updated';
-    }
-    return side === 'R' ? 'inserted' : 'deleted';
-  }
-
   // Concise one-liner, e.g. "Rename Attribute: _full_name → _display_name".
   function summarize(r) {
     const left = firstCodeElement(r.leftSideLocations);
@@ -178,6 +226,24 @@ var RMX = window.RMX || (window.RMX = {});
   }
   function shorten(s) {
     return s.length > 60 ? s.slice(0, 57) + '…' : s;
+  }
+
+  // Report rows: the type (shown bold) plus a type-free element summary, and the
+  // full description as the row's hover title. `index` links a row back to its
+  // tagged cells so a click selects/blinks it.
+  function reportRows(refactorings) {
+    return refactorings.map((r, index) => ({
+      index,
+      type: r.type,
+      summary: elementSummary(r),
+      detail: r.description || '',
+    }));
+  }
+  function elementSummary(r) {
+    const left = firstCodeElement(r.leftSideLocations);
+    const right = firstCodeElement(r.rightSideLocations);
+    if (left && right && left !== right) return `${shorten(left)} → ${shorten(right)}`;
+    return shorten(right || left || r.description || '');
   }
 
   // When the user follows one of the action's PR-comment links, GitHub lands us
@@ -200,8 +266,8 @@ var RMX = window.RMX || (window.RMX = {});
 
   // --- lifecycle ------------------------------------------------------------
 
-  // The /changes diff is virtualized: rows mount as you scroll. Re-paint
-  // (debounced) when the diff DOM grows, so newly mounted lines get coloured.
+  // The /changes diff is virtualized: rows mount as you scroll. Re-tag
+  // (debounced) when the diff DOM grows, so newly mounted lines get tagged.
   // We observe childList only, so our own class/attribute writes don't re-trigger.
   let observer = null;
   let repaintTimer = null;

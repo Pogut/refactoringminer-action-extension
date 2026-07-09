@@ -6,9 +6,12 @@
 var RMX = window.RMX || (window.RMX = {});
 
 RMX.config = (function () {
-  // Must mirror refactoringminer-action's publish layout (publisher.js +
-  // exporter.js): the feed sits one level above the interactive `list/` view.
+  // Must mirror refactoringminer-action's publish layout: the Actions-based Pages
+  // deploy bundles every PR's exported view under refactorings/pr-<n>/, so each
+  // PR's feed sits one level above its interactive `list/` view.
   //   https://<owner>.github.io/<repo>/refactorings/pr-<n>/refactorings.json
+  // content.js still verifies the fetched feed is for the PR on screen before
+  // painting (see feedIsForPr).
   const PAGES_ROOT = 'refactorings';
   const FEED_FILE = 'refactorings.json';
 
@@ -40,8 +43,9 @@ RMX.config = (function () {
     return null;
   }
 
-  // The action publishes one feed per PR; commit-only pages (no PR number) have
-  // no feed yet, so this returns null and the overlay stays off there.
+  // The action publishes one feed per PR under refactorings/pr-<n>/; commit-only
+  // pages (no PR number) never carry one, so this returns null and the overlay
+  // falls back to the RefactoringMiner service (see RMX.rm) for those.
   function feedUrl(loc) {
     if (!loc || !loc.prNumber) return null;
     return (
@@ -50,5 +54,11 @@ RMX.config = (function () {
     );
   }
 
-  return { parseLocation, feedUrl };
+  // The `.git` clone URL the RefactoringMiner service analyses (standalone mode).
+  function gitUrl(loc) {
+    if (!loc || !loc.owner || !loc.repo) return null;
+    return `https://github.com/${loc.owner}/${loc.repo}.git`;
+  }
+
+  return { parseLocation, feedUrl, gitUrl };
 })();
