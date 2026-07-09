@@ -14,26 +14,75 @@ var RMX = window.RMX || (window.RMX = {});
   const build = (chrome.runtime.getManifest && chrome.runtime.getManifest().version) || 'dev';
   console.info(`[RMX] content script loaded — build ${build}`);
 
+  // Dual data sources: PR "Files changed" pages read the action's published
+  // per-PR feed; commit pages (which have no feed) fall back to the hosted
+  // RefactoringMiner service. Both land as a plain refactorings array that feeds
+  // the same renderer + report panel.
   async function run() {
     const loc = RMX.config.parseLocation();
-    if (!RMX.views.pick(loc) || !RMX.config.feedUrl(loc)) return deactivate();
+    if (!RMX.views.pick(loc)) return deactivate();
 
+    let refactorings;
+    if (loc.commitSha) {
+      refactorings = await commitRefactorings(loc);
+      if (refactorings === null) return; // hard failure — report already shows the error
+    } else if (loc.prNumber) {
+      refactorings = await prRefactorings(loc);
+      if (refactorings === null) return deactivate();
+    } else {
+      return deactivate();
+    }
+
+    currentRefactorings = refactorings;
+    await render(currentRefactorings);
+    RMX.overlay.showReport(reportRows(currentRefactorings));
+    observe();
+  }
+
+  // Commit page: ask the RefactoringMiner service (RMX.rm). Returns the array
+  // (possibly empty) on success, or null when the service errored — in which case
+  // the report panel is left showing that error and the caller stops.
+  async function commitRefactorings(loc) {
+    RMX.overlay.reportLoading('Analysing commit with RefactoringMiner…');
+    let data;
+    try {
+      data = await RMX.rm.fetchCommit(RMX.config.gitUrl(loc), loc.commitSha);
+    } catch (e) {
+      RMX.overlay.clearAll();
+      RMX.overlay.reportError(e.message || 'RefactoringMiner service unavailable.');
+      return null;
+    }
+    const commit = firstCommit(data);
+    if (!commit || !commitMatches(commit, loc) || !Array.isArray(commit.refactorings)) return [];
+    return commit.refactorings;
+  }
+
+  // PR page: use the action's published per-PR feed. Returns the array, or null
+  // when there's no usable feed (so the overlay stays off — the repo may not run
+  // the action, in which case there's no PR-aggregate source to fall back to).
+  async function prRefactorings(loc) {
+    const url = RMX.config.feedUrl(loc);
+    if (!url) return null;
     let feed;
     try {
-      feed = await RMX.messaging.fetchFeed(RMX.config.feedUrl(loc));
+      feed = await RMX.messaging.fetchFeed(url);
     } catch (e) {
-      return deactivate(); // no feed published for this PR
+      return null; // no feed published for this PR
     }
     const commit = firstCommit(feed);
-    if (!commit || !Array.isArray(commit.refactorings)) return deactivate();
-    // Sanity guard: confirm the fetched feed really is for the PR on screen before
-    // painting, so a wrong feed published under this PR's path can't overlay
-    // another PR's refactorings onto this diff.
-    if (!feedIsForPr(commit.url, loc)) return deactivate();
+    // Sanity guard: confirm the fetched feed really is for the PR on screen, so a
+    // wrong feed published under this PR's path can't overlay another PR's data.
+    if (!commit || !Array.isArray(commit.refactorings) || !feedIsForPr(commit.url, loc)) return null;
+    return commit.refactorings;
+  }
 
-    currentRefactorings = commit.refactorings;
-    await render(currentRefactorings);
-    observe();
+  // The RefactoringMiner service echoes the commit it analysed; confirm it's the
+  // one on screen before painting. Unverifiable (no sha1) → don't block.
+  function commitMatches(commit, loc) {
+    const sha = (commit.sha1 || '').toLowerCase();
+    const want = (loc.commitSha || '').toLowerCase();
+    if (!sha || !want) return true;
+    return sha.startsWith(want) || want.startsWith(sha);
   }
 
   // True when the fetched feed's PR url matches the PR we're viewing. `firstCommit`
@@ -52,11 +101,12 @@ var RMX = window.RMX || (window.RMX = {});
     }
   }
 
-  // Tear down tagged cells + any selection when we land on a page with nothing
-  // to show (e.g. navigating away from the PR diff via Turbo).
+  // Tear down tagged cells, the report panel, and any selection when we land on a
+  // page with nothing to show (e.g. navigating away from the diff via Turbo).
   function deactivate() {
     currentRefactorings = null;
     RMX.overlay.clearAll();
+    RMX.overlay.hideReport();
   }
 
   // The action publishes RefactoringMiner's native export `{ url, refactorings }`;
@@ -176,6 +226,24 @@ var RMX = window.RMX || (window.RMX = {});
   }
   function shorten(s) {
     return s.length > 60 ? s.slice(0, 57) + '…' : s;
+  }
+
+  // Report rows: the type (shown bold) plus a type-free element summary, and the
+  // full description as the row's hover title. `index` links a row back to its
+  // tagged cells so a click selects/blinks it.
+  function reportRows(refactorings) {
+    return refactorings.map((r, index) => ({
+      index,
+      type: r.type,
+      summary: elementSummary(r),
+      detail: r.description || '',
+    }));
+  }
+  function elementSummary(r) {
+    const left = firstCodeElement(r.leftSideLocations);
+    const right = firstCodeElement(r.rightSideLocations);
+    if (left && right && left !== right) return `${shorten(left)} → ${shorten(right)}`;
+    return shorten(right || left || r.description || '');
   }
 
   // When the user follows one of the action's PR-comment links, GitHub lands us

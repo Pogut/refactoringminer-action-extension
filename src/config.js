@@ -45,7 +45,7 @@ RMX.config = (function () {
 
   // The action publishes one feed per PR under refactorings/pr-<n>/; commit-only
   // pages (no PR number) never carry one, so this returns null and the overlay
-  // stays off there.
+  // falls back to the RefactoringMiner service (see RMX.rm) for those.
   function feedUrl(loc) {
     if (!loc || !loc.prNumber) return null;
     return (
@@ -54,5 +54,11 @@ RMX.config = (function () {
     );
   }
 
-  return { parseLocation, feedUrl };
+  // The `.git` clone URL the RefactoringMiner service analyses (standalone mode).
+  function gitUrl(loc) {
+    if (!loc || !loc.owner || !loc.repo) return null;
+    return `https://github.com/${loc.owner}/${loc.repo}.git`;
+  }
+
+  return { parseLocation, feedUrl, gitUrl };
 })();

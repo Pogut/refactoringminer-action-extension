@@ -107,9 +107,39 @@ for (const pr of sb.PRS) {
       const reported = page.rmxLogs.find((l) => l.includes('refactorings'));
       expect(reported, `expected an [RMX] log; got ${JSON.stringify(page.rmxLogs)}`).toBeTruthy();
       expect(reported).toContain(`[RMX] ${refactorings.length} refactorings`);
+
+      // The report panel lists every refactoring in the feed (one row each).
+      await expect(page.locator('#rmx-report')).toBeVisible();
+      expect(await page.locator('#rmx-report .rmx-rp-row').count()).toBe(refactorings.length);
     });
   });
 }
+
+// --- refactorings report panel ---------------------------------------------
+// The bottom-left panel lists every refactoring; a row click selects (blinks)
+// that refactoring on the diff, and the header collapses/expands the list.
+test.describe('report panel (PR #14)', () => {
+  test('a row click selects the refactoring; header collapses the list', async ({ page }) => {
+    await openChanges(page, 14);
+    const panel = page.locator('#rmx-report');
+    await expect(panel).toBeVisible();
+
+    const rows = panel.locator('.rmx-rp-row');
+    expect(await rows.count()).toBeGreaterThan(0);
+
+    // Clicking a row selects its refactoring (a tagged cell gains rmx-sel).
+    await rows.first().click();
+    await expect(page.locator('.rmx-hl.rmx-sel').first()).toBeVisible({ timeout: 10_000 });
+
+    // The header toggles the body without tearing down the panel.
+    await expect(panel.locator('.rmx-rp-body')).toBeVisible();
+    await panel.locator('.rmx-rp-head').click();
+    await expect(panel).toHaveClass(/rmx-collapsed/);
+    await expect(panel.locator('.rmx-rp-body')).toBeHidden();
+    await panel.locator('.rmx-rp-head').click();
+    await expect(panel.locator('.rmx-rp-body')).toBeVisible();
+  });
+});
 
 // --- click-to-pair selection (the gold "blink on both sides") ---------------
 // Clicking any highlighted line must light the WHOLE refactoring in the gold

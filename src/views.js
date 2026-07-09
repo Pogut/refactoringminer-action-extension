@@ -14,10 +14,9 @@ RMX.views = (function () {
     {
       name: 'commit',
       matches: (loc) => !!loc && loc.view === 'commit',
-      // TODO(phase-next): per-commit pages need a per-commit feed; today's feed
-      // is the PR-aggregate one. Disabled until the action publishes per-commit
-      // data (or we slice the PR feed by commit). The DOM hook is identical.
-      disabled: true,
+      // Per-commit pages have no action feed (it's PR-aggregate), so content.js
+      // sources their refactorings from the RefactoringMiner service (RMX.rm)
+      // instead. The DOM hook (diff-<digest><L|R><line>) is identical.
     },
   ];
 

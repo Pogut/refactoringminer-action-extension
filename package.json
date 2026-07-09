@@ -1,6 +1,6 @@
 {
   "name": "refactoringminer-action-extension",
-  "version": "0.6.0",
+  "version": "0.7.1",
   "private": true,
   "description": "Chrome extension that overlays refactoringminer-action's detected refactorings onto GitHub diffs.",
   "scripts": {

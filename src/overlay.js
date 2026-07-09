@@ -56,6 +56,35 @@ RMX.overlay = (function () {
       #rmx-pin-top .rmx-pin-toggle{border-bottom:1px solid var(--borderColor-default,#d0d7de);}
       #rmx-pin-bottom .rmx-pin-toggle{border-top:1px solid var(--borderColor-default,#d0d7de);}
       .rmx-pin-toggle-caret{font-size:10px;font-weight:700;}
+
+      /* Refactorings report — a collapsible list pinned bottom-left, shown in
+         both PR and commit views. Each row selects (blinks) its refactoring. */
+      /* Above the pinned bars (2147483600) so its rows stay clickable when a
+         selection's off-screen peek bars appear along the bottom edge. */
+      #rmx-report{position:fixed;bottom:16px;left:16px;z-index:2147483601;width:290px;max-width:42vw;
+        background:var(--bgColor-default,#fff);color:var(--fgColor-default,#1f2328);
+        border:1px solid var(--borderColor-default,#d0d7de);border-radius:8px;overflow:hidden;
+        box-shadow:0 4px 16px rgba(31,35,40,.2);
+        font:12px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;}
+      #rmx-report .rmx-rp-head{display:flex;align-items:center;justify-content:space-between;
+        padding:8px 11px;cursor:pointer;font-weight:600;user-select:none;
+        border-bottom:1px solid var(--borderColor-muted,#d8dee4);}
+      #rmx-report .rmx-rp-caret{font-size:10px;color:var(--fgColor-muted,#656d76);transition:transform .15s;}
+      #rmx-report.rmx-collapsed .rmx-rp-body{display:none;}
+      #rmx-report.rmx-collapsed .rmx-rp-head{border-bottom:0;}
+      #rmx-report.rmx-collapsed .rmx-rp-caret{transform:rotate(-90deg);}
+      #rmx-report .rmx-rp-body{max-height:40vh;overflow-y:auto;}
+      #rmx-report .rmx-rp-row{padding:6px 11px;cursor:pointer;border-bottom:1px solid var(--borderColor-muted,#d8dee4);}
+      #rmx-report .rmx-rp-row:last-child{border-bottom:0;}
+      #rmx-report .rmx-rp-row:hover{background:var(--bgColor-muted,#f6f8fa);}
+      #rmx-report .rmx-rp-type{font-weight:600;}
+      #rmx-report .rmx-rp-sum{color:var(--fgColor-muted,#656d76);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+      #rmx-report .rmx-rp-msg{padding:10px 11px;color:var(--fgColor-muted,#656d76);display:flex;align-items:center;gap:8px;}
+      #rmx-report .rmx-rp-err{color:var(--fgColor-danger,#cf222e);}
+      #rmx-report .rmx-rp-spinner{width:12px;height:12px;flex:0 0 auto;border-radius:50%;
+        border:2px solid var(--borderColor-default,#d0d7de);border-top-color:var(--fgColor-accent,#0969da);
+        animation:rmx-spin .8s linear infinite;}
+      @keyframes rmx-spin{to{transform:rotate(360deg);}}
     `;
     document.head.appendChild(s);
   }
@@ -280,6 +309,7 @@ RMX.overlay = (function () {
     if (bottomLayer) bottomLayer.querySelectorAll('.rmx-pin').forEach((el) => el.remove());
     if (topToggle) topToggle.style.display = 'none';
     if (bottomToggle) bottomToggle.style.display = 'none';
+    syncReportOffset();
   }
 
   function schedulePins() {
@@ -323,6 +353,7 @@ RMX.overlay = (function () {
 
     renderStack(topLayer, above);
     renderStack(bottomLayer, below);
+    syncReportOffset();
   }
 
   function renderStack(layer, entries) {
@@ -430,8 +461,8 @@ RMX.overlay = (function () {
     });
     document.addEventListener('click', (e) => {
       if (!e.target.closest) return;
-      // Clicks on our own UI (the pinned bars) shouldn't clear the selection.
-      if (e.target.closest('#rmx-pin-top, #rmx-pin-bottom')) return;
+      // Clicks on our own UI (pinned bars, report panel) shouldn't clear the selection.
+      if (e.target.closest('#rmx-pin-top, #rmx-pin-bottom, #rmx-report')) return;
       const cell = e.target.closest('.' + CLASS);
       if (!cell) {
         clearSelection();
@@ -459,8 +490,111 @@ RMX.overlay = (function () {
     return true;
   }
 
+  // --- refactorings report panel (bottom-left) ----------------------------
+  // A collapsible list of every refactoring the current view carries — a stand-in
+  // for the action's PR comment, and the only listing available on commit pages.
+  // Clicking a row selects (blinks) that refactoring and scrolls to it. Shown in
+  // both PR and commit views.
+  let reportEl = null;
+
+  function ensureReport() {
+    if (reportEl) return reportEl;
+    ensureStyle();
+    reportEl = document.createElement('div');
+    reportEl.id = 'rmx-report';
+    const head = document.createElement('div');
+    head.className = 'rmx-rp-head';
+    head.innerHTML = '<span class="rmx-rp-title">Refactorings</span><span class="rmx-rp-caret">▾</span>';
+    head.addEventListener('click', () => reportEl.classList.toggle('rmx-collapsed'));
+    const body = document.createElement('div');
+    body.className = 'rmx-rp-body';
+    reportEl.appendChild(head);
+    reportEl.appendChild(body);
+    document.body.appendChild(reportEl);
+    syncReportOffset(); // sit above the bottom pin bars if any are already showing
+    return reportEl;
+  }
+
+  // Lift the report panel above the bottom pinned-line bars so their (variable)
+  // stack never hides the last rows. Re-run whenever that stack changes.
+  function syncReportOffset() {
+    if (!reportEl) return;
+    const h = bottomLayer ? bottomLayer.getBoundingClientRect().height : 0;
+    reportEl.style.bottom = (h > 0 ? Math.ceil(h) + 8 : 16) + 'px';
+  }
+
+  function reportTitle(n) {
+    ensureReport().querySelector('.rmx-rp-title').textContent =
+      typeof n === 'number' ? `Refactorings (${n})` : 'Refactorings';
+  }
+  function reportBody() {
+    const body = ensureReport().querySelector('.rmx-rp-body');
+    body.textContent = '';
+    return body;
+  }
+
+  // Loading state while the RefactoringMiner service analyses a commit.
+  function reportLoading(label) {
+    reportTitle();
+    const msg = document.createElement('div');
+    msg.className = 'rmx-rp-msg';
+    const spin = document.createElement('span');
+    spin.className = 'rmx-rp-spinner';
+    msg.appendChild(spin);
+    msg.appendChild(document.createTextNode(label || 'Analysing commit…'));
+    reportBody().appendChild(msg);
+  }
+
+  function reportError(message) {
+    reportTitle();
+    const msg = document.createElement('div');
+    msg.className = 'rmx-rp-msg rmx-rp-err';
+    msg.textContent = message || 'Could not load refactorings.';
+    reportBody().appendChild(msg);
+  }
+
+  // `rows`: [{ index, type, summary }]. Each row selects its refactoring on click.
+  function showReport(rows) {
+    reportTitle(rows.length);
+    const body = reportBody();
+    if (!rows.length) {
+      const msg = document.createElement('div');
+      msg.className = 'rmx-rp-msg';
+      msg.textContent = 'No refactorings found.';
+      body.appendChild(msg);
+      return;
+    }
+    rows.forEach((row) => {
+      const item = document.createElement('div');
+      item.className = 'rmx-rp-row';
+      item.title = row.detail || row.summary;
+      const type = document.createElement('div');
+      type.className = 'rmx-rp-type';
+      type.textContent = row.type;
+      const sum = document.createElement('div');
+      sum.className = 'rmx-rp-sum';
+      sum.textContent = row.summary;
+      item.appendChild(type);
+      item.appendChild(sum);
+      item.addEventListener('click', () => {
+        select([String(row.index)]);
+        const cell = document.querySelector(`.${CLASS}[data-rmx-index~="${row.index}"]`);
+        if (cell) cell.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      });
+      body.appendChild(item);
+    });
+  }
+
+  function hideReport() {
+    if (reportEl) {
+      reportEl.remove();
+      reportEl = null;
+    }
+  }
+
   return {
     ensureStyle, clearAll, startPass, endPass, highlightRange, installTooltip,
     select, applySelection, clearSelection, scrollToRefactoring,
+    showReport, reportLoading, reportError, hideReport,
   };
 })();
