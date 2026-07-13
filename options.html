@@ -2,48 +2,251 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>RefactoringMiner Overlay — Options</title>
+    <title>RefactoringLab Options</title>
     <style>
-      body {
-        font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        color: #1f2328;
-        max-width: 560px;
-        margin: 24px auto;
-        padding: 0 16px;
+      :root {
+        --fg: #1f2328;
+        --muted: #656d76;
+        --border: #d0d7de;
+        --border-muted: #e3e8ee;
+        --bg: #f6f8fa;
+        --card: #ffffff;
+        --accent: #7c3aed;
+        --accent-2: #ec4899;
+        --grad: linear-gradient(135deg, #ec4899 0%, #7c3aed 100%);
       }
-      h1 { font-size: 18px; }
-      p.intro { color: #656d76; }
-      label { display: block; margin: 16px 0 4px; font-weight: 600; }
-      .hint { font-weight: 400; color: #656d76; font-size: 12px; }
-      input { width: 100%; padding: 7px 9px; border: 1px solid #d0d7de; border-radius: 6px; box-sizing: border-box; }
-      .row { display: flex; gap: 12px; align-items: center; margin-top: 20px; }
-      button { padding: 8px 16px; border: 1px solid #1f883d; background: #1f883d; color: #fff; border-radius: 6px; cursor: pointer; font-weight: 600; }
-      button:hover { background: #1a7f37; }
-      #status { color: #1a7f37; font-size: 13px; }
+      * { box-sizing: border-box; }
+      body {
+        font: 14px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        color: var(--fg);
+        background: var(--bg);
+        margin: 0;
+        padding: 40px 16px 64px;
+      }
+      .wrap { max-width: 640px; margin: 0 auto; }
+
+      /* Header */
+      .hero {
+        display: flex;
+        align-items: center;
+        gap: 18px;
+        margin-bottom: 28px;
+      }
+      .hero .logo {
+        width: 60px;
+        height: 60px;
+        border-radius: 14px;
+        background: #fff;
+        border: 1px solid var(--border);
+        box-shadow: 0 1px 3px rgba(31, 35, 40, 0.08);
+        padding: 6px;
+        flex: 0 0 auto;
+      }
+      .hero h1 { font-size: 22px; margin: 0; letter-spacing: -0.01em; }
+      .hero .tagline { color: var(--muted); font-size: 13px; margin-top: 2px; }
+
+      /* Cards */
+      .card {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 22px 24px;
+        margin-bottom: 20px;
+        box-shadow: 0 1px 3px rgba(31, 35, 40, 0.04);
+      }
+      .card h2 {
+        font-size: 15px;
+        margin: 0 0 4px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .card .desc { color: var(--muted); font-size: 12.5px; margin: 0 0 18px; }
+      .card .desc:last-child { margin-bottom: 0; }
+      .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--grad); flex: 0 0 auto; }
+
+      /* Fields */
+      label { display: block; margin: 16px 0 6px; font-weight: 600; font-size: 13px; }
+      label:first-of-type { margin-top: 0; }
+      .hint { font-weight: 400; color: var(--muted); font-size: 12px; }
+      input[type="url"], input[type="password"], input[type="number"], input[type="text"] {
+        width: 100%;
+        padding: 8px 10px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        font: inherit;
+        background: #fff;
+        transition: border-color 0.12s, box-shadow 0.12s;
+      }
+      input:focus {
+        outline: none;
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.15);
+      }
+      code {
+        font: 12px ui-monospace, SFMono-Regular, Menlo, monospace;
+        background: var(--bg);
+        border: 1px solid var(--border-muted);
+        border-radius: 4px;
+        padding: 1px 4px;
+      }
+
+      /* Colour swatches */
+      .swatches { display: flex; gap: 14px; flex-wrap: wrap; }
+      .swatch {
+        flex: 1 1 220px;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 14px;
+        background: var(--bg);
+      }
+      .swatch .side { font-weight: 600; font-size: 12px; margin-bottom: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+      .swatch .pair { display: flex; align-items: center; gap: 10px; }
+      .swatch input[type="color"] {
+        width: 46px; height: 38px; padding: 3px;
+        border: 1px solid var(--border); border-radius: 8px; background: #fff; cursor: pointer;
+      }
+      .swatch input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
+      .swatch input[type="color"]::-webkit-color-swatch { border: none; border-radius: 5px; }
+      .swatch .hex {
+        flex: 1; min-width: 0; text-transform: lowercase;
+        font: 13px ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+
+      /* Live blink preview */
+      .preview {
+        margin-top: 18px;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        overflow: hidden;
+        font: 12.5px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+      .preview .pv-cap {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        font-size: 11px; color: var(--muted); padding: 7px 12px;
+        background: var(--bg); border-bottom: 1px solid var(--border-muted);
+      }
+      .pv-body { display: flex; }
+      .pv-line {
+        flex: 1; min-width: 0;
+        display: flex; align-items: center; gap: 8px;
+        padding: 9px 12px; background: #fff; color: #1f2328;
+      }
+      .pv-line + .pv-line { border-left: 1px solid var(--border-muted); }
+      .pv-line .pv-stripe { width: 4px; height: 16px; border-radius: 2px; flex: 0 0 auto; }
+      .pv-line .pv-tag { color: var(--muted); flex: 0 0 auto; }
+      .pv-line .pv-code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .pv-left {
+        box-shadow: inset 3px 0 0 var(--pv-left-d, #be185d);
+        animation: pv-blink-l 2.4s ease-in-out infinite;
+      }
+      .pv-right {
+        box-shadow: inset 3px 0 0 var(--pv-right-d, #6d28d9);
+        animation: pv-blink-r 2.4s ease-in-out infinite;
+      }
+      .pv-left .pv-stripe { background: var(--pv-left-d, #be185d); }
+      .pv-right .pv-stripe { background: var(--pv-right-d, #6d28d9); }
+      @keyframes pv-blink-l { 0%, 100% { background: #fff; } 50% { background: var(--pv-left, #ec4899); } }
+      @keyframes pv-blink-r { 0%, 100% { background: #fff; } 50% { background: var(--pv-right, #7c3aed); } }
+
+      /* Actions */
+      .actions {
+        display: flex; flex-direction: column; align-items: center; gap: 8px;
+        padding: 4px 0;
+      }
+      .btn {
+        padding: 9px 24px; border: 0; border-radius: 8px; cursor: pointer;
+        font: inherit; font-weight: 600; color: #fff; background: #1f2328;
+        box-shadow: 0 1px 3px rgba(31, 35, 40, 0.25);
+        transition: transform 0.06s, box-shadow 0.12s, background 0.12s;
+      }
+      .btn:hover { background: #000; box-shadow: 0 2px 8px rgba(31, 35, 40, 0.3); }
+      .btn:active { transform: translateY(1px); }
+      .linkbtn {
+        padding: 0; border: 0; background: none; color: var(--muted);
+        font: inherit; font-size: 13px; cursor: pointer;
+      }
+      .linkbtn:hover { color: var(--fg); text-decoration: underline; }
+      #status { color: #1a7f37; font-size: 13px; font-weight: 500; }
+      .row-between { display: flex; align-items: center; justify-content: space-between; margin-top: 16px; }
     </style>
   </head>
   <body>
-    <h1>RefactoringMiner Overlay</h1>
-    <p class="intro">
-      These settings are used only in <strong>standalone mode</strong> — on commit
-      pages, or repos that don't run the RefactoringMiner GitHub Action — where the
-      extension asks a hosted RefactoringMiner service to analyse the commit. Pages
-      that already have the action's published feed ignore these.
-    </p>
+    <div class="wrap">
+      <header class="hero">
+        <img class="logo" src="refactoringLab.png" alt="RefactoringLab logo" />
+        <div>
+          <h1>RefactoringMiner</h1>
+          <div class="tagline">Refactoring-aware commit &amp; PR review overlay for GitHub</div>
+        </div>
+      </header>
 
-    <label for="baseurl">Service URL</label>
-    <input id="baseurl" type="url" placeholder="https://rminer.encs.concordia.ca:8000/RefactoringMiner" />
-    <div class="hint">Must send <code>Access-Control-Allow-Origin</code> so the browser can read it.</div>
+      <!-- Highlight colours: applies in every mode -->
+      <section class="card">
+        <h2>Highlight colours</h2>
+        <p class="desc">
+          The colour each selected refactoring blinks in, used in every mode, on
+          both PR and commit pages. The left (old) and right (new) sides of the diff
+          blink in different colours so their counterparts are easy to pair up. The
+          outline and off-screen line markers use a slightly darker shade, derived
+          automatically.
+        </p>
 
-    <label for="token">GitHub OAuth token <span class="hint">(optional — only needed for private repositories; sent to the service above)</span></label>
-    <input id="token" type="password" placeholder="ghp_… (leave blank for public repos)" />
+        <div class="swatches">
+          <div class="swatch">
+            <div class="side">Left side · old</div>
+            <div class="pair">
+              <input id="hlLeft" type="color" />
+              <input id="hlLeftHex" class="hex" type="text" spellcheck="false" aria-label="Left side hex colour" />
+            </div>
+          </div>
+          <div class="swatch">
+            <div class="side">Right side · new</div>
+            <div class="pair">
+              <input id="hlRight" type="color" />
+              <input id="hlRightHex" class="hex" type="text" spellcheck="false" aria-label="Right side hex colour" />
+            </div>
+          </div>
+        </div>
 
-    <label for="timeout">Timeout (seconds)</label>
-    <input id="timeout" type="number" min="10" max="600" />
+        <div class="preview" aria-hidden="true">
+          <div class="pv-cap">Live preview</div>
+          <div class="pv-body">
+            <div class="pv-line pv-left"><span class="pv-stripe"></span><span class="pv-tag">−</span><span class="pv-code">extractHelper()</span></div>
+            <div class="pv-line pv-right"><span class="pv-stripe"></span><span class="pv-tag">+</span><span class="pv-code">buildHelper()</span></div>
+          </div>
+        </div>
 
-    <div class="row">
-      <button id="save" type="button">Save</button>
-      <span id="status"></span>
+        <div class="row-between">
+          <button id="reset" class="linkbtn" type="button">Reset to default colours</button>
+        </div>
+      </section>
+
+      <!-- Standalone service settings -->
+      <section class="card">
+        <h2>Standalone service</h2>
+        <p class="desc">
+          Used only in <strong>standalone mode</strong>, on commit pages, or repos
+          that don't run the RefactoringMiner GitHub Action, where the extension
+          asks a hosted RefactoringMiner service to analyse the commit. Pages that
+          already have the action's published feed ignore these.
+        </p>
+
+        <label for="baseurl">Service URL</label>
+        <input id="baseurl" type="url" placeholder="https://rminer.encs.concordia.ca:8000/RefactoringMiner" />
+        <div class="hint">Must send <code>Access-Control-Allow-Origin</code> so the browser can read it.</div>
+
+        <label for="token">GitHub OAuth token <span class="hint">(optional, only for private repos; sent to the service above)</span></label>
+        <input id="token" type="password" placeholder="ghp_… (leave blank for public repos)" />
+
+        <label for="timeout">Timeout (seconds)</label>
+        <input id="timeout" type="number" min="10" max="600" />
+      </section>
+
+      <div class="actions">
+        <button id="save" class="btn" type="button">Save changes</button>
+        <span id="status"></span>
+      </div>
     </div>
 
     <script src="options.js"></script>
