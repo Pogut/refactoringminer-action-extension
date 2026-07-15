@@ -11,15 +11,69 @@ RMX.overlay = (function () {
   const SEL = 'rmx-sel'; // neon "selected refactoring" highlight, both sides
   const ON = 'rmx-on'; // blink "on" phase — the darker-yellow fill is visible
 
+  // Blink colours are user-configurable (options page → chrome.storage.sync, one
+  // colour per side). The stylesheet references them as CSS custom properties
+  // with these defaults as fallbacks, so a fresh install (or a page loaded before
+  // storage resolves) still shows the original pink/purple. Keep the fills in
+  // sync with the defaults mirrored in options.js. `left`/`right` are the blink
+  // fills; `leftD`/`rightD` are the hand-picked outline+stripe shades used when a
+  // side stays at its default (preserving the original look exactly) — a custom
+  // colour derives its darker shade from the fill instead (see applyColors).
+  const HL_DEFAULTS = { left: '#ec4899', right: '#7c3aed', leftD: '#be185d', rightD: '#6d28d9' };
+
+  // Multiply a #rgb/#rrggbb colour toward black by `amt` (0–1) to get the
+  // outline/stripe shade. Returns the input unchanged if it isn't a hex colour.
+  function darken(hex, amt) {
+    const m = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(hex || '');
+    if (!m) return hex;
+    let h = m[1];
+    if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+    const n = parseInt(h, 16);
+    const r = Math.round(((n >> 16) & 255) * (1 - amt));
+    const g = Math.round(((n >> 8) & 255) * (1 - amt));
+    const b = Math.round((n & 255) * (1 - amt));
+    return '#' + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
+  }
+
+  function applyColors(left, right) {
+    const root = document.documentElement.style;
+    const leftD = left.toLowerCase() === HL_DEFAULTS.left ? HL_DEFAULTS.leftD : darken(left, 0.22);
+    const rightD = right.toLowerCase() === HL_DEFAULTS.right ? HL_DEFAULTS.rightD : darken(right, 0.22);
+    root.setProperty('--rmx-left', left);
+    root.setProperty('--rmx-left-d', leftD);
+    root.setProperty('--rmx-right', right);
+    root.setProperty('--rmx-right-d', rightD);
+  }
+
+  // Pull the stored blink colours (falling back to defaults) and mirror them onto
+  // :root, then keep them in sync so edits in the options page recolour any open
+  // diff live. The onChanged listener is installed once per page.
+  function loadColors() {
+    const store =
+      typeof chrome !== 'undefined' && chrome.storage && chrome.storage.sync;
+    if (!store) return applyColors(HL_DEFAULTS.left, HL_DEFAULTS.right);
+    store.get(['hlLeft', 'hlRight'], (r) => {
+      r = r || {};
+      applyColors(r.hlLeft || HL_DEFAULTS.left, r.hlRight || HL_DEFAULTS.right);
+    });
+    if (chrome.storage.onChanged && !window.__rmxColorWatch) {
+      window.__rmxColorWatch = true;
+      chrome.storage.onChanged.addListener((changes, area) => {
+        if (area === 'sync' && (changes.hlLeft || changes.hlRight)) loadColors();
+      });
+    }
+  }
+
   function ensureStyle() {
     if (document.getElementById('rmx-style')) return;
+    loadColors();
     const s = document.createElement('style');
     s.id = 'rmx-style';
     s.textContent = `
-      .${CLASS}.${SEL}[data-rmx-side="L"]{box-shadow:inset 3px 0 0 #be185d,0 0 0 2px #be185d !important;transition:background-color 2s ease-in-out;}
-      .${CLASS}.${SEL}[data-rmx-side="L"].${ON}{background:#ec4899 !important;}
-      .${CLASS}.${SEL}[data-rmx-side="R"]{box-shadow:inset 3px 0 0 #6d28d9,0 0 0 2px #6d28d9 !important;transition:background-color 2s ease-in-out;}
-      .${CLASS}.${SEL}[data-rmx-side="R"].${ON}{background:#7c3aed !important;}
+      .${CLASS}.${SEL}[data-rmx-side="L"]{box-shadow:inset 3px 0 0 var(--rmx-left-d,#be185d),0 0 0 2px var(--rmx-left-d,#be185d) !important;transition:background-color 2s ease-in-out;}
+      .${CLASS}.${SEL}[data-rmx-side="L"].${ON}{background:var(--rmx-left,#ec4899) !important;}
+      .${CLASS}.${SEL}[data-rmx-side="R"]{box-shadow:inset 3px 0 0 var(--rmx-right-d,#6d28d9),0 0 0 2px var(--rmx-right-d,#6d28d9) !important;transition:background-color 2s ease-in-out;}
+      .${CLASS}.${SEL}[data-rmx-side="R"].${ON}{background:var(--rmx-right,#7c3aed) !important;}
       .${TIP}{position:absolute;z-index:2147483647;max-width:460px;white-space:pre-wrap;
         background:#1f2328;color:#fff;padding:6px 9px;border-radius:6px;pointer-events:none;
         font:12px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;opacity:0;transition:opacity .08s;}
@@ -38,10 +92,10 @@ RMX.overlay = (function () {
         color:var(--fgColor-default,#1f2328);box-shadow:0 1px 5px rgba(31,35,40,.16);
         animation:rmx-pin-blink-L 1.8s ease-in-out infinite;}
       .rmx-pin.rmx-pin-R{animation-name:rmx-pin-blink-R;}
-      @keyframes rmx-pin-blink-L{0%,100%{background:var(--bgColor-default,#fff);}50%{background:#ec4899;}}
-      @keyframes rmx-pin-blink-R{0%,100%{background:var(--bgColor-default,#fff);}50%{background:#7c3aed;}}
-      @keyframes rmx-pin-fast-L{0%,49%{background:var(--bgColor-default,#fff);}50%,100%{background:#ec4899;}}
-      @keyframes rmx-pin-fast-R{0%,49%{background:var(--bgColor-default,#fff);}50%,100%{background:#7c3aed;}}
+      @keyframes rmx-pin-blink-L{0%,100%{background:var(--bgColor-default,#fff);}50%{background:var(--rmx-left,#ec4899);}}
+      @keyframes rmx-pin-blink-R{0%,100%{background:var(--bgColor-default,#fff);}50%{background:var(--rmx-right,#7c3aed);}}
+      @keyframes rmx-pin-fast-L{0%,49%{background:var(--bgColor-default,#fff);}50%,100%{background:var(--rmx-left,#ec4899);}}
+      @keyframes rmx-pin-fast-R{0%,49%{background:var(--bgColor-default,#fff);}50%,100%{background:var(--rmx-right,#7c3aed);}}
       #rmx-pin-top .rmx-pin{border-bottom:1px solid var(--borderColor-muted,#d8dee4);}
       #rmx-pin-bottom .rmx-pin{border-top:1px solid var(--borderColor-muted,#d8dee4);}
       .rmx-pin .rmx-pin-stripe{width:4px;align-self:stretch;flex:0 0 auto;}
@@ -392,7 +446,7 @@ RMX.overlay = (function () {
         }
         const stripe = document.createElement('span');
         stripe.className = 'rmx-pin-stripe';
-        stripe.style.background = side === 'R' ? '#6d28d9' : '#be185d';
+        stripe.style.background = side === 'R' ? 'var(--rmx-right-d,#6d28d9)' : 'var(--rmx-left-d,#be185d)';
         const meta = document.createElement('span');
         meta.className = 'rmx-pin-meta';
         meta.textContent = `${file}:${m[1] || ''}${m[2] || ''}`;
