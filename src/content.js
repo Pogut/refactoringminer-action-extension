@@ -67,7 +67,7 @@ var RMX = window.RMX || (window.RMX = {});
     try {
       feed = await RMX.messaging.fetchFeed(url);
     } catch (e) {
-      return null; // no feed published for this PR
+      feed = await RMX.rm.fetchCommit(RMX.config.gitUrl(loc), loc.prNumber);
     }
     const commit = firstCommit(feed);
     // Sanity guard: confirm the fetched feed really is for the PR on screen, so a
