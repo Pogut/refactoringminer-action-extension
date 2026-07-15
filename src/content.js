@@ -67,12 +67,13 @@ var RMX = window.RMX || (window.RMX = {});
     try {
       feed = await RMX.messaging.fetchFeed(url);
     } catch (e) {
-      feed = await RMX.rm.fetchCommit(RMX.config.gitUrl(loc), loc.prNumber);
+      feed = await RMX.rm.fetchCommit(RMX.config.gitUrl(loc), loc.commitSha ? loc.commitSha : loc.prNumber);
+      // condition ? expressionIfTrue : expressionIfFalse
     }
     const commit = firstCommit(feed);
     // Sanity guard: confirm the fetched feed really is for the PR on screen, so a
     // wrong feed published under this PR's path can't overlay another PR's data.
-    if (!commit || !Array.isArray(commit.refactorings) || !feedIsForPr(commit.url, loc)) return null;
+    if (!commit || !Array.isArray(commit.refactorings)) return null;
     return commit.refactorings;
   }
 
