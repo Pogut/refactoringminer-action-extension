@@ -352,14 +352,48 @@ var RMX = window.RMX || (window.RMX = {});
     observer.observe(document.body, { childList: true, subtree: true });
   }
 
+  let scheduleTimer = null;
   function schedule() {
     RMX.github.resetCache();
-    setTimeout(run, 300);
+    clearTimeout(scheduleTimer); // collapse the burst of events one nav emits
+    scheduleTimer = setTimeout(run, 300);
   }
-  // to run when you move between pages
-  document.addEventListener('turbo:load', schedule);
-  document.addEventListener('pjax:end', schedule);
-  window.addEventListener('popstate', schedule);
+
+  // Everything above the hash: the page identity we care about. Hash-only
+  // changes are deep links into the *same* page and are handled by
+  // handleDeepLink, so they must not trigger a full re-run.
+  function pageKey() {
+    return window.location.origin + window.location.pathname + window.location.search;
+  }
+
+  // Fire schedule() on any real page change, however GitHub performed it.
+  //
+  // GitHub's newer PR UI navigates with history.pushState (React Router) and
+  // emits none of the events below: no turbo:load, no popstate (that's only for
+  // back/forward). Nor can we intercept it — a content script's `history` is its
+  // isolated world's own object, so patching pushState here never sees the
+  // page's calls. Polling the URL is the one signal that catches every case, and
+  // a string compare every 250ms is free next to what the page itself is doing.
+  //
+  // Without this, moving from the diff to a page we don't overlay (the PR's
+  // Commits list, Conversation, …) left the previous page's report panel and
+  // tags on screen, because run() — and the deactivate() that tears them down —
+  // never fired.
+  let lastKey = pageKey();
+  function watchUrl() {
+    const key = pageKey();
+    if (key === lastKey) return;
+    lastKey = key;
+    lastDeepLink = ''; // new page ⇒ its hash is a fresh deep link
+    schedule();
+  }
+  setInterval(watchUrl, 250);
+
+  // Still listen for the framework events: on the pages GitHub serves with
+  // Turbo they land sooner than the next poll tick.
+  document.addEventListener('turbo:load', watchUrl);
+  document.addEventListener('pjax:end', watchUrl);
+  window.addEventListener('popstate', watchUrl);
   // Following another comment link while already on the diff only changes the
   // hash — re-run the deep-link blink for the new anchor.
   window.addEventListener('hashchange', handleDeepLink);
