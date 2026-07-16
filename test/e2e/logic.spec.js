@@ -20,13 +20,19 @@ test('parseLocation recognises PR files, changes, PR-commit, and commit pages', 
     files: RMX.config.parseLocation('https://github.com/o/r/pull/12/files'),
     changes: RMX.config.parseLocation('https://github.com/o/r/pull/12/changes?diff=split'),
     prCommit: RMX.config.parseLocation('https://github.com/o/r/pull/12/commits/abc123'),
+    // The Preview UI deep-links a single commit as /changes/<sha>; the trailing
+    // sha must route it to the commit view, not the whole-PR files view — this is
+    // what stops a single commit page from being analysed as the entire PR.
+    prChangesCommit: RMX.config.parseLocation('https://github.com/o/r/pull/12/changes/abc123'),
     commit: RMX.config.parseLocation('https://github.com/o/r/commit/deadbeef'),
     issues: RMX.config.parseLocation('https://github.com/o/r/issues/3'),
     notGithub: RMX.config.parseLocation('https://example.com/o/r/commit/x'),
   }));
   expect(out.files).toMatchObject({ owner: 'o', repo: 'r', prNumber: '12', view: 'files' });
+  expect(out.files.commitSha).toBeUndefined();
   expect(out.changes).toMatchObject({ prNumber: '12', view: 'files' });
   expect(out.prCommit).toMatchObject({ prNumber: '12', commitSha: 'abc123', view: 'commit' });
+  expect(out.prChangesCommit).toMatchObject({ prNumber: '12', commitSha: 'abc123', view: 'commit' });
   expect(out.commit).toMatchObject({ owner: 'o', repo: 'r', commitSha: 'deadbeef', view: 'commit' });
   expect(out.issues).toBeNull();
   expect(out.notGithub).toBeNull();
@@ -64,7 +70,7 @@ test('rm.fetchCommit calls the configured service with gitURL, commitId, timeout
   expect(url).not.toContain('token='); // no token stored → omitted
 });
 
-test('rm.fetchCommit memoises per commit (one request per sha)', async ({ page }) => {
+test('rm.fetchCommit memoises per request (one request per gitURL+id)', async ({ page }) => {
   const calls = await page.evaluate(async () => {
     let n = 0;
     window.fetch = () => {
@@ -72,8 +78,25 @@ test('rm.fetchCommit memoises per commit (one request per sha)', async ({ page }
       return Promise.resolve({ ok: true, json: () => Promise.resolve({ commits: [] }) });
     };
     await RMX.rm.fetchCommit('https://github.com/o/r.git', 'same-sha');
-    await RMX.rm.fetchCommit('https://github.com/o/r.git', 'same-sha');
+    await RMX.rm.fetchCommit('https://github.com/o/r.git', 'same-sha'); // cached
+    await RMX.rm.fetchCommit('https://github.com/o/r.git', '42'); // different id → new request
+    await RMX.rm.fetchCommit('https://github.com/other/x.git', 'same-sha'); // different repo → new request
     return n;
   });
-  expect(calls).toBe(1);
+  expect(calls).toBe(3);
+});
+
+test('rm.fetchCommit passes an integer PR number through as commitId (whole-PR mode)', async ({ page }) => {
+  // The service treats an integer commitId as a pull-request number and runs
+  // detectAtPullRequest; the client just forwards whatever id it's given.
+  const url = await page.evaluate(async () => {
+    let captured = '';
+    window.fetch = (u) => {
+      captured = u;
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ commits: [] }) });
+    };
+    await RMX.rm.fetchCommit('https://github.com/o/r.git', '7');
+    return captured;
+  });
+  expect(url).toContain('commitId=7');
 });

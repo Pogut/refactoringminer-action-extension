@@ -30,13 +30,20 @@ RMX.config = (function () {
     if (!owner || !repo) return null;
 
     // GitHub serves the PR diff at /files (classic) or /changes (the newer
-    // "Preview" diff experience); both are the same view to us.
+    // "Preview" diff experience); both are the whole-PR "Files changed" view.
+    // The Preview UI also deep-links a *single* commit as /changes/<sha> — when
+    // that trailing sha is present it's one commit, not the whole PR, so route
+    // it to the commit view (this is what stops a single-commit page from being
+    // analysed — and overlaid — as the entire pull request).
     if (kind === 'pull' && id && (sub === 'files' || sub === 'changes')) {
+      if (subId) return { owner, repo, prNumber: id, commitSha: subId, view: 'commit' };
       return { owner, repo, prNumber: id, view: 'files' };
     }
+    // Classic single-commit-within-a-PR page: /pull/<n>/commits/<sha>.
     if (kind === 'pull' && id && sub === 'commits' && subId) {
       return { owner, repo, prNumber: id, commitSha: subId, view: 'commit' };
     }
+    // Standalone commit page (not inside a PR): /commit/<sha>.
     if (kind === 'commit' && id) {
       return { owner, repo, commitSha: id, view: 'commit' };
     }
