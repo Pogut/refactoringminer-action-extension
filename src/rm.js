@@ -2,11 +2,18 @@ var RMX = window.RMX || (window.RMX = {});
 
 // Standalone data source. When there's no action-published feed — commit pages,
 // or repos that don't run the RefactoringMiner GitHub Action — we ask a hosted
-// RefactoringMiner web service to analyse the commit and hand back its native
+// RefactoringMiner web service to analyse the change and hand back its native
 // `{ commits: [ … ] }` JSON, the same approach the Refactoring-Aware-Commit-Review
 // extension uses. This runs from the content script; the default server sends
 // `Access-Control-Allow-Origin: *`, so no host permission is needed. A
 // self-hosted server must send permissive CORS too (configure it in options).
+//
+// The single `?gitURL&commitId&timeout&token` endpoint serves both granularities:
+// the service treats an *integer* commitId as a pull-request number and runs
+// detectAtPullRequest (aggregating every commit in the PR into one result), and a
+// *sha* commitId as a single commit. So the whole-PR "Files changed" page is one
+// request (no per-commit loop), and a single commit page is a separate request
+// for just that sha.
 RMX.rm = (function () {
   const DEFAULTS = {
     // Concordia's public RefactoringMiner server (same default as
@@ -16,8 +23,10 @@ RMX.rm = (function () {
     timeout: 60, // seconds the server waits before giving up
   };
 
-  // Analysis is expensive server-side, so memoise per commit for this page
+  // Analysis is expensive server-side, so memoise per request for this page
   // session (the content script — and this cache — survive Turbo navigations).
+  // Keyed by gitURL + id so a PR number can't collide with a commit sha, and so
+  // the same id in two different repos stays separate.
   const cache = new Map();
 
   function settings() {
@@ -36,20 +45,23 @@ RMX.rm = (function () {
     });
   }
 
-  // Resolves to RefactoringMiner's `{ commits: [ … ] }` for the commit, or throws
-  // on an HTTP/network error (the caller surfaces that in the report panel).
-  async function fetchCommit(gitUrl, commitId) {
-    if (cache.has(commitId)) return cache.get(commitId);
+  // Resolves to RefactoringMiner's `{ commits: [ … ] }`, or throws on an
+  // HTTP/network error (the caller surfaces that in the report panel). `id` is a
+  // commit sha (single-commit analysis) or a PR number (whole-PR analysis) — the
+  // service branches on whether it parses as an integer.
+  async function fetchCommit(gitUrl, id) {
+    const key = `${gitUrl}@${id}`;
+    if (cache.has(key)) return cache.get(key);
     const cfg = await settings();
     const url =
       `${cfg.baseurl}?gitURL=${encodeURIComponent(gitUrl)}` +
-      `&commitId=${encodeURIComponent(commitId)}` +
+      `&commitId=${encodeURIComponent(id)}` +
       `&timeout=${encodeURIComponent(cfg.timeout)}` +
       (cfg.token ? `&token=${encodeURIComponent(cfg.token)}` : '');
     const res = await fetch(url, { cache: 'no-cache' });
     if (!res.ok) throw new Error(`RefactoringMiner service returned HTTP ${res.status}`);
     const data = await res.json();
-    cache.set(commitId, data);
+    cache.set(key, data);
     return data;
   }
 

@@ -4,16 +4,27 @@ A Chrome (MV3) extension that overlays the refactorings detected by
 [refactoringminer-action](../refactoringminer-action) directly onto GitHub
 diffs, and works standalone on commit pages too.
 
-Two data sources ("dual mode"):
+Two data sources ("dual mode"), chosen per page. Every page prefers the action's
+published feed and falls back to a hosted **RefactoringMiner service** only when
+the repo doesn't run the action — so the extension works on any repo, not just
+ones with the action installed:
 
 - **PR "Files changed" pages** reuse the single run the action already did, by
   fetching the JSON feed the action publishes to GitHub Pages — no re-analysis.
-- **Commit pages** (individual commits, in or out of a PR) have no feed, so the
-  extension asks a hosted **RefactoringMiner service** to analyse the commit and
-  returns the same JSON shape. This is the same approach as
-  [Refactoring-Aware-Commit-Review](../RefactoringAwareCommitReview) and needs no
-  local Docker (a browser extension can't run one). The default server and an
-  optional GitHub token for private repos are set in the extension's options page.
+  No feed? The extension analyses the **whole PR in one service call**: the
+  service treats an integer `commitId` as a pull-request number and runs
+  `detectAtPullRequest`, so there's no per-commit loop.
+- **Commit pages** (a standalone `/commit/<sha>`, or a single commit inside a PR)
+  overlay **only that commit**. They ask the service to analyse just that sha, so
+  a commit's page never shows the PR's entire refactoring set. (If a per-commit
+  feed listing that sha exists it's used instead; the action's current feed is
+  PR-aggregate, so in practice this is a direct single-commit analysis.)
+
+Each page runs **only** the analysis for what it shows — opening one commit in a
+PR analyses that commit, not all of the PR's commits. This is the same hosted-
+service approach as [Refactoring-Aware-Commit-Review](../RefactoringAwareCommitReview)
+and needs no local Docker (a browser extension can't run one). The default server
+and an optional GitHub token for private repos are set in the options page.
 
 Either way, a collapsible **Refactorings** panel (bottom-left) lists every
 refactoring; clicking a row blinks it on the diff — handy when you don't have the
@@ -71,9 +82,9 @@ Feed shape (RefactoringMiner's classic `-json` output):
 | `src/overlay.js` | view-agnostic renderer: tag cells / blink selection / pins / tooltip / report panel |
 | `src/messaging.js` | content → service-worker feed-fetch bridge |
 | `src/service-worker.js` | cross-origin feed fetch + per-URL cache |
-| `src/rm.js` | standalone data source: hosted RefactoringMiner service client (commit pages) |
-| `src/views.js` | view adapters (files = feed, commit = RM service) |
-| `src/content.js` | orchestrator: dual-mode source selection + Turbo-navigation re-render |
+| `src/rm.js` | standalone data source: hosted RefactoringMiner service client — one call per page, `commitId` = sha (single commit) or PR number (whole PR) |
+| `src/views.js` | view adapters (`files` = whole PR, `commit` = single commit) |
+| `src/content.js` | orchestrator: per-page feed→service source selection, stale-navigation guard, Turbo-navigation re-render |
 | `options.html` / `options.js` | RM service URL, token, timeout for standalone mode |
 
 ## Dev

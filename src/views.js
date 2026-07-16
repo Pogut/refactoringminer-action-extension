@@ -14,9 +14,11 @@ RMX.views = (function () {
     {
       name: 'commit',
       matches: (loc) => !!loc && loc.view === 'commit',
-      // Per-commit pages have no action feed (it's PR-aggregate), so content.js
-      // sources their refactorings from the RefactoringMiner service (RMX.rm)
-      // instead. The DOM hook (diff-<digest><L|R><line>) is identical.
+      // A single commit's page — standalone /commit/<sha>, or a commit inside a
+      // PR (/pull/<n>/commits/<sha> and the Preview /pull/<n>/changes/<sha>). The
+      // action's feed is PR-aggregate, so content.js overlays only this commit,
+      // sourced from a matching per-commit feed entry if one exists, otherwise
+      // from a single-commit RefactoringMiner service call. DOM hook is identical.
     },
   ];
 

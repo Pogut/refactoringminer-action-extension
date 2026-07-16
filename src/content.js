@@ -5,6 +5,11 @@ var RMX = window.RMX || (window.RMX = {});
 // navigations and as the virtualized diff mounts more rows on scroll.
 (function () {
   let currentRefactorings = null;
+  // Bumped on every run() so an in-flight analysis from a page we've since
+  // navigated away from can detect it's stale and drop its result instead of
+  // painting the old refactorings onto the new page (the "panel stays there when
+  // I move between pages" bug).
+  let gen = 0;
 
   // Load stamp: logged once per injection so you can confirm at a glance which
   // build is actually running in the tab (reloading the *page* re-injects the
@@ -14,67 +19,118 @@ var RMX = window.RMX || (window.RMX = {});
   const build = (chrome.runtime.getManifest && chrome.runtime.getManifest().version) || 'dev';
   console.info(`[RMX] content script loaded — build ${build}`);
 
-  // Dual data sources: PR "Files changed" pages read the action's published
-  // per-PR feed; commit pages (which have no feed) fall back to the hosted
-  // RefactoringMiner service. Both land as a plain refactorings array that feeds
-  // the same renderer + report panel.
+  // Each page overlays ONLY what it shows, and every page prefers the action's
+  // published feed, falling back to the hosted RefactoringMiner service when the
+  // repo doesn't run the action:
+  //   • "Files changed" (whole PR)  → PR-aggregate feed, else one PR-level RM call
+  //   • a commit (standalone or in a PR) → that commit's feed entry, else one
+  //                                        single-commit RM call for that sha
+  // All paths land as a plain refactorings array feeding the same renderer +
+  // report panel.
   async function run() {
+    const myGen = ++gen;
     const loc = RMX.config.parseLocation();
     if (!RMX.views.pick(loc)) return deactivate();
 
-    let refactorings;
-    if (loc.commitSha) {
-      refactorings = await commitRefactorings(loc);
-      if (refactorings === null) return; // hard failure — report already shows the error
-    } else if (loc.prNumber) {
-      refactorings = await prRefactorings(loc);
-      if (refactorings === null) return deactivate();
-    } else {
-      return deactivate();
-    }
+    // Tear the previous page's overlay/panel down *before* the (possibly slow)
+    // analysis starts, so nothing stale lingers on screen and the scroll
+    // observer can't repaint the old page's refactorings while we load.
+    resetForLoad();
+
+    const refactorings =
+      loc.view === 'files'
+        ? await filesRefactorings(loc)
+        : await commitRefactorings(loc);
+
+    if (myGen !== gen) return; // navigated away mid-analysis — this result is stale
+    if (refactorings === null) return; // hard failure — report already shows the error
 
     currentRefactorings = refactorings;
     await render(currentRefactorings);
+    if (myGen !== gen) return;
     RMX.overlay.showReport(reportRows(currentRefactorings));
     observe();
   }
 
-  // Commit page: ask the RefactoringMiner service (RMX.rm). Returns the array
-  // (possibly empty) on success, or null when the service errored — in which case
-  // the report panel is left showing that error and the caller stops.
+  // Whole-PR "Files changed" page. The action's feed is PR-aggregate, so it maps
+  // straight onto this view; without it, analyse the entire PR in ONE service
+  // call (integer commitId ⇒ detectAtPullRequest), never a per-commit loop.
+  async function filesRefactorings(loc) {
+    const fromFeed = await feedRefactorings(loc);
+    if (fromFeed) return fromFeed;
+    RMX.overlay.reportLoading('Analysing pull request with RefactoringMiner…');
+    return minerRefactorings(loc, loc.prNumber);
+  }
+
+  // A single commit's page (standalone /commit/<sha>, or a commit inside a PR).
+  // It shows one commit's diff, so we only ever want THAT commit's refactorings —
+  // never the PR aggregate (which is the "shows all refactorings within the PR on
+  // one commit" bug). Use the feed only if it's a per-commit export listing this
+  // sha; otherwise analyse just this commit.
   async function commitRefactorings(loc) {
+    const fromFeed = await feedRefactorings(loc, loc.commitSha);
+    if (fromFeed) return fromFeed;
     RMX.overlay.reportLoading('Analysing commit with RefactoringMiner…');
+    return minerRefactorings(loc, loc.commitSha);
+  }
+
+  // Read the action's published feed. Returns the refactorings array, or null
+  // when there's no feed / it can't be fetched (repo doesn't run the action) / it
+  // isn't for this page. `wantSha` scopes the lookup to a single commit's entry;
+  // omit it to take the PR-aggregate object (files page).
+  async function feedRefactorings(loc, wantSha) {
+    const url = RMX.config.feedUrl(loc);
+    if (!url) return null; // no PR number ⇒ standalone commit, no feed exists
+    let feed;
+    try {
+      feed = await RMX.messaging.fetchFeed(url);
+    } catch (_) {
+      return null; // 404 etc. ⇒ caller falls back to the RefactoringMiner service
+    }
+    const commit = wantSha ? commitForSha(feed, wantSha) : firstCommit(feed);
+    if (!commit || !Array.isArray(commit.refactorings)) return null;
+    // Files page: confirm the feed really is for the PR on screen, so a wrong
+    // feed published under this PR's path can't overlay another PR's data.
+    if (!wantSha && commit.url && !feedIsForPr(commit.url, loc)) return null;
+    return commit.refactorings;
+  }
+
+  // Analyse via the RefactoringMiner service. `id` is a commit sha (single-commit
+  // analysis) or a PR number (whole-PR analysis). Returns the refactorings array
+  // (possibly empty), or null on a service/network error — in which case the
+  // report panel is left showing that error and the caller stops.
+  async function minerRefactorings(loc, id) {
     let data;
     try {
-      data = await RMX.rm.fetchCommit(RMX.config.gitUrl(loc), loc.commitSha);
+      data = await RMX.rm.fetchCommit(RMX.config.gitUrl(loc), id);
     } catch (e) {
       RMX.overlay.clearAll();
       RMX.overlay.reportError(e.message || 'RefactoringMiner service unavailable.');
       return null;
     }
     const commit = firstCommit(data);
-    if (!commit || !commitMatches(commit, loc) || !Array.isArray(commit.refactorings)) return [];
+    if (!commit || !Array.isArray(commit.refactorings)) return [];
+    // On a single-commit request, confirm the service echoed the sha we asked
+    // about before painting. A PR-number request echoes the PR, not a sha, so
+    // only apply this guard when we actually requested this page's commit.
+    if (id === loc.commitSha && !commitMatches(commit, loc)) return [];
     return commit.refactorings;
   }
 
-  // PR page: use the action's published per-PR feed. Returns the array, or null
-  // when there's no usable feed (so the overlay stays off — the repo may not run
-  // the action, in which case there's no PR-aggregate source to fall back to).
-  async function prRefactorings(loc) {
-    const url = RMX.config.feedUrl(loc);
-    if (!url) return null;
-    let feed;
-    try {
-      feed = await RMX.messaging.fetchFeed(url);
-    } catch (e) {
-      feed = await RMX.rm.fetchCommit(RMX.config.gitUrl(loc), loc.commitSha ? loc.commitSha : loc.prNumber);
-      // condition ? expressionIfTrue : expressionIfFalse
-    }
-    const commit = firstCommit(feed);
-    // Sanity guard: confirm the fetched feed really is for the PR on screen, so a
-    // wrong feed published under this PR's path can't overlay another PR's data.
-    if (!commit || !Array.isArray(commit.refactorings)) return null;
-    return commit.refactorings;
+  // Find a specific commit in a `{ commits: [ … ] }` feed by sha1 (prefix match).
+  // The action currently publishes a PR-aggregate feed — a single object keyed by
+  // the PR, not per commit — so this normally returns null on a commit page, and
+  // the caller then analyses that one commit directly. (If the action ever starts
+  // exporting a per-commit feed, commit pages pick it up here for free.)
+  function commitForSha(feed, sha) {
+    const list = feed && Array.isArray(feed.commits) ? feed.commits : [];
+    const want = (sha || '').toLowerCase();
+    return (
+      list.find((c) => {
+        const s = (c.sha1 || '').toLowerCase();
+        return s && (s.startsWith(want) || want.startsWith(s));
+      }) || null
+    );
   }
 
   // The RefactoringMiner service echoes the commit it analysed; confirm it's the
@@ -106,6 +162,19 @@ var RMX = window.RMX || (window.RMX = {});
   // page with nothing to show (e.g. navigating away from the diff via Turbo).
   function deactivate() {
     currentRefactorings = null;
+    RMX.overlay.clearSelection();
+    RMX.overlay.clearAll();
+    RMX.overlay.hideReport();
+  }
+
+  // Same teardown, but for a page we *are* going to overlay: clear the previous
+  // page's state up front so it can't show through (or be repainted by the scroll
+  // observer, which is gated on currentRefactorings) while this page analyses. The
+  // report panel is removed here and recreated by the loading/result step, so it
+  // never briefly displays the prior page's rows.
+  function resetForLoad() {
+    currentRefactorings = null;
+    RMX.overlay.clearSelection();
     RMX.overlay.clearAll();
     RMX.overlay.hideReport();
   }
