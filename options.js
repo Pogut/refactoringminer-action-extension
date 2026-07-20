@@ -92,7 +92,7 @@ function load() {
 function save() {
   const baseurl = $('baseurl').value.trim() || DEFAULTS.baseurl;
   const token = $('token').value.trim();
-  const timeout = Math.min(600, Math.max(10, parseInt($('timeout').value, 10) || DEFAULTS.timeout));
+  const timeout = Math.min(1000, Math.max(10, parseInt($('timeout').value, 10) || DEFAULTS.timeout));
   const hlLeft = getLeft();
   const hlRight = getRight();
   chrome.storage.sync.set({ baseurl, token, timeout, hlLeft, hlRight }, () => {
