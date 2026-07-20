@@ -64,9 +64,86 @@ RMX.github = (function () {
     return byId ? [byId] : [];
   }
 
+  // --- making off-DOM lines resolvable -------------------------------------
+  // lineCells only sees rendered rows. Two states hide a target line and never
+  // resolve on their own: a large diff GitHub collapsed behind a "Load diff"
+  // button, and context folded behind the unfold / "Expand all" controls.
+  // revealLine drives GitHub's OWN buttons to materialise the file, then waits
+  // for the line to mount — the content script's MutationObserver re-tags it.
+  // We click rather than replay GitHub's fetch so a change to that endpoint
+  // keeps working (the same choice CodeTracker's authors made).
+
+  // A stable per-file root to search for the load/expand controls. Classic
+  // /files & /commit hang id="diff-<digest>" on the file element; the React
+  // diffs don't, so derive it from any mounted cell of the file.
+  // NOTE: verify the React ancestor selector against live GitHub if the React
+  // load-diff case ever regresses — GitHub churns these wrappers.
+  function fileContainer(digest) {
+    const byId = document.getElementById('diff-' + digest);
+    if (byId) return byId;
+    const cell = document.querySelector(
+      `[data-line-anchor^="diff-${digest}"], [data-grid-cell-id^="diff-${digest}"]`,
+    );
+    return cell ? cell.closest('[data-diff-anchor], .file, [class*="Diff"]') : null;
+  }
+
+  // Find a clickable control inside `root` by its VISIBLE LABEL rather than a
+  // class name — GitHub rewrites these classes often, and the label is the
+  // stable anchor across both the classic and React diff UIs.
+  function controlByText(root, re) {
+    return Array.prototype.find.call(
+      root.querySelectorAll('button, a, summary'),
+      (el) => re.test((el.textContent || '').trim()),
+    );
+  }
+
+  // Click the first reveal control present: "Load diff" (collapsed large diff)
+  // or "Expand all" (folded context hunks). Returns true if one was clicked.
+  function revealFile(file) {
+    const load = controlByText(file, /^load diff$/i);
+    if (load) { load.click(); return true; }
+    const expand = controlByText(file, /^expand all$/i);
+    if (expand) { expand.click(); return true; }
+    return false;
+  }
+
+  // Resolve once (file, side, line) is in the DOM, polling briefly while the
+  // clicked control's async load lands. Resolves to the cells, or [] on timeout.
+  function waitForLine(digest, side, line, tries = 20, delay = 150) {
+    return new Promise((resolve) => {
+      (function poll(n) {
+        const cells = lineCells(digest, side, line);
+        if (cells.length || n <= 0) return resolve(cells);
+        setTimeout(() => poll(n - 1), delay);
+      })(tries);
+    });
+  }
+
+  // Force GitHub to render the file that owns (side, line) so the line becomes
+  // taggable, then resolve to its cells (or [] if it stays unavailable). Cheap
+  // when the line is already mounted — a single lineCells lookup.
+  async function revealLine(digest, side, line) {
+    let cells = lineCells(digest, side, line);
+    if (cells.length) return cells;
+    const file = fileContainer(digest);
+    if (file) {
+      file.scrollIntoView({ block: 'center' });
+      // A collapsed file needs "Load diff" first; the context around the target
+      // may then still be folded, so re-find (the node can be replaced by the
+      // load) and click "Expand all" before the final wait.
+      if (revealFile(file)) {
+        cells = await waitForLine(digest, side, line);
+        if (cells.length) return cells;
+        const reloaded = fileContainer(digest);
+        if (reloaded) revealFile(reloaded);
+      }
+    }
+    return waitForLine(digest, side, line);
+  }
+
   function resetCache() {
     // Digests are pure functions of the path; nothing to reset between renders.
   }
 
-  return { fileDigest, lineCells, resetCache };
+  return { fileDigest, lineCells, revealLine, resetCache };
 })();

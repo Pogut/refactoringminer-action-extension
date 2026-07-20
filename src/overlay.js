@@ -243,6 +243,24 @@ RMX.overlay = (function () {
   let blinkOn = false;
   let blinkTimer = null;
   let inAttentionPhase = false;
+
+  // index → { digest, side, line }: a representative line per refactoring, set
+  // by content.js from the feed data (independent of what's mounted, so it's
+  // known even for a collapsed file that tagged nothing). select() uses it to
+  // reveal a collapsed/folded file before blinking, so a report-row or deep-link
+  // selection works even when the target file wasn't rendered.
+  let selectTargets = {};
+  function setTargets(t) {
+    selectTargets = t || {};
+  }
+  async function ensureRevealed(indices) {
+    await Promise.all(
+      indices.map((i) => {
+        const t = selectTargets[i];
+        return t ? RMX.github.revealLine(t.digest, t.side, t.line) : null;
+      }),
+    );
+  }
   const ATTENTION_BLINKS = 3;   // number of fast blinks before settling into slow pulse
   const BLINK_FAST_MS = 167;    // per phase during attention (~3 blinks in ~1 second)
   const BLINK_MS = 2500;        // half-cycle — matches half of PIN_BLINK_MS so full period = 5s
@@ -270,7 +288,10 @@ RMX.overlay = (function () {
     });
   }
 
-  function select(indices) {
+  async function select(indices) {
+    // Load/expand a collapsed file first so its lines mount and get tagged (the
+    // MutationObserver repaint runs during the await); then blink as usual.
+    await ensureRevealed(indices);
     removeSelectionClasses();
     selectedIndices = indices.slice();
     clearTimeout(blinkTimer);
@@ -513,7 +534,7 @@ RMX.overlay = (function () {
       tip.style.left = window.scrollX + r.left + 'px';
       tip.style.opacity = 1;
     });
-    document.addEventListener('click', (e) => {
+    document.addEventListener('click', async (e) => {
       if (!e.target.closest) return;
       // Clicks on our own UI (pinned bars, report panel) shouldn't clear the selection.
       if (e.target.closest('#rmx-pin-top, #rmx-pin-bottom, #rmx-report')) return;
@@ -525,7 +546,8 @@ RMX.overlay = (function () {
       const idxAttr = cell.getAttribute('data-rmx-index');
       if (!idxAttr) return;
       const indices = idxAttr.split(' ');
-      select(indices);
+      // await so a counterpart in a collapsed file is revealed before we scroll.
+      await select(indices);
       scrollToCounterpart(cell, indices);
     });
     // Re-place the pinned bars as the user scrolls/resizes (capture so we catch
@@ -630,8 +652,10 @@ RMX.overlay = (function () {
       sum.textContent = row.summary;
       item.appendChild(type);
       item.appendChild(sum);
-      item.addEventListener('click', () => {
-        select([String(row.index)]);
+      item.addEventListener('click', async () => {
+        // await so a collapsed file is revealed (and its cell mounted) before we
+        // try to scroll to it — otherwise the querySelector below finds nothing.
+        await select([String(row.index)]);
         const cell = document.querySelector(`.${CLASS}[data-rmx-index~="${row.index}"]`);
         if (cell) cell.scrollIntoView({ behavior: 'smooth', block: 'center' });
       });
@@ -648,7 +672,7 @@ RMX.overlay = (function () {
 
   return {
     ensureStyle, clearAll, startPass, endPass, highlightRange, installTooltip,
-    select, applySelection, clearSelection, scrollToRefactoring,
+    select, applySelection, clearSelection, scrollToRefactoring, setTargets,
     showReport, reportLoading, reportError, hideReport,
   };
 })();

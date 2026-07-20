@@ -210,6 +210,10 @@ var RMX = window.RMX || (window.RMX = {});
       }),
     );
 
+    // Hand the overlay a representative line per refactoring so a selection can
+    // reveal a collapsed/folded file whose lines tagged nothing this pass.
+    RMX.overlay.setTargets(selectTargets(refactorings, digests));
+
     let tagged = 0;
     // Track every cell this pass tags, then drop tags left on cells that
     // virtualization recycled to a non-target line (see overlay.startPass).
@@ -263,6 +267,22 @@ var RMX = window.RMX || (window.RMX = {});
       });
     });
     return tagged;
+  }
+
+  // A representative { digest, side, line } per refactoring — the first location
+  // on the right side, else the left. The overlay reveals this file (clicking
+  // "Load diff" / "Expand all") before selecting, so a report-row or deep-link
+  // selection lands even when the target file was collapsed and tagged nothing.
+  function selectTargets(refactorings, digests) {
+    const targets = {};
+    refactorings.forEach((r, index) => {
+      const right = (r.rightSideLocations || [])[0];
+      const loc = right || (r.leftSideLocations || [])[0];
+      const digest = loc && digests[loc.filePath];
+      if (!digest) return;
+      targets[index] = { digest, side: right ? 'R' : 'L', line: loc.startLine };
+    });
+    return targets;
   }
 
   // A whole enclosing method/class declaration spanning multiple lines.
