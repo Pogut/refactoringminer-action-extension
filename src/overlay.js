@@ -100,7 +100,7 @@ RMX.overlay = (function () {
       #rmx-pin-bottom .rmx-pin{border-top:1px solid var(--borderColor-muted,#d8dee4);}
       .rmx-pin .rmx-pin-stripe{width:4px;align-self:stretch;flex:0 0 auto;}
       .rmx-pin .rmx-pin-meta{color:var(--fgColor-muted,#656d76);flex:0 0 auto;}
-      .rmx-pin .rmx-pin-code{overflow:hidden;text-overflow:ellipsis;opacity:.92;}
+      .rmx-pin .rmx-pin-code{overflow:hidden;text-overflow:ellipsis;opacity:.92;white-space:pre;}
       .rmx-pin-toggle{pointer-events:auto;cursor:pointer;display:flex;align-items:center;
         justify-content:center;gap:6px;height:22px;padding:0 14px;white-space:nowrap;
         background:var(--bgColor-muted,#f6f8fa);color:var(--fgColor-muted,#656d76);
@@ -446,7 +446,11 @@ RMX.overlay = (function () {
     }
 
     if (!collapsed) {
-      entries.forEach((entry) => {
+      // The bottom layer is flex column-reverse, so insert its bars in reverse
+      // document order — the net visual order then matches the top stack:
+      // lowest line number on top, highest on the bottom, toggle staying on top.
+      const order = isTop ? entries : entries.slice().reverse();
+      order.forEach((entry) => {
         const m = /^diff-[0-9a-f]{64}([LR])(\d+)$/.exec(entry.anchor) || [];
         const file = (entry.cell.getAttribute('data-rmx-file') || '').split('/').pop();
 
@@ -473,7 +477,8 @@ RMX.overlay = (function () {
         meta.textContent = `${file}:${m[1] || ''}${m[2] || ''}`;
         const code = document.createElement('span');
         code.className = 'rmx-pin-code';
-        code.textContent = (entry.cell.textContent || '').trim().slice(0, 160);
+        // Keep leading indentation (right-trim only) so the bar reads like real code.
+        code.textContent = (entry.cell.textContent || '').replace(/\s+$/, '').slice(0, 160);
 
         bar.appendChild(stripe);
         bar.appendChild(meta);
