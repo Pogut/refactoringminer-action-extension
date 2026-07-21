@@ -160,11 +160,27 @@ RMX.overlay = (function () {
       #rmx-report.rmx-collapsed .rmx-rp-head{border-bottom:0;}
       #rmx-report.rmx-collapsed .rmx-rp-caret{transform:rotate(-90deg);}
       #rmx-report .rmx-rp-body{max-height:40vh;overflow-y:auto;}
-      #rmx-report .rmx-rp-row{padding:6px 11px;cursor:pointer;border-bottom:1px solid var(--borderColor-muted,#d8dee4);}
-      #rmx-report .rmx-rp-row:last-child{border-bottom:0;}
-      #rmx-report .rmx-rp-row:hover{background:var(--bgColor-muted,#f6f8fa);}
+      #rmx-report .rmx-rp-item{border-bottom:1px solid var(--borderColor-muted,#d8dee4);}
+      #rmx-report .rmx-rp-item:last-child{border-bottom:0;}
+      #rmx-report .rmx-rp-item.rmx-rp-cur{background:var(--bgColor-muted,#f6f8fa);}
+      #rmx-report .rmx-rp-row{display:flex;align-items:flex-start;gap:6px;padding:6px 11px;}
+      #rmx-report .rmx-rp-main{flex:1;min-width:0;cursor:pointer;}
       #rmx-report .rmx-rp-type{font-weight:600;}
       #rmx-report .rmx-rp-sum{color:var(--fgColor-muted,#656d76);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+      #rmx-report .rmx-rp-info{flex:0 0 auto;margin-top:1px;width:20px;height:20px;padding:0;cursor:pointer;
+        display:flex;align-items:center;justify-content:center;border:0;border-radius:5px;background:transparent;
+        color:var(--fgColor-muted,#656d76);font-size:11px;line-height:1;transition:background .12s,color .12s;}
+      #rmx-report .rmx-rp-info:hover{background:var(--bgColor-neutral,#eaeef2);color:var(--fgColor-default,#1f2328);}
+      #rmx-report .rmx-rp-info-caret{display:inline-block;transition:transform .15s;}
+      #rmx-report .rmx-rp-item.rmx-open .rmx-rp-info{background:var(--bgColor-neutral,#eaeef2);color:var(--fgColor-default,#1f2328);}
+      #rmx-report .rmx-rp-item.rmx-open .rmx-rp-info-caret{transform:rotate(180deg);}
+      #rmx-report .rmx-rp-detail{display:none;padding:0 12px 11px;}
+      #rmx-report .rmx-rp-item.rmx-open .rmx-rp-detail{display:block;}
+      #rmx-report .rmx-rp-desc{margin:0;line-height:1.55;color:var(--fgColor-default,#1f2328);overflow-wrap:anywhere;}
+      #rmx-report .rmx-rp-desclist{display:flex;flex-direction:column;gap:5px;}
+      #rmx-report .rmx-rp-descline{line-height:1.45;overflow-wrap:anywhere;}
+      #rmx-report .rmx-rp-rel{color:var(--fgColor-muted,#656d76);}
+      #rmx-report .rmx-rp-codeel{font:11.5px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--fgColor-default,#1f2328);}
       #rmx-report .rmx-rp-msg{padding:10px 11px;color:var(--fgColor-muted,#656d76);display:flex;align-items:center;gap:8px;}
       #rmx-report .rmx-rp-err{color:var(--fgColor-danger,#cf222e);}
       #rmx-report .rmx-rp-spinner{width:12px;height:12px;flex:0 0 auto;border-radius:50%;
@@ -673,11 +689,13 @@ RMX.overlay = (function () {
     refreshEdges();
     refreshMinimap();
     updateNav();
+    syncReportRow();
   }
   function clearPins() {
     refreshEdges();    // no selection ⇒ both chips hide
     refreshMinimap();  // drops the active-tick emphasis
     updateNav();       // back to the idle prompt
+    syncReportRow();   // clear the current-row highlight
   }
 
   // Focus one refactoring by feed index: reveal its file, blink it, and bring a
@@ -883,10 +901,109 @@ RMX.overlay = (function () {
     reportBody().appendChild(msg);
   }
 
-  // `rows`: [{ index, type, summary }]. Each row selects its refactoring on click.
+  // Report rows are expandable: the row body reveals/blinks the refactoring, and
+  // an inline "explain" disclosure opens a readable card with RefactoringMiner's
+  // description — replacing the old hover tooltip.
+  let rpItems = {};      // feed index (string) -> item element, for current-row sync
+  let rpOpenItem = null; // single-open accordion
+
+  // Connective phrases RefactoringMiner uses to join clauses. Splitting on these
+  // turns its run-on sentence into one relation per line ("extracted from …",
+  // "in class …"), which reads far better than a wall of text.
+  const DESC_CONNECTORS = [
+    'extracted and moved from', 'extracted from', 'moved and renamed from', 'moved and renamed to',
+    'moved from', 'moved to', 'renamed to', 'inlined to', 'inlined from', 'merged into', 'split into',
+    'pulled up to', 'pushed down to', 'in class', 'from class', 'to class', 'in method', 'from method',
+    'to method', 'in package', 'from package', 'to package',
+  ];
+
+  // A fully-qualified name shows just its final segment (org.foo.Bar → Bar), with
+  // the full path kept for the hover title. Signatures (with spaces/parens) pass
+  // through untouched.
+  function simpleName(code) {
+    if (/^[\w$]+(\.[\w$]+)+$/.test(code)) {
+      return { text: code.slice(code.lastIndexOf('.') + 1), full: code };
+    }
+    return { text: code, full: null };
+  }
+
+  // Break the description into { rel, code } clauses: `rel` is the leading
+  // connective phrase (empty for the first clause), `code` the element it names.
+  function describeClauses(text, type) {
+    let s = (text || '').replace(/\s+/g, ' ').trim();
+    if (type && s.toLowerCase().indexOf(type.toLowerCase()) === 0) s = s.slice(type.length).trim();
+    if (!s) return [];
+    const re = new RegExp('\\s+(' + DESC_CONNECTORS.map((c) => c.replace(/ /g, '\\s+')).join('|') + ')\\s+', 'ig');
+    const marked = s.replace(re, (m, c) => '\n' + c + ' ');
+    return marked.split('\n').map((seg) => seg.trim()).filter(Boolean).map((seg) => {
+      const rel = DESC_CONNECTORS.find((c) => seg.toLowerCase().indexOf(c) === 0);
+      return rel ? { rel, code: seg.slice(rel.length).trim() } : { rel: '', code: seg };
+    });
+  }
+
+  // The explanation card body: the detector's description, structured into
+  // readable clauses (or shown verbatim if it doesn't match a known shape).
+  function buildDetail(row) {
+    const frag = document.createDocumentFragment();
+    const desc = (row.detail || '').replace(/\s+/g, ' ').trim();
+    if (!desc) return frag;
+    const clauses = describeClauses(desc, row.type);
+    if (clauses.length <= 1) {
+      const p = document.createElement('p');
+      p.className = 'rmx-rp-desc';
+      p.textContent = desc;
+      frag.appendChild(p);
+      return frag;
+    }
+    const list = document.createElement('div');
+    list.className = 'rmx-rp-desclist';
+    clauses.forEach((c) => {
+      const line = document.createElement('div');
+      line.className = 'rmx-rp-descline';
+      if (c.rel) {
+        const rel = document.createElement('span');
+        rel.className = 'rmx-rp-rel';
+        rel.textContent = c.rel;
+        line.appendChild(rel);
+        line.appendChild(document.createTextNode(' '));
+      }
+      const code = document.createElement('span');
+      code.className = 'rmx-rp-codeel';
+      const name = simpleName(c.code);
+      code.textContent = name.text;
+      if (name.full) code.title = name.full;
+      line.appendChild(code);
+      list.appendChild(line);
+    });
+    frag.appendChild(list);
+    return frag;
+  }
+
+  function toggleDetail(item) {
+    const open = !item.classList.contains('rmx-open');
+    if (rpOpenItem && rpOpenItem !== item) {
+      rpOpenItem.classList.remove('rmx-open');
+      rpOpenItem.querySelector('.rmx-rp-info').setAttribute('aria-expanded', 'false');
+    }
+    item.classList.toggle('rmx-open', open);
+    item.querySelector('.rmx-rp-info').setAttribute('aria-expanded', String(open));
+    rpOpenItem = open ? item : null;
+  }
+
+  // Mark the report row of the current selection, so stepping in the navigator or
+  // clicking a minimap tick highlights the matching row here too.
+  function syncReportRow() {
+    Object.keys(rpItems).forEach((idx) => {
+      rpItems[idx].classList.toggle('rmx-rp-cur', selectedIndices.indexOf(idx) !== -1);
+    });
+  }
+
+  // `rows`: [{ index, type, summary, detail }].
   function showReport(rows) {
     reportTitle(rows.length);
     setNav(rows); // feed the navigator + minimap the same list (feed order)
+    rpItems = {};
+    rpOpenItem = null;
     const body = reportBody();
     if (!rows.length) {
       const msg = document.createElement('div');
@@ -897,20 +1014,47 @@ RMX.overlay = (function () {
     }
     rows.forEach((row) => {
       const item = document.createElement('div');
-      item.className = 'rmx-rp-row';
-      item.title = row.detail || row.summary;
+      item.className = 'rmx-rp-item';
+
+      const head = document.createElement('div');
+      head.className = 'rmx-rp-row';
+
+      const main = document.createElement('div');
+      main.className = 'rmx-rp-main';
+      main.title = row.summary;
       const type = document.createElement('div');
       type.className = 'rmx-rp-type';
       type.textContent = row.type;
       const sum = document.createElement('div');
       sum.className = 'rmx-rp-sum';
       sum.textContent = row.summary;
-      item.appendChild(type);
-      item.appendChild(sum);
+      main.appendChild(type);
+      main.appendChild(sum);
       // reveal → blink → centre, shared with the navigator and minimap.
-      item.addEventListener('click', () => focus(row.index));
+      main.addEventListener('click', () => focus(row.index));
+
+      const info = document.createElement('button');
+      info.className = 'rmx-rp-info';
+      info.type = 'button';
+      info.title = 'Show explanation';
+      info.setAttribute('aria-label', 'Show explanation');
+      info.setAttribute('aria-expanded', 'false');
+      info.innerHTML = '<span class="rmx-rp-info-caret">▾</span>';
+      info.addEventListener('click', (e) => { e.stopPropagation(); toggleDetail(item); });
+
+      head.appendChild(main);
+      head.appendChild(info);
+
+      const detail = document.createElement('div');
+      detail.className = 'rmx-rp-detail';
+      detail.appendChild(buildDetail(row));
+
+      item.appendChild(head);
+      item.appendChild(detail);
       body.appendChild(item);
+      rpItems[String(row.index)] = item;
     });
+    syncReportRow();
   }
 
   function hideReport() {
@@ -918,6 +1062,8 @@ RMX.overlay = (function () {
       reportEl.remove();
       reportEl = null;
     }
+    rpItems = {};
+    rpOpenItem = null;
     teardownFocusUI();
   }
 

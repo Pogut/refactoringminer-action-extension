@@ -139,6 +139,28 @@ test.describe('report panel (PR #14)', () => {
     await panel.locator('.rmx-rp-head').click();
     await expect(panel.locator('.rmx-rp-body')).toBeVisible();
   });
+
+  // Each row has an "explain" disclosure that opens an inline card with the
+  // detector's full description + before/after locations — replacing the old
+  // native-title hover. Only one card is open at a time.
+  test('the explain disclosure opens a description card (single-open)', async ({ page }) => {
+    await openChanges(page, 14);
+    const items = page.locator('#rmx-report .rmx-rp-item');
+    expect(await items.count()).toBeGreaterThan(1);
+
+    const first = items.first();
+    await expect(first.locator('.rmx-rp-detail')).toBeHidden();
+    await first.locator('.rmx-rp-info').click();
+    await expect(first).toHaveClass(/rmx-open/);
+    await expect(first.locator('.rmx-rp-detail')).toBeVisible();
+    await expect(first.locator('.rmx-rp-detail')).toContainText(/\w/);
+
+    // Opening another closes the first.
+    const second = items.nth(1);
+    await second.locator('.rmx-rp-info').click();
+    await expect(second).toHaveClass(/rmx-open/);
+    await expect(first).not.toHaveClass(/rmx-open/);
+  });
 });
 
 // --- click-to-pair selection (the gold "blink on both sides") ---------------
