@@ -35,6 +35,17 @@ RMX.overlay = (function () {
     return '#' + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
   }
 
+  // A translucent wash of a #rgb/#rrggbb colour, for the marker-style highlight
+  // behind before/after code elements. Returns the input unchanged if not hex.
+  function hexToRgba(hex, a) {
+    const m = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(hex || '');
+    if (!m) return hex;
+    let h = m[1];
+    if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+    const n = parseInt(h, 16);
+    return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
+  }
+
   function applyColors(left, right) {
     const root = document.documentElement.style;
     const leftD = left.toLowerCase() === HL_DEFAULTS.left ? HL_DEFAULTS.leftD : darken(left, 0.22);
@@ -43,6 +54,9 @@ RMX.overlay = (function () {
     root.setProperty('--rmx-left-d', leftD);
     root.setProperty('--rmx-right', right);
     root.setProperty('--rmx-right-d', rightD);
+    // Explanation-card highlights track the same configured colours.
+    root.setProperty('--rmx-left-t', hexToRgba(left, 0.26));
+    root.setProperty('--rmx-right-t', hexToRgba(right, 0.26));
   }
 
   // Pull the stored blink colours (falling back to defaults) and mirror them onto
@@ -181,6 +195,12 @@ RMX.overlay = (function () {
       #rmx-report .rmx-rp-descline{line-height:1.45;overflow-wrap:anywhere;}
       #rmx-report .rmx-rp-rel{color:var(--fgColor-muted,#656d76);}
       #rmx-report .rmx-rp-codeel{font:11.5px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--fgColor-default,#1f2328);}
+      /* before = left colour, after = right colour — a marker-style wash that
+         wraps cleanly across lines and tracks the user's configured colours. */
+      #rmx-report .rmx-rp-side-L,#rmx-report .rmx-rp-side-R{border-radius:3px;padding:0 3px;
+        box-decoration-break:clone;-webkit-box-decoration-break:clone;}
+      #rmx-report .rmx-rp-side-L{background:var(--rmx-left-t,rgba(236,72,153,.26));}
+      #rmx-report .rmx-rp-side-R{background:var(--rmx-right-t,rgba(124,58,237,.26));}
       #rmx-report .rmx-rp-msg{padding:10px 11px;color:var(--fgColor-muted,#656d76);display:flex;align-items:center;gap:8px;}
       #rmx-report .rmx-rp-err{color:var(--fgColor-danger,#cf222e);}
       #rmx-report .rmx-rp-spinner{width:12px;height:12px;flex:0 0 auto;border-radius:50%;
@@ -909,13 +929,18 @@ RMX.overlay = (function () {
 
   // Connective phrases RefactoringMiner uses to join clauses. Splitting on these
   // turns its run-on sentence into one relation per line ("extracted from …",
-  // "in class …"), which reads far better than a wall of text.
-  const DESC_CONNECTORS = [
-    'extracted and moved from', 'extracted from', 'moved and renamed from', 'moved and renamed to',
-    'moved from', 'moved to', 'renamed to', 'inlined to', 'inlined from', 'merged into', 'split into',
-    'pulled up to', 'pushed down to', 'in class', 'from class', 'to class', 'in method', 'from method',
-    'to method', 'in package', 'from package', 'to package',
+  // "in class …"), which reads far better than a wall of text. Longer phrases are
+  // listed first so the regex/prefix match prefers them.
+  const DESC_FROM = [ // introduces a BEFORE (source) element
+    'extracted and moved from', 'moved and renamed from', 'extracted from', 'moved from',
+    'inlined from', 'renamed from', 'from class', 'from method', 'from package',
   ];
+  const DESC_TO = [ // introduces an AFTER (target) element
+    'moved and renamed to', 'moved to', 'renamed to', 'inlined to', 'merged into', 'split into',
+    'pulled up to', 'pushed down to', 'to class', 'to method', 'to package',
+  ];
+  const DESC_CTX = ['in class', 'in method', 'in package']; // location — inherits the current side
+  const DESC_CONNECTORS = DESC_FROM.concat(DESC_TO, DESC_CTX);
 
   // A fully-qualified name shows just its final segment (org.foo.Bar → Bar), with
   // the full path kept for the hover title. Signatures (with spaces/parens) pass
@@ -935,10 +960,33 @@ RMX.overlay = (function () {
     if (!s) return [];
     const re = new RegExp('\\s+(' + DESC_CONNECTORS.map((c) => c.replace(/ /g, '\\s+')).join('|') + ')\\s+', 'ig');
     const marked = s.replace(re, (m, c) => '\n' + c + ' ');
-    return marked.split('\n').map((seg) => seg.trim()).filter(Boolean).map((seg) => {
-      const rel = DESC_CONNECTORS.find((c) => seg.toLowerCase().indexOf(c) === 0);
-      return rel ? { rel, code: seg.slice(rel.length).trim() } : { rel: '', code: seg };
+    const clauses = marked.split('\n').map((seg) => seg.trim()).filter(Boolean).map((seg) => {
+      const baseRel = DESC_CONNECTORS.find((c) => seg.toLowerCase().indexOf(c) === 0) || '';
+      let rel = baseRel;
+      let code = (baseRel ? seg.slice(baseRel.length) : seg).replace(/^&\s*/, '').replace(/\s*&\s*$/, '').trim();
+      // Fold a leading structural keyword into the relation: "moved to" + "class X".
+      const km = /^(class|interface|enum|package)\s+/i.exec(code);
+      if (baseRel && km) { rel = baseRel + ' ' + km[1].toLowerCase(); code = code.slice(km[0].length); }
+      return { rel, baseRel, code };
     });
+
+    // Assign before/after. A "from …" phrase names a source (before); a "to/into …"
+    // phrase names a target (after); "in …" is a location that inherits the current
+    // side. The lead element is the result when there's a source (Extract → after),
+    // else the subject of a rename/move (before).
+    const hasFrom = clauses.some((c) => DESC_FROM.indexOf(c.baseRel) !== -1);
+    const hasTo = clauses.some((c) => DESC_TO.indexOf(c.baseRel) !== -1);
+    let last = null;
+    clauses.forEach((c, i) => {
+      let side;
+      if (i === 0) side = hasFrom ? 'R' : (hasTo ? 'L' : null);
+      else if (DESC_FROM.indexOf(c.baseRel) !== -1) side = 'L';
+      else if (DESC_TO.indexOf(c.baseRel) !== -1) side = 'R';
+      else side = last; // "in class/method" — same side as the element it qualifies
+      c.side = side;
+      if (side) last = side;
+    });
+    return clauses;
   }
 
   // The explanation card body: the detector's description, structured into
@@ -968,7 +1016,7 @@ RMX.overlay = (function () {
         line.appendChild(document.createTextNode(' '));
       }
       const code = document.createElement('span');
-      code.className = 'rmx-rp-codeel';
+      code.className = 'rmx-rp-codeel' + (c.side ? ' rmx-rp-side-' + c.side : '');
       const name = simpleName(c.code);
       code.textContent = name.text;
       if (name.full) code.title = name.full;
