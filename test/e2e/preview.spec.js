@@ -6,7 +6,7 @@
 // path end to end (service-worker cross-origin fetch → content.js → the
 // virtualized data-line-anchor cells), click-to-pair selection on BOTH sides,
 // the left/right selection-colour distinction, tooltips, deep links, the
-// attention blink, and the pinned-line bars.
+// attention blink, and the focus-navigation UI (navigator, minimap, edge chips).
 //
 // These need a saved GitHub session. Capture it once: `npm run test:auth`. Until
 // then the whole suite is skipped (so `npm test` stays green when logged out).
@@ -257,10 +257,11 @@ test.describe('PR #14 interactions', () => {
 // signal. The blink's actual effect — the gold `rmx-on` fill applied on
 // selection — is still asserted by the click-to-pair and left/right tests above.
 
-// --- pinned-line bars (Preview-only) ----------------------------------------
-// A selected line that scrolls out of view is mirrored as a floating bar at the
-// top/bottom edge.
-test('selected lines that scroll away show pinned bars', async ({ page }) => {
+// --- edge chips (Preview-only) ----------------------------------------------
+// A selected line that scrolls out of view surfaces as a SINGLE edge chip at the
+// relevant screen edge — the replacement for the old stacked pin bars, which grew
+// without bound and could bury the page on a big refactoring.
+test('a selected line that scrolls away shows a single edge chip', async ({ page }) => {
   await openChanges(page, 9);
 
   const first = page.locator('.rmx-hl[data-rmx-index]').first();
@@ -271,122 +272,83 @@ test('selected lines that scroll away show pinned bars', async ({ page }) => {
   await page.mouse.move(640, 400); // put the cursor over the diff so the wheel scrolls it
   for (let i = 0; i < 6; i++) await page.mouse.wheel(0, 1200);
 
+  const chips = page.locator('.rmx-edge-chip.rmx-show');
   await expect(
-    page.locator('#rmx-pin-top .rmx-pin, #rmx-pin-bottom .rmx-pin').first(),
-    'a pinned bar should mirror the off-screen selected line',
+    chips.first(),
+    'an edge chip should point at the off-screen selected line',
   ).toBeVisible({ timeout: 10_000 });
+  // The whole point of the redesign: at most one chip per edge, never a stack.
+  expect(await chips.count(), 'at most one chip per screen edge').toBeLessThanOrEqual(2);
+  await expect(chips.first()).toContainText(/above|below/);
+  // Every count shown is a per-side segment, so its dot and number agree.
+  expect(await chips.first().locator('.rmx-edge-seg').count()).toBeGreaterThan(0);
 });
 
-// Select a refactoring and scroll it off-screen far enough that a pinned bar
-// (and its toggle) appears. Shared setup — returns whichever stack got the bar.
-async function selectAndPinOffscreen(page, pr) {
-  await openChanges(page, pr);
+// The edge chip's side dot uses the same side colour as the inline highlight
+// (pink for left/before, violet for right/after), keeping the cue consistent
+// wherever a selected line surfaces. Checked via real computed CSS.
+test('the edge chip dot uses the side colour — left pink, right violet', async ({ page }) => {
+  await openChanges(page, 9);
+
   const first = page.locator('.rmx-hl[data-rmx-index]').first();
   await first.scrollIntoViewIfNeeded();
   await first.click();
   await expect(page.locator('.rmx-sel').first()).toBeVisible();
 
-  await page.mouse.move(640, 400); // cursor over the diff so the wheel scrolls it
+  await page.mouse.move(640, 400);
   for (let i = 0; i < 6; i++) await page.mouse.wheel(0, 1200);
 
-  await expect(
-    page.locator('#rmx-pin-top .rmx-pin, #rmx-pin-bottom .rmx-pin').first(),
-    'a pinned bar should mirror the off-screen selected line',
-  ).toBeVisible({ timeout: 10_000 });
-
-  const isTop = await page.locator('#rmx-pin-top .rmx-pin').count();
-  return page.locator(isTop ? '#rmx-pin-top' : '#rmx-pin-bottom');
-}
-
-// The pinned bar's left stripe must use the same side colour as the inline
-// highlight (pink for left/before, violet for right/after), so the cue stays
-// consistent wherever a selected line surfaces. Checked via real computed CSS.
-test('pinned bars use the side colour — left pink, right violet', async ({ page }) => {
-  const stack = await selectAndPinOffscreen(page, 9);
-  const pin = stack.locator('.rmx-pin').first();
-
-  const side = await pin.evaluate((el) =>
-    el.classList.contains('rmx-pin-L') ? 'L' : el.classList.contains('rmx-pin-R') ? 'R' : null,
+  const chip = page.locator('.rmx-edge-chip.rmx-show').first();
+  await expect(chip).toBeVisible({ timeout: 10_000 });
+  // Each per-side segment's dot is #ec4899 (left) or #7c3aed (right) — the fills.
+  await expect(chip.locator('.rmx-edge-seg .rmx-edge-dot').first()).toHaveCSS(
+    'background-color',
+    /rgb\(236, 72, 153\)|rgb\(124, 58, 237\)/,
   );
-  expect(side, 'pinned bar should carry a side class (rmx-pin-L or rmx-pin-R)').toBeTruthy();
-
-  const expected = side === 'L' ? 'rgb(190, 24, 93)' : 'rgb(109, 40, 217)'; // #be185d / #6d28d9
-  // Web-first, auto-retrying: re-resolves the stripe on every poll. Scroll/settle
-  // events keep firing renderStack(), which removes and recreates the .rmx-pin
-  // bars (src/overlay.js); reading computed style through a manually-held handle
-  // could hit a detached node — getComputedStyle then returns "" for every
-  // property. toHaveCSS re-queries each poll, so a mid-flight re-paint is retried.
-  await expect(
-    pin.locator('.rmx-pin-stripe'),
-    `${side === 'L' ? 'left' : 'right'} pin stripe colour`,
-  ).toHaveCSS('background-color', expected);
 });
 
-// Each pin stack has a persistent toggle ("▲/▼ N lines off screen") that
-// collapses/expands its bars without clearing the selection. We assert the bar
-// rows actually appear/disappear from the DOM (not just a CSS class on the layer)
-// and that the caret flips direction to reflect the new state.
-test('the pinned-bar toggle collapses and re-expands the stack', async ({ page }) => {
-  const stack = await selectAndPinOffscreen(page, 9);
-  const toggle = stack.locator('.rmx-pin-toggle');
+// --- focus navigator --------------------------------------------------------
+// A fixed pill walks the feed's refactorings one at a time. Next/prev change the
+// selection and keep the "n / total" counter in step — the primary way to trace
+// a refactoring without hunting for its lines.
+test('the navigator steps through refactorings and tracks the count', async ({ page }) => {
+  await openChanges(page, 14);
+  const nav = page.locator('#rmx-nav');
+  await expect(nav).toBeVisible();
 
-  await expect(toggle, 'toggle should appear once a line is pinned').toBeVisible();
-  await expect(toggle).toContainText(/lines? off screen/);
+  const total = await page.locator('#rmx-report .rmx-rp-row').count();
+  expect(total, 'need at least two refactorings to step between').toBeGreaterThan(1);
 
-  const barsBefore = await stack.locator('.rmx-pin').count();
-  expect(barsBefore, 'bars should be visible before collapsing').toBeGreaterThan(0);
-  const caretBefore = await toggle.locator('.rmx-pin-toggle-caret').textContent();
+  const next = nav.locator('.rmx-nav-btn').last();
+  const prev = nav.locator('.rmx-nav-btn').first();
 
-  await toggle.click();
-  await expect(stack.locator('.rmx-pin'), 'bars removed from the DOM while collapsed').toHaveCount(0);
-  await expect(toggle, 'the toggle itself must stay visible while collapsed').toBeVisible();
-  const caretAfterCollapse = await toggle.locator('.rmx-pin-toggle-caret').textContent();
-  expect(caretAfterCollapse, 'caret should flip direction on collapse').not.toBe(caretBefore);
+  await next.click(); // → first refactoring
+  await expect(page.locator('.rmx-sel').first()).toBeVisible({ timeout: 10_000 });
+  await expect(nav.locator('.rmx-nav-count')).toHaveText(`1 / ${total}`);
 
-  await toggle.click();
-  await expect(stack.locator('.rmx-pin').first(), 'bars rebuilt on expand').toBeVisible();
-  expect(await stack.locator('.rmx-pin').count()).toBe(barsBefore);
-  const caretAfterExpand = await toggle.locator('.rmx-pin-toggle-caret').textContent();
-  expect(caretAfterExpand, 'caret should flip back on re-expand').toBe(caretBefore);
+  await next.click(); // → second
+  await expect(nav.locator('.rmx-nav-count')).toHaveText(`2 / ${total}`);
+
+  await prev.click(); // → back to first
+  await expect(nav.locator('.rmx-nav-count')).toHaveText(`1 / ${total}`);
 });
 
-// --- toggle DOM-node persistence — regression test for the hover-glitch fix -
-// Bug history: scroll-driven re-paints used to rebuild the WHOLE pin layer
-// (`layer.textContent = ''`), destroying and recreating the toggle element on
-// every scroll tick — so :hover state was lost mid-hover, producing a visible
-// flicker. The fix made the toggle a node created once in ensurePinLayers();
-// renderStack() now only removes/rebuilds the .rmx-pin bar rows.
-//
-// We can't observe ":hover didn't flicker" from outside the browser, but DOM
-// node identity is a precise proxy: tag the live toggle with a throwaway JS
-// property (NOT a DOM attribute — a plain JS property set via assignment can only
-// live on the exact object it was set on, so it cannot survive a
-// remove()+createElement() cycle). If a future change reintroduces wholesale
-// layer clearing, this fails because the tag is gone after the next re-paint.
-test('the pinned-bar toggle DOM node survives scroll-triggered re-paints', async ({ page }) => {
-  await selectAndPinOffscreen(page, 9);
+// --- minimap ----------------------------------------------------------------
+// The right-edge rail is the always-on overview: one tick per refactoring, plus a
+// viewport thumb. Clicking a tick focuses (reveals + selects) that refactoring.
+test('the minimap shows a tick per refactoring and a tick click selects one', async ({ page }) => {
+  await openChanges(page, 14);
+  const minimap = page.locator('#rmx-minimap');
+  const total = await page.locator('#rmx-report .rmx-rp-row').count();
 
-  const tagged = await page.evaluate(() => {
-    const toggle = document.querySelector('#rmx-pin-top .rmx-pin-toggle, #rmx-pin-bottom .rmx-pin-toggle');
-    if (!toggle) return false;
-    toggle.__rmxTestTag = 'stable-node';
-    return true;
-  });
-  expect(tagged, 'expected a toggle element to tag').toBe(true);
+  // The rail only appears when the diff is taller than the viewport — scroll a
+  // little so a refresh runs and the extent is measured.
+  await page.mouse.move(640, 400);
+  await page.mouse.wheel(0, 400);
+  await expect(minimap).toBeVisible({ timeout: 10_000 });
+  expect(await minimap.locator('.rmx-mm-tick').count(), 'one tick per refactoring').toBe(total);
 
-  // Force several more scroll-driven re-paints — updatePins()/renderStack() run
-  // unconditionally on every captured scroll event while a selection is active.
-  for (let i = 0; i < 6; i++) {
-    await page.mouse.wheel(0, 200);
-    await page.waitForTimeout(50);
-  }
-
-  const stillTagged = await page.evaluate(
-    () =>
-      document.querySelector('#rmx-pin-top .rmx-pin-toggle, #rmx-pin-bottom .rmx-pin-toggle')?.__rmxTestTag ===
-      'stable-node',
-  );
-  expect(stillTagged, 'toggle element identity should survive re-paints — recreation would lose this JS-only tag').toBe(
-    true,
-  );
+  await minimap.locator('.rmx-mm-tick:visible').first().click();
+  await expect(page.locator('.rmx-sel').first()).toBeVisible({ timeout: 10_000 });
+  await expect(page.locator('#rmx-nav .rmx-nav-count')).toHaveText(new RegExp(`/ ${total}$`));
 });

@@ -80,36 +80,68 @@ RMX.overlay = (function () {
       .${FLASH}{animation:rmx-flash 1.1s ease-out 2;}
       @keyframes rmx-flash{0%,100%{filter:none;}50%{filter:brightness(1.45);}}
 
-      /* Pinned-line bars: selected lines that scrolled out of view, stacked at
-         the top/bottom edge as a floating peek of the off-screen refactored code. */
-      #rmx-pin-top,#rmx-pin-bottom{position:fixed;left:0;right:0;z-index:2147483600;
-        display:flex;flex-direction:column;pointer-events:none;}
-      #rmx-pin-top{top:0;}
-      #rmx-pin-bottom{bottom:0;flex-direction:column-reverse;}
-      .rmx-pin{pointer-events:auto;cursor:pointer;display:flex;align-items:center;gap:10px;
-        height:28px;padding:0 12px;white-space:nowrap;overflow:hidden;
-        font:12px/28px ui-monospace,SFMono-Regular,Menlo,monospace;
-        color:var(--fgColor-default,#1f2328);box-shadow:0 1px 5px rgba(31,35,40,.16);
-        animation:rmx-pin-blink-L 1.8s ease-in-out infinite;}
-      .rmx-pin.rmx-pin-R{animation-name:rmx-pin-blink-R;}
-      @keyframes rmx-pin-blink-L{0%,100%{background:var(--bgColor-default,#fff);}50%{background:var(--rmx-left,#ec4899);}}
-      @keyframes rmx-pin-blink-R{0%,100%{background:var(--bgColor-default,#fff);}50%{background:var(--rmx-right,#7c3aed);}}
-      @keyframes rmx-pin-fast-L{0%,49%{background:var(--bgColor-default,#fff);}50%,100%{background:var(--rmx-left,#ec4899);}}
-      @keyframes rmx-pin-fast-R{0%,49%{background:var(--bgColor-default,#fff);}50%,100%{background:var(--rmx-right,#7c3aed);}}
-      #rmx-pin-top .rmx-pin{border-bottom:1px solid var(--borderColor-muted,#d8dee4);}
-      #rmx-pin-bottom .rmx-pin{border-top:1px solid var(--borderColor-muted,#d8dee4);}
-      .rmx-pin .rmx-pin-stripe{width:4px;align-self:stretch;flex:0 0 auto;}
-      .rmx-pin .rmx-pin-meta{color:var(--fgColor-muted,#656d76);flex:0 0 auto;}
-      .rmx-pin .rmx-pin-code{overflow:hidden;text-overflow:ellipsis;opacity:.92;white-space:pre;}
-      .rmx-pin-toggle{pointer-events:auto;cursor:pointer;display:flex;align-items:center;
-        justify-content:center;gap:6px;height:22px;padding:0 14px;white-space:nowrap;
-        background:var(--bgColor-muted,#f6f8fa);color:var(--fgColor-muted,#656d76);
-        font:11px/22px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
-        box-shadow:0 1px 3px rgba(31,35,40,.1);user-select:none;transition:background .12s,color .12s;}
-      .rmx-pin-toggle:hover{color:var(--fgColor-default,#1f2328);background:var(--bgColor-neutral,#eaeef2);}
-      #rmx-pin-top .rmx-pin-toggle{border-bottom:1px solid var(--borderColor-default,#d0d7de);}
-      #rmx-pin-bottom .rmx-pin-toggle{border-top:1px solid var(--borderColor-default,#d0d7de);}
-      .rmx-pin-toggle-caret{font-size:10px;font-weight:700;}
+      /* Peek popover body (extends .rmx-tip): a live glance at the counterpart. */
+      .rmx-tip-title{font-weight:600;}
+      .rmx-tip-code{margin-top:6px;padding:6px 8px;border-radius:5px;background:rgba(255,255,255,.09);
+        font:11px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;display:flex;flex-direction:column;gap:1px;}
+      .rmx-tip-code.rmx-tip-L{box-shadow:inset 3px 0 0 var(--rmx-left,#ec4899);}
+      .rmx-tip-code.rmx-tip-R{box-shadow:inset 3px 0 0 var(--rmx-right,#7c3aed);}
+      .rmx-tip-line{white-space:pre;overflow:hidden;text-overflow:ellipsis;max-width:420px;}
+      .rmx-tip-more,.rmx-tip-hint{opacity:.75;margin-top:4px;}
+
+      /* Focus navigator: a fixed pill that steps through refactorings one at a
+         time (replacing the old stacked pins). One row tall — it never grows. */
+      #rmx-nav{position:fixed;top:8px;left:50%;transform:translateX(-50%);z-index:2147483600;
+        display:none;align-items:center;gap:8px;max-width:min(680px,92vw);padding:6px 8px;
+        border-radius:10px;background:var(--bgColor-default,#fff);color:var(--fgColor-default,#1f2328);
+        border:1px solid var(--borderColor-default,#d0d7de);box-shadow:0 6px 20px rgba(31,35,40,.18);
+        font:12px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;}
+      #rmx-nav.rmx-show{display:flex;}
+      .rmx-nav-btn{cursor:pointer;flex:0 0 auto;width:28px;height:26px;border-radius:7px;
+        border:1px solid var(--borderColor-default,#d0d7de);background:var(--bgColor-muted,#f6f8fa);
+        color:inherit;font:15px/1 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+        display:flex;align-items:center;justify-content:center;}
+      .rmx-nav-btn:hover{background:var(--bgColor-neutral,#eaeef2);}
+      .rmx-nav-btn:disabled{opacity:.4;cursor:default;}
+      .rmx-nav-main{display:flex;align-items:center;gap:7px;min-width:0;flex:1;}
+      .rmx-nav-swatch{flex:0 0 auto;width:9px;height:9px;border-radius:3px;}
+      .rmx-nav-type{font-weight:600;white-space:nowrap;}
+      .rmx-nav-sum{min-width:0;color:var(--fgColor-muted,#656d76);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+      .rmx-nav-idle{color:var(--fgColor-muted,#656d76);}
+      .rmx-nav-count{flex:0 0 auto;padding:0 2px;color:var(--fgColor-muted,#656d76);font-variant-numeric:tabular-nums;}
+
+      /* Edge chips: at most one per screen edge, pointing at the selected
+         refactoring's off-screen lines. Fixed size — they can't stack up. */
+      .rmx-edge{position:fixed;left:0;right:14px;z-index:2147483599;display:flex;justify-content:center;pointer-events:none;}
+      #rmx-edge-top-wrap{top:48px;}
+      #rmx-edge-bot-wrap{bottom:16px;}
+      .rmx-edge-chip{display:none;pointer-events:auto;align-items:center;gap:6px;
+        padding:4px 10px;border-radius:999px;background:var(--bgColor-default,#fff);color:var(--fgColor-default,#1f2328);
+        border:1px solid var(--borderColor-default,#d0d7de);box-shadow:0 4px 14px rgba(31,35,40,.18);
+        font:11.5px/1 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;}
+      .rmx-edge-chip.rmx-show{display:inline-flex;}
+      .rmx-edge-arw{font-size:12px;color:var(--fgColor-muted,#656d76);}
+      .rmx-edge-seg{display:inline-flex;align-items:center;gap:4px;cursor:pointer;padding:1px 6px;border-radius:7px;}
+      .rmx-edge-seg:hover{background:var(--bgColor-muted,#f6f8fa);}
+      .rmx-edge-dot{flex:0 0 auto;width:8px;height:8px;border-radius:50%;}
+      .rmx-edge-chip b{font-weight:600;font-variant-numeric:tabular-nums;}
+      .rmx-edge-lbl{color:var(--fgColor-muted,#656d76);}
+
+      /* Minimap: a slim right-edge rail with one tick per refactoring and a
+         viewport thumb — the always-on overview of where the changes are. */
+      #rmx-minimap{position:fixed;top:44px;right:0;bottom:12px;width:12px;z-index:2147483598;display:none;
+        background:var(--bgColor-muted,#f6f8fa);border-left:1px solid var(--borderColor-muted,#d8dee4);
+        transition:width .12s;}
+      #rmx-minimap.rmx-show{display:block;}
+      #rmx-minimap:hover{width:16px;}
+      .rmx-mm-tick{position:absolute;left:2px;right:2px;height:3px;border-radius:2px;cursor:pointer;opacity:.5;
+        transition:opacity .12s,height .12s;}
+      .rmx-mm-tick.rmx-mm-L{background:var(--rmx-left,#ec4899);}
+      .rmx-mm-tick.rmx-mm-R{background:var(--rmx-right,#7c3aed);}
+      .rmx-mm-tick:hover{opacity:.85;}
+      .rmx-mm-tick.rmx-mm-active{opacity:1;height:5px;left:1px;right:1px;box-shadow:0 0 0 1px var(--bgColor-default,#fff);}
+      .rmx-mm-thumb{position:absolute;left:0;right:0;background:rgba(110,120,135,.16);
+        border-top:1px solid var(--fgColor-muted,#656d76);border-bottom:1px solid var(--fgColor-muted,#656d76);pointer-events:none;}
 
       /* Refactorings report — a collapsible list pinned bottom-left, shown in
          both PR and commit views. Each row selects (blinks) its refactoring. */
@@ -337,166 +369,346 @@ RMX.overlay = (function () {
     clearPins();
   }
 
-  // --- pinned-line peek ---------------------------------------------------
-  // Selected lines that scroll out of view are mirrored as floating bars at the
-  // top edge (when scrolled below them) or bottom edge (above them), stacked in
-  // document order. Clones, not the real rows — GitHub virtualizes the table.
-  const TOP_ZONE = 56; // approx. height of GitHub's sticky header region
-  const PIN_BLINK_MS = 5000; // bar pulse period (slower than the in-diff blink)
-  const blinkEpoch = Date.now(); // shared clock so rebuilt bars stay in phase
-  let topLayer = null;
-  let topToggle = null;
-  let bottomLayer = null;
-  let bottomToggle = null;
-  let pinRaf = null;
-  const stackCollapsed = { top: false, bottom: false };
+  // --- focus navigation (minimap + navigator + edge chips) -----------------
+  // Off-screen refactored lines are matched three ways instead of the old pin
+  // stacks (which grew without bound and buried the page):
+  //   • a right-edge MINIMAP with one tick per refactoring and a viewport thumb —
+  //     the always-on overview of where the changes sit,
+  //   • a fixed NAVIGATOR pill that steps one refactoring at a time (‹ › / j k),
+  //     revealing and centring each as it goes, and
+  //   • at most ONE EDGE CHIP per screen edge, pointing at the selected
+  //     refactoring's lines currently above/below the fold.
+  // All three are fixed-height, so a huge refactoring can't overflow them. They
+  // reuse the same select()/reveal machinery, so a jump still un-collapses a
+  // folded file before scrolling.
+  const TOP_ZONE = 96;        // header + navigator band: cells above this read as "off-screen up"
+  const BOTTOM_GAP = 20;      // matching gap at the bottom edge
+  const PIN_BLINK_MS = 5000;  // selection pulse period (kept: select() syncs its slow blink to it)
+  const blinkEpoch = Date.now();
+  const stackCollapsed = { top: false, bottom: false }; // retained: clearSelection() still resets it
+  let refreshRaf = null;
 
-  function makePinToggle(key) {
-    const toggle = document.createElement('div');
-    toggle.className = 'rmx-pin-toggle';
-    toggle.style.display = 'none';
-    toggle.addEventListener('click', (e) => {
-      e.stopPropagation();
-      stackCollapsed[key] = !stackCollapsed[key];
-      updatePins();
-    });
-    return toggle;
+  // Which side a refactoring mainly lives on, for its accent colour — the "after"
+  // (right) side by default, since that's where extracted/renamed code lands.
+  function refSide(index) {
+    const t = selectTargets[index];
+    return t && t.side === 'L' ? 'L' : 'R';
+  }
+  function sideVar(side) {
+    return side === 'L' ? 'var(--rmx-left,#ec4899)' : 'var(--rmx-right,#7c3aed)';
+  }
+  function escapeHtml(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
 
-  function ensurePinLayers() {
-    if (topLayer) return;
-    topLayer = document.createElement('div');
-    topLayer.id = 'rmx-pin-top';
-    topToggle = makePinToggle('top');
-    topLayer.appendChild(topToggle);
-
-    bottomLayer = document.createElement('div');
-    bottomLayer.id = 'rmx-pin-bottom';
-    bottomToggle = makePinToggle('bottom');
-    bottomLayer.appendChild(bottomToggle);
-
-    document.body.appendChild(topLayer);
-    document.body.appendChild(bottomLayer);
-  }
-
-  function clearPins() {
-    if (topLayer) topLayer.querySelectorAll('.rmx-pin').forEach((el) => el.remove());
-    if (bottomLayer) bottomLayer.querySelectorAll('.rmx-pin').forEach((el) => el.remove());
-    if (topToggle) topToggle.style.display = 'none';
-    if (bottomToggle) bottomToggle.style.display = 'none';
-    syncReportOffset();
-  }
-
-  function schedulePins() {
-    if (pinRaf) return;
-    pinRaf = requestAnimationFrame(() => {
-      pinRaf = null;
-      updatePins();
-    });
-  }
-
-  function updatePins() {
-    if (!selectedIndices.length) {
-      clearPins();
-      return;
+  // The scroll container the diff actually lives in: the nearest scrollable
+  // ancestor of a tagged cell, else the document. Covers both the classic
+  // whole-window scroll and the React diff's inner virtualized scroller.
+  function scrollHost() {
+    const cell = document.querySelector('.' + CLASS);
+    let el = cell && cell.parentElement;
+    while (el && el !== document.body && el !== document.documentElement) {
+      const oy = getComputedStyle(el).overflowY;
+      if ((oy === 'auto' || oy === 'scroll') && el.scrollHeight > el.clientHeight + 40) return el;
+      el = el.parentElement;
     }
-    ensurePinLayers();
+    return document.scrollingElement || document.documentElement;
+  }
 
-    // One entry per selected line (group the gutter + code cells that share a
-    // data-line-anchor; keep the code cell — the one with the most text).
-    const byAnchor = {};
-    document.querySelectorAll(`.${CLASS}.${SEL}`).forEach((cell) => {
-      const anchor = cell.getAttribute('data-line-anchor');
-      if (!anchor) return;
+  // Every mounted, tagged cell for one refactoring (optionally one side). Empty
+  // when the refactoring's lines are all virtualized out or in a collapsed file.
+  function mountedCells(index, side) {
+    const sel = '.' + CLASS + '[data-rmx-index~="' + index + '"]' +
+      (side ? '[data-rmx-side="' + side + '"]' : '');
+    return Array.prototype.slice.call(document.querySelectorAll(sel));
+  }
+
+  // One source line's number, from GitHub's own attribute or parsed off the
+  // diff-<digest><side><line> anchor. 0 when it can't be resolved.
+  function lineNum(cell) {
+    const n = cell.getAttribute('data-line-number');
+    if (n) return parseInt(n, 10) || 0;
+    const a = cell.getAttribute('data-line-anchor') || cell.getAttribute('data-grid-cell-id') || cell.id || '';
+    const m = /([LR])(\d+)$/.exec(a);
+    return m ? parseInt(m[2], 10) : 0;
+  }
+  // A source line's stable identity: file + side + line number. The number cell
+  // and the code cell of one line share all three, so keying on this collapses
+  // the two mounted cells into a single entry (the old anchor key didn't — the
+  // gutter twin often carries a different data-grid-cell-id, double-counting it).
+  function lineKey(cell) {
+    return (cell.getAttribute('data-rmx-file') || '') + '|' +
+      (cell.getAttribute('data-rmx-side') || '') + '|' + lineNum(cell);
+  }
+
+  // Selected cells, one per source line — collapse each line's number + code
+  // cells to one entry, keeping whichever holds the most text (the code cell).
+  function distinctSelected() {
+    const byLine = {};
+    document.querySelectorAll('.' + CLASS + '.' + SEL).forEach((cell) => {
+      if (!lineNum(cell)) return; // unresolved line (e.g. a spacer) — nothing to count
+      const key = lineKey(cell);
       const len = (cell.textContent || '').length;
-      if (!byAnchor[anchor] || len > byAnchor[anchor].len) byAnchor[anchor] = { cell, len, anchor };
+      if (!byLine[key] || len > byLine[key].len) byLine[key] = { cell, len };
     });
-
-    const vh = window.innerHeight || document.documentElement.clientHeight;
-    const above = [];
-    const below = [];
-    Object.keys(byAnchor).forEach((a) => {
-      const entry = byAnchor[a];
-      const r = entry.cell.getBoundingClientRect();
-      if (!r.height) return; // unmounted by virtualization
-      entry.top = r.top;
-      if (r.bottom <= TOP_ZONE) above.push(entry);
-      else if (r.top >= vh) below.push(entry);
-    });
-    above.sort((x, y) => x.top - y.top);
-    below.sort((x, y) => x.top - y.top);
-
-    renderStack(topLayer, above);
-    renderStack(bottomLayer, below);
-    syncReportOffset();
+    return Object.keys(byLine).map((k) => byLine[k].cell);
   }
 
-  function renderStack(layer, entries) {
-    // Remove only bar rows — the persistent toggle stays in the DOM so hover is never interrupted.
-    layer.querySelectorAll('.rmx-pin').forEach((el) => el.remove());
+  /* ---- navigator ---- */
+  let navEl = null, navMain = null, navCount = null, navPrev = null, navNext = null;
+  let navRows = []; // [{ index, type, summary, side }] in feed order
 
-    const isTop = layer.id === 'rmx-pin-top';
-    const toggle = isTop ? topToggle : bottomToggle;
-    const key = isTop ? 'top' : 'bottom';
-    const collapsed = stackCollapsed[key];
-
-    if (!entries.length) {
-      toggle.style.display = 'none';
-      return;
-    }
-
-    if (!collapsed) {
-      // The bottom layer is flex column-reverse, so insert its bars in reverse
-      // document order — the net visual order then matches the top stack:
-      // lowest line number on top, highest on the bottom, toggle staying on top.
-      const order = isTop ? entries : entries.slice().reverse();
-      order.forEach((entry) => {
-        const m = /^diff-[0-9a-f]{64}([LR])(\d+)$/.exec(entry.anchor) || [];
-        const file = (entry.cell.getAttribute('data-rmx-file') || '').split('/').pop();
-
-        const side = entry.cell.getAttribute('data-rmx-side');
-        const bar = document.createElement('div');
-        bar.className = 'rmx-pin' + (side ? ' rmx-pin-' + side : '');
-        // Negative delay = start mid-cycle at the shared phase, so bars rebuilt on
-        // scroll resume the pulse seamlessly instead of restarting it.
-        if (inAttentionPhase) {
-          const fastPeriod = BLINK_FAST_MS * 2;
-          bar.style.animationName = side === 'R' ? 'rmx-pin-fast-R' : 'rmx-pin-fast-L';
-          bar.style.animationDuration = (fastPeriod / 1000) + 's';
-          bar.style.animationTimingFunction = 'linear';
-          bar.style.animationDelay = '-' + ((Date.now() - blinkEpoch) % fastPeriod / 1000) + 's';
-        } else {
-          bar.style.animationDuration = (PIN_BLINK_MS / 1000) + 's';
-          bar.style.animationDelay = '-' + (((Date.now() - blinkEpoch) % PIN_BLINK_MS) / 1000) + 's';
-        }
-        const stripe = document.createElement('span');
-        stripe.className = 'rmx-pin-stripe';
-        stripe.style.background = side === 'R' ? 'var(--rmx-right-d,#6d28d9)' : 'var(--rmx-left-d,#be185d)';
-        const meta = document.createElement('span');
-        meta.className = 'rmx-pin-meta';
-        meta.textContent = `${file}:${m[1] || ''}${m[2] || ''}`;
-        const code = document.createElement('span');
-        code.className = 'rmx-pin-code';
-        // Keep leading indentation (right-trim only) so the bar reads like real code.
-        code.textContent = (entry.cell.textContent || '').replace(/\s+$/, '').slice(0, 160);
-
-        bar.appendChild(stripe);
-        bar.appendChild(meta);
-        bar.appendChild(code);
-        bar.addEventListener('click', () => entry.cell.scrollIntoView({ behavior: 'smooth', block: 'center' }));
-        // Insert before the toggle so the toggle always stays last in DOM:
-        // last = bottom of top stack (column), top of bottom stack (column-reverse).
-        layer.insertBefore(bar, toggle);
+  function ensureNav() {
+    if (navEl) return navEl;
+    ensureStyle();
+    navEl = document.createElement('div');
+    navEl.id = 'rmx-nav';
+    navPrev = document.createElement('button');
+    navPrev.className = 'rmx-nav-btn';
+    navPrev.type = 'button';
+    navPrev.setAttribute('aria-label', 'Previous refactoring');
+    navPrev.textContent = '‹';
+    navPrev.addEventListener('click', () => navStep(-1));
+    navMain = document.createElement('div');
+    navMain.className = 'rmx-nav-main';
+    navCount = document.createElement('span');
+    navCount.className = 'rmx-nav-count';
+    navNext = document.createElement('button');
+    navNext.className = 'rmx-nav-btn';
+    navNext.type = 'button';
+    navNext.setAttribute('aria-label', 'Next refactoring');
+    navNext.textContent = '›';
+    navNext.addEventListener('click', () => navStep(1));
+    navEl.appendChild(navPrev);
+    navEl.appendChild(navMain);
+    navEl.appendChild(navCount);
+    navEl.appendChild(navNext);
+    document.body.appendChild(navEl);
+    // j / k step through refactorings (installed once; a no-op until rows exist).
+    if (!window.__rmxNavKeys) {
+      window.__rmxNavKeys = true;
+      document.addEventListener('keydown', (e) => {
+        if (!navRows.length || e.metaKey || e.ctrlKey || e.altKey) return;
+        const t = e.target;
+        if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+        if (e.key === 'j' || e.key === 'J') { navStep(1); e.preventDefault(); }
+        else if (e.key === 'k' || e.key === 'K') { navStep(-1); e.preventDefault(); }
       });
     }
+    return navEl;
+  }
 
-    // Update the persistent toggle's label in-place (no recreation = no hover flicker).
-    // Arrow points toward the bars: ▲ when bars are above the toggle (top stack expanded),
-    // ▼ when bars are below (bottom stack expanded), reversed when collapsed.
-    const n = entries.length;
-    const caret = (isTop !== collapsed) ? '▲' : '▼';
-    toggle.innerHTML = `<span class="rmx-pin-toggle-caret">${caret}</span><span>${n} line${n !== 1 ? 's' : ''} off screen</span>`;
-    toggle.style.display = '';
+  function navPos() {
+    return navRows.findIndex((r) => selectedIndices.indexOf(String(r.index)) !== -1);
+  }
+  function navStep(dir) {
+    if (!navRows.length) return;
+    let pos = navPos();
+    pos = pos === -1
+      ? (dir > 0 ? 0 : navRows.length - 1)
+      : (pos + dir + navRows.length) % navRows.length;
+    focus(navRows[pos].index);
+  }
+  function updateNav() {
+    if (!navEl) return;
+    const pos = navPos();
+    if (pos === -1) {
+      navMain.innerHTML = '<span class="rmx-nav-idle">Select a refactoring to trace it across the diff</span>';
+      navCount.textContent = navRows.length ? '0 / ' + navRows.length : '';
+      navPrev.disabled = navNext.disabled = !navRows.length;
+      return;
+    }
+    const r = navRows[pos];
+    navMain.innerHTML =
+      '<span class="rmx-nav-swatch" style="background:' + sideVar(r.side) + '"></span>' +
+      '<span class="rmx-nav-type">' + escapeHtml(r.type) + '</span>' +
+      '<span class="rmx-nav-sum">' + escapeHtml(r.summary) + '</span>';
+    navCount.textContent = (pos + 1) + ' / ' + navRows.length;
+    navPrev.disabled = navNext.disabled = false;
+  }
+
+  /* ---- minimap ---- */
+  let mmEl = null, mmThumb = null;
+  const mmTicks = {}; // index -> tick element
+
+  function ensureMinimap() {
+    if (mmEl) return mmEl;
+    ensureStyle();
+    mmEl = document.createElement('div');
+    mmEl.id = 'rmx-minimap';
+    mmThumb = document.createElement('div');
+    mmThumb.className = 'rmx-mm-thumb';
+    mmEl.appendChild(mmThumb);
+    document.body.appendChild(mmEl);
+    return mmEl;
+  }
+  function buildMinimap() {
+    ensureMinimap();
+    Object.keys(mmTicks).forEach((k) => { mmTicks[k].remove(); delete mmTicks[k]; });
+    navRows.forEach((r) => {
+      const tick = document.createElement('div');
+      tick.className = 'rmx-mm-tick rmx-mm-' + r.side;
+      tick.style.display = 'none'; // shown once its position is known
+      tick.title = r.type + ' — ' + r.summary;
+      tick.addEventListener('click', () => focus(r.index));
+      mmEl.appendChild(tick);
+      mmTicks[r.index] = tick;
+    });
+  }
+  function refreshMinimap() {
+    if (!mmEl || !navRows.length) { if (mmEl) mmEl.classList.remove('rmx-show'); return; }
+    const host = scrollHost();
+    const isDoc = host === document.scrollingElement || host === document.documentElement || host === document.body;
+    const hostTop = isDoc ? 0 : host.getBoundingClientRect().top;
+    const sh = host.scrollHeight, ch = host.clientHeight, st = host.scrollTop;
+    if (sh <= ch + 40) { mmEl.classList.remove('rmx-show'); return; } // fits on screen — no map needed
+    mmEl.classList.add('rmx-show');
+    navRows.forEach((r) => {
+      const tick = mmTicks[r.index];
+      if (!tick) return;
+      const cell = mountedCells(r.index)[0];
+      if (cell) {
+        // Position within the full scroll content, cached so the tick holds its
+        // place after that line scrolls off and gets virtualized away.
+        const pos = cell.getBoundingClientRect().top - hostTop + st;
+        const pct = Math.max(0, Math.min(1, pos / sh));
+        tick.dataset.pct = pct;
+        tick.style.top = (pct * 100) + '%';
+        tick.style.display = '';
+      } else if (tick.dataset.pct == null) {
+        tick.style.display = 'none'; // never located yet
+      }
+      tick.classList.toggle('rmx-mm-active', selectedIndices.indexOf(String(r.index)) !== -1);
+    });
+    mmThumb.style.top = (st / sh * 100) + '%';
+    mmThumb.style.height = (ch / sh * 100) + '%';
+  }
+
+  /* ---- edge chips ---- */
+  let edgeTop = null, edgeBot = null;
+
+  function ensureEdges() {
+    if (edgeTop) return;
+    ensureStyle();
+    const wrapTop = document.createElement('div');
+    wrapTop.className = 'rmx-edge';
+    wrapTop.id = 'rmx-edge-top-wrap';
+    edgeTop = document.createElement('div');
+    edgeTop.className = 'rmx-edge-chip';
+    edgeTop.id = 'rmx-edge-top';
+    wrapTop.appendChild(edgeTop);
+    const wrapBot = document.createElement('div');
+    wrapBot.className = 'rmx-edge';
+    wrapBot.id = 'rmx-edge-bot-wrap';
+    edgeBot = document.createElement('div');
+    edgeBot.className = 'rmx-edge-chip';
+    edgeBot.id = 'rmx-edge-bot';
+    wrapBot.appendChild(edgeBot);
+    document.body.appendChild(wrapTop);
+    document.body.appendChild(wrapBot);
+  }
+  function fillEdge(chip, cells, dir) {
+    if (!cells.length) { chip.classList.remove('rmx-show'); return; }
+    // Split the off-screen lines by side so each colour carries its OWN count and
+    // its own jump target. A mixed pile under one switching dot was ambiguous —
+    // the number was a total but the colour named just the nearest line.
+    const bySide = { L: [], R: [] };
+    cells.forEach((c) => { (bySide[c.getAttribute('data-rmx-side')] || bySide.R).push(c); });
+    const nearestOf = (list) => list.reduce((best, c) => {
+      const b = best.getBoundingClientRect(), r = c.getBoundingClientRect();
+      return dir === 'up' ? (r.bottom > b.bottom ? c : best) : (r.top < b.top ? c : best);
+    });
+
+    chip.textContent = '';
+    const arw = document.createElement('span');
+    arw.className = 'rmx-edge-arw';
+    arw.textContent = dir === 'up' ? '↑' : '↓';
+    chip.appendChild(arw);
+    ['L', 'R'].forEach((side) => {
+      const list = bySide[side];
+      if (!list.length) return;
+      const seg = document.createElement('span');
+      seg.className = 'rmx-edge-seg';
+      const where = side === 'L' ? 'left / before' : 'right / after';
+      seg.title = list.length + ' line' + (list.length !== 1 ? 's' : '') +
+        ' on the ' + where + ' side — click to jump';
+      seg.innerHTML =
+        '<span class="rmx-edge-dot" style="background:' + sideVar(side) + '"></span><b>' + list.length + '</b>';
+      const target = nearestOf(list);
+      seg.addEventListener('click', () => target.scrollIntoView({ behavior: 'smooth', block: 'center' }));
+      chip.appendChild(seg);
+    });
+    const lbl = document.createElement('span');
+    lbl.className = 'rmx-edge-lbl';
+    lbl.textContent = (cells.length === 1 ? 'line ' : 'lines ') + (dir === 'up' ? 'above' : 'below');
+    chip.appendChild(lbl);
+    chip.classList.add('rmx-show');
+  }
+  function refreshEdges() {
+    if (!selectedIndices.length) {
+      if (edgeTop) edgeTop.classList.remove('rmx-show');
+      if (edgeBot) edgeBot.classList.remove('rmx-show');
+      return;
+    }
+    ensureEdges();
+    const vh = window.innerHeight || document.documentElement.clientHeight;
+    const above = [], below = [];
+    distinctSelected().forEach((cell) => {
+      const r = cell.getBoundingClientRect();
+      if (!r.height) return; // unmounted by virtualization
+      if (r.bottom <= TOP_ZONE) above.push(cell);
+      else if (r.top >= vh - BOTTOM_GAP) below.push(cell);
+    });
+    fillEdge(edgeTop, above, 'up');
+    fillEdge(edgeBot, below, 'down');
+  }
+
+  /* ---- shared refresh (kept names so select()/applySelection() drive it) ---- */
+  function schedulePins() {
+    if (refreshRaf) return;
+    refreshRaf = requestAnimationFrame(() => { refreshRaf = null; updatePins(); });
+  }
+  function updatePins() {
+    refreshEdges();
+    refreshMinimap();
+    updateNav();
+  }
+  function clearPins() {
+    refreshEdges();    // no selection ⇒ both chips hide
+    refreshMinimap();  // drops the active-tick emphasis
+    updateNav();       // back to the idle prompt
+  }
+
+  // Focus one refactoring by feed index: reveal its file, blink it, and bring a
+  // mounted line into view. Shared by the report rows, navigator, and minimap.
+  async function focus(index) {
+    await select([String(index)]);
+    const cell = mountedCells(index)[0];
+    if (cell) cell.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+
+  // Populate the navigator + minimap from the report rows (feed order). Called by
+  // showReport once a page's refactorings are known.
+  function setNav(rows) {
+    navRows = (rows || []).map((r) => ({
+      index: r.index, type: r.type, summary: r.summary, side: refSide(r.index),
+    }));
+    ensureNav();
+    buildMinimap();
+    navEl.classList.toggle('rmx-show', navRows.length > 0);
+    updateNav();
+    schedulePins();
+  }
+  function teardownFocusUI() {
+    [navEl, mmEl,
+      document.getElementById('rmx-edge-top-wrap'),
+      document.getElementById('rmx-edge-bot-wrap')].forEach((el) => { if (el) el.remove(); });
+    navEl = navMain = navCount = navPrev = navNext = null;
+    mmEl = mmThumb = null;
+    edgeTop = edgeBot = null;
+    Object.keys(mmTicks).forEach((k) => delete mmTicks[k]);
+    navRows = [];
   }
 
   function inViewport(el) {
@@ -519,6 +731,46 @@ RMX.overlay = (function () {
     }
   }
 
+  // Hover peek: the refactoring's summary, plus a live glance at its counterpart
+  // on the other side — the actual code lines when they're mounted, or a jump
+  // hint when they've scrolled off / sit in a collapsed file.
+  function peekHtml(cell) {
+    const desc = cell.getAttribute('data-rmx-desc') || '';
+    let html = '<div class="rmx-tip-title">' + escapeHtml(desc) + '</div>';
+    const idx = (cell.getAttribute('data-rmx-index') || '').split(' ')[0];
+    if (!idx) return html;
+    const other = cell.getAttribute('data-rmx-side') === 'L' ? 'R' : 'L';
+    // One entry per counterpart line (collapse its number + code cells), ordered
+    // by line number. Keeps whichever cell holds the most text (the code).
+    const byLine = {};
+    mountedCells(idx, other).forEach((c) => {
+      const ln = lineNum(c);
+      if (!ln) return;
+      const txt = (c.textContent || '').replace(/\s+$/, '');
+      if (!byLine[ln] || txt.length > byLine[ln].length) byLine[ln] = txt;
+    });
+    const lines = Object.keys(byLine)
+      .map(Number)
+      .sort((a, b) => a - b)
+      .map((ln) => byLine[ln])
+      .filter((txt) => txt && !/^\s*\d*\s*$/.test(txt))
+      // Drop GitHub's leading diff marker (it sits in the cell text, before the
+      // indentation) so it doesn't block the dedent below or waste a column.
+      .map((txt) => txt.replace(/^[+\- ](?=\s)/, ''));
+    if (lines.length) {
+      // Strip the deepest shared indentation so nested code uses the full width
+      // instead of wasting it on leading whitespace (relative indent is kept).
+      const indent = Math.min.apply(null, lines.map((t) => /^\s*/.exec(t)[0].length));
+      const shown = lines.slice(0, 5)
+        .map((t) => '<span class="rmx-tip-line">' + escapeHtml(t.slice(indent, indent + 120)) + '</span>').join('');
+      const more = lines.length > 5 ? '<span class="rmx-tip-more">… +' + (lines.length - 5) + ' more</span>' : '';
+      html += '<div class="rmx-tip-code rmx-tip-' + other + '">' + shown + more + '</div>';
+    } else {
+      html += '<div class="rmx-tip-hint">Counterpart is off screen — click to jump to it</div>';
+    }
+    return html;
+  }
+
   // One delegated tooltip + click handler shared by all highlighted cells.
   function installTooltip() {
     ensureStyle();
@@ -533,16 +785,22 @@ RMX.overlay = (function () {
         tip.style.opacity = 0;
         return;
       }
-      tip.textContent = cell.getAttribute('data-rmx-desc') || '';
+      tip.innerHTML = peekHtml(cell);
       const r = cell.getBoundingClientRect();
-      tip.style.top = window.scrollY + r.top - tip.offsetHeight - 6 + 'px';
-      tip.style.left = window.scrollX + r.left + 'px';
+      // Prefer above the line; flip below when it would clip the top of the page.
+      let top = window.scrollY + r.top - tip.offsetHeight - 8;
+      if (top < window.scrollY + 4) top = window.scrollY + r.bottom + 8;
+      let left = window.scrollX + r.left;
+      const maxLeft = window.scrollX + (window.innerWidth || 0) - tip.offsetWidth - 12;
+      if (left > maxLeft) left = Math.max(window.scrollX + 4, maxLeft);
+      tip.style.top = top + 'px';
+      tip.style.left = left + 'px';
       tip.style.opacity = 1;
     });
     document.addEventListener('click', async (e) => {
       if (!e.target.closest) return;
-      // Clicks on our own UI (pinned bars, report panel) shouldn't clear the selection.
-      if (e.target.closest('#rmx-pin-top, #rmx-pin-bottom, #rmx-report')) return;
+      // Clicks on our own UI (navigator, minimap, edge chips, report) shouldn't clear the selection.
+      if (e.target.closest('#rmx-nav, #rmx-minimap, .rmx-edge, #rmx-report')) return;
       const cell = e.target.closest('.' + CLASS);
       if (!cell) {
         clearSelection();
@@ -592,16 +850,7 @@ RMX.overlay = (function () {
     reportEl.appendChild(head);
     reportEl.appendChild(body);
     document.body.appendChild(reportEl);
-    syncReportOffset(); // sit above the bottom pin bars if any are already showing
     return reportEl;
-  }
-
-  // Lift the report panel above the bottom pinned-line bars so their (variable)
-  // stack never hides the last rows. Re-run whenever that stack changes.
-  function syncReportOffset() {
-    if (!reportEl) return;
-    const h = bottomLayer ? bottomLayer.getBoundingClientRect().height : 0;
-    reportEl.style.bottom = (h > 0 ? Math.ceil(h) + 8 : 16) + 'px';
   }
 
   function reportTitle(n) {
@@ -637,6 +886,7 @@ RMX.overlay = (function () {
   // `rows`: [{ index, type, summary }]. Each row selects its refactoring on click.
   function showReport(rows) {
     reportTitle(rows.length);
+    setNav(rows); // feed the navigator + minimap the same list (feed order)
     const body = reportBody();
     if (!rows.length) {
       const msg = document.createElement('div');
@@ -657,13 +907,8 @@ RMX.overlay = (function () {
       sum.textContent = row.summary;
       item.appendChild(type);
       item.appendChild(sum);
-      item.addEventListener('click', async () => {
-        // await so a collapsed file is revealed (and its cell mounted) before we
-        // try to scroll to it — otherwise the querySelector below finds nothing.
-        await select([String(row.index)]);
-        const cell = document.querySelector(`.${CLASS}[data-rmx-index~="${row.index}"]`);
-        if (cell) cell.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      });
+      // reveal → blink → centre, shared with the navigator and minimap.
+      item.addEventListener('click', () => focus(row.index));
       body.appendChild(item);
     });
   }
@@ -673,6 +918,7 @@ RMX.overlay = (function () {
       reportEl.remove();
       reportEl = null;
     }
+    teardownFocusUI();
   }
 
   return {
