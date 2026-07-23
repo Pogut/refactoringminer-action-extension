@@ -4,6 +4,16 @@
 // a small in-memory cache keyed by URL.
 const cache = new Map();
 
+// In click-to-activate mode the toolbar button starts analysis in the current
+// tab. The content script is already present on supported GitHub pages; it just
+// stays idle until it receives this message.
+chrome.action.onClicked.addListener((tab) => {
+  if (!tab.id) return;
+  chrome.tabs.sendMessage(tab.id, { type: 'RMX_ACTIVATE' }).catch(() => {
+    // Unsupported/non-GitHub pages do not have our content script.
+  });
+});
+
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg && msg.type === 'RMX_FETCH_FEED') {
     fetchFeed(msg.url).then(sendResponse);

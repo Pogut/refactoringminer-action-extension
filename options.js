@@ -9,6 +9,7 @@ const DEFAULTS = {
   baseurl: 'https://rminer.encs.concordia.ca:8000/RefactoringMiner',
   token: '',
   timeout: 60,
+  autoTrigger: false,
   hlLeft: '#ec4899',
   hlRight: '#7c3aed',
 };
@@ -76,12 +77,13 @@ let getLeft, getRight;
 
 function load() {
   chrome.storage.sync.get(
-    ['baseurl', 'token', 'timeout', 'hlLeft', 'hlRight'],
+    ['baseurl', 'token', 'timeout', 'autoTrigger', 'hlLeft', 'hlRight'],
     (r) => {
       r = r || {};
       $('baseurl').value = r.baseurl || DEFAULTS.baseurl;
       $('token').value = r.token || DEFAULTS.token;
       $('timeout').value = r.timeout || DEFAULTS.timeout;
+      $('triggerAuto').checked = r.autoTrigger === true;
       getLeft = bindColor('hlLeft', 'hlLeftHex', normHex(r.hlLeft) || DEFAULTS.hlLeft);
       getRight = bindColor('hlRight', 'hlRightHex', normHex(r.hlRight) || DEFAULTS.hlRight);
       updatePreview();
@@ -93,9 +95,10 @@ function save() {
   const baseurl = $('baseurl').value.trim() || DEFAULTS.baseurl;
   const token = $('token').value.trim();
   const timeout = Math.min(1000, Math.max(10, parseInt($('timeout').value, 10) || DEFAULTS.timeout));
+  const autoTrigger = $('triggerAuto').checked;
   const hlLeft = getLeft();
   const hlRight = getRight();
-  chrome.storage.sync.set({ baseurl, token, timeout, hlLeft, hlRight }, () => {
+  chrome.storage.sync.set({ baseurl, token, timeout, autoTrigger, hlLeft, hlRight }, () => {
     $('timeout').value = timeout;
     const status = $('status');
     status.textContent = 'Saved.';
