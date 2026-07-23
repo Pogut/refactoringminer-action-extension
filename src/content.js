@@ -5,6 +5,7 @@ var RMX = window.RMX || (window.RMX = {});
 // navigations and as the virtualized diff mounts more rows on scroll.
 (function () {
   let currentRefactorings = null;
+  let autoTrigger = false;
   // Bumped on every run() so an in-flight analysis from a page we've since
   // navigated away from can detect it's stale and drop its result instead of
   // painting the old refactorings onto the new page (the "panel stays there when
@@ -161,6 +162,7 @@ var RMX = window.RMX || (window.RMX = {});
   // Tear down tagged cells, the report panel, and any selection when we land on a
   // page with nothing to show (e.g. navigating away from the diff via Turbo).
   function deactivate() {
+    ++gen; // invalidate an analysis that may still be awaiting a response
     currentRefactorings = null;
     RMX.overlay.clearSelection();
     RMX.overlay.clearAll();
@@ -318,9 +320,9 @@ var RMX = window.RMX || (window.RMX = {});
     return s.length > 60 ? s.slice(0, 57) + '…' : s;
   }
 
-  // Report rows: the type (shown bold) plus a type-free element summary, and the
-  // full description as the row's hover title. `index` links a row back to its
-  // tagged cells so a click selects/blinks it.
+  // Report rows: the type (shown bold), a type-free element summary, and the
+  // refactoring's full RefactoringMiner description for the expandable detail
+  // card. `index` links a row back to its tagged cells so a click selects/blinks it.
   function reportRows(refactorings) {
     return refactorings.map((r, index) => ({
       index,
@@ -376,6 +378,10 @@ var RMX = window.RMX || (window.RMX = {});
   function schedule() {
     RMX.github.resetCache();
     clearTimeout(scheduleTimer); // collapse the burst of events one nav emits
+    if (!autoTrigger) {
+      deactivate();
+      return;
+    }
     scheduleTimer = setTimeout(run, 300);
   }
 
@@ -417,5 +423,23 @@ var RMX = window.RMX || (window.RMX = {});
   // Following another comment link while already on the diff only changes the
   // hash — re-run the deep-link blink for the new anchor.
   window.addEventListener('hashchange', handleDeepLink);
-  schedule();
+
+  // Click-to-activate is the default. Only an explicitly stored true value runs
+  // automatically; otherwise the content script waits for the toolbar button.
+  chrome.runtime.onMessage.addListener((message) => {
+    if (message && message.type === 'RMX_ACTIVATE') run();
+  });
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== 'sync' || !changes.autoTrigger) return;
+    autoTrigger = changes.autoTrigger.newValue === true;
+    if (autoTrigger) schedule();
+    else {
+      clearTimeout(scheduleTimer);
+      deactivate();
+    }
+  });
+  chrome.storage.sync.get(['autoTrigger'], (settings) => {
+    autoTrigger = !!settings && settings.autoTrigger === true;
+    if (autoTrigger) schedule();
+  });
 })();

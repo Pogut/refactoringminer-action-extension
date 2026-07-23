@@ -11,7 +11,7 @@
         --border-muted: #e3e8ee;
         --bg: #f6f8fa;
         --card: #ffffff;
-        --accent: #7c3aed;
+        --accent: #1f2328;
         --accent-2: #ec4899;
         --grad: linear-gradient(135deg, #ec4899 0%, #7c3aed 100%);
       }
@@ -81,7 +81,7 @@
       input:focus {
         outline: none;
         border-color: var(--accent);
-        box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.15);
+        box-shadow: 0 0 0 3px rgba(31, 35, 40, 0.15);
       }
       code {
         font: 12px ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -169,17 +169,55 @@
       .linkbtn:hover { color: var(--fg); text-decoration: underline; }
       #status { color: #1a7f37; font-size: 13px; font-weight: 500; }
       .row-between { display: flex; align-items: center; justify-content: space-between; margin-top: 16px; }
+      .switch-row {
+        display: flex; align-items: center; justify-content: space-between; gap: 20px;
+        padding: 14px 0 0; margin: 0; cursor: pointer;
+        border-top: 1px solid var(--border-muted);
+      }
+      .switch-copy { display: flex; flex-direction: column; }
+      .switch-title { font-weight: 600; }
+      .switch-note { color: var(--muted); font-size: 12px; font-weight: 400; }
+      .switch { position: relative; width: 44px; height: 24px; flex: 0 0 auto; }
+      .switch input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+      .switch-track {
+        position: absolute; inset: 0; border-radius: 999px; background: #8c959f;
+        transition: background 0.16s ease;
+      }
+      .switch-track::after {
+        content: ""; position: absolute; width: 18px; height: 18px; left: 3px; top: 3px;
+        border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(31,35,40,.35);
+        transition: transform 0.16s ease;
+      }
+      .switch input:checked + .switch-track { background: #1f2328; }
+      .switch input:checked + .switch-track::after { transform: translateX(20px); }
+      .switch input:focus-visible + .switch-track { box-shadow: 0 0 0 3px rgba(31,35,40,.2); }
     </style>
   </head>
   <body>
     <div class="wrap">
       <header class="hero">
-        <img class="logo" src="refactoringLab.png" alt="RefactoringLab logo" />
+        <img class="logo" src="media/refactoringLab.png" alt="RefactoringLab logo" />
         <div>
           <h1>RefactoringMiner</h1>
           <div class="tagline">Refactoring-aware commit &amp; PR review overlay for GitHub</div>
         </div>
       </header>
+
+      <section class="card">
+        <h2>Activation</h2>
+        <p class="desc">Choose when RefactoringMiner analyses supported GitHub PR and commit diffs.</p>
+
+        <label class="switch-row" for="triggerAuto">
+          <span class="switch-copy">
+            <span class="switch-title">Automatically activate</span>
+            <span class="switch-note">Turn off to activate only when the extension toolbar icon is clicked.</span>
+          </span>
+          <span class="switch">
+            <input id="triggerAuto" type="checkbox" role="switch" />
+            <span class="switch-track" aria-hidden="true"></span>
+          </span>
+        </label>
+      </section>
 
       <!-- Highlight colours: applies in every mode -->
       <section class="card">
