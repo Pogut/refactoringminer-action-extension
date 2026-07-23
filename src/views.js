@@ -1,11 +1,11 @@
-var RMX = window.RMX || (window.RMX = {});
+window.RMX = window.RMX || {};
 
 // View adapters. The line-id scheme (diff-<digest><L|R><line>) is the same on
 // the PR "Files changed" page and the per-commit pages, so the adapters mostly
 // differ in which URLs they claim — keeping the door open for view-specific
 // tweaks (different headers, virtualization quirks) without touching the
 // renderer.
-RMX.views = (function () {
+window.RMX.views = (function () {
   const adapters = [
     {
       name: 'files',

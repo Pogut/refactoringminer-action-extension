@@ -3,9 +3,9 @@
 // MV3 content scripts listed together run in one isolated world and share a
 // global scope, so each file hangs its module off this single `RMX` namespace
 // rather than using ES `import`/`export` (which content scripts don't support).
-var RMX = window.RMX || (window.RMX = {});
+window.RMX = window.RMX || {};
 
-RMX.config = (function () {
+window.RMX.config = (function () {
   // Must mirror refactoringminer-action's publish layout: the Actions-based Pages
   // deploy bundles every PR's exported view under refactorings/pr-<n>/, so each
   // PR's feed sits one level above its interactive `list/` view.

@@ -1,10 +1,11 @@
-var RMX = window.RMX || (window.RMX = {});
+window.RMX = window.RMX || {};
 
 // View-agnostic renderer: tag the diff cells a refactoring touches (no visible
 // style of their own) so a click or comment-deep-link can blink that
 // refactoring in neon on both sides and peek its off-screen lines. It reaches
 // the DOM only through RMX.github, so the same renderer serves every view adapter.
-RMX.overlay = (function () {
+window.RMX.overlay = (function () {
+  const RMX = window.RMX;
   const CLASS = 'rmx-hl'; // marker on every tagged cell; carries no colour itself
   const TIP = 'rmx-tip';
   const FLASH = 'rmx-flash';
@@ -343,6 +344,15 @@ RMX.overlay = (function () {
     });
   }
 
+  // The slow synced pulse the selection settles into after its attention blinks;
+  // hoisted to module scope so it doesn't deepen select()'s function nesting.
+  // fastTick hands off to it via setTimeout once the fast attention blinks end.
+  function slowTick() {
+    blinkOn = !blinkOn;
+    document.querySelectorAll(`.${CLASS}.${SEL}`).forEach((el) => el.classList.toggle(ON, blinkOn));
+    blinkTimer = setTimeout(slowTick, BLINK_MS);
+  }
+
   async function select(indices) {
     // Load/expand a collapsed file first so its lines mount and get tagged (the
     // MutationObserver repaint runs during the await); then blink as usual.
@@ -371,11 +381,6 @@ RMX.overlay = (function () {
       blinkOn = elapsed < BLINK_MS;
       document.querySelectorAll(`.${CLASS}.${SEL}`).forEach((el) => el.classList.toggle(ON, blinkOn));
       const timeUntilNext = blinkOn ? (BLINK_MS - elapsed) : (PIN_BLINK_MS - elapsed);
-      function slowTick() {
-        blinkOn = !blinkOn;
-        document.querySelectorAll(`.${CLASS}.${SEL}`).forEach((el) => el.classList.toggle(ON, blinkOn));
-        blinkTimer = setTimeout(slowTick, BLINK_MS);
-      }
       blinkTimer = setTimeout(slowTick, timeUntilNext);
     }
     blinkTimer = setTimeout(fastTick, BLINK_FAST_MS);
