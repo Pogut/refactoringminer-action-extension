@@ -320,9 +320,9 @@ var RMX = window.RMX || (window.RMX = {});
     return s.length > 60 ? s.slice(0, 57) + '…' : s;
   }
 
-  // Report rows: the type (shown bold) plus a type-free element summary, and the
-  // full description as the row's hover title. `index` links a row back to its
-  // tagged cells so a click selects/blinks it.
+  // Report rows: the type (shown bold), a type-free element summary, and the
+  // refactoring's full RefactoringMiner description for the expandable detail
+  // card. `index` links a row back to its tagged cells so a click selects/blinks it.
   function reportRows(refactorings) {
     return refactorings.map((r, index) => ({
       index,

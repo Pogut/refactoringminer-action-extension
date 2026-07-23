@@ -35,17 +35,6 @@ RMX.overlay = (function () {
     return '#' + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
   }
 
-  // A translucent wash of a #rgb/#rrggbb colour, for the marker-style highlight
-  // behind before/after code elements. Returns the input unchanged if not hex.
-  function hexToRgba(hex, a) {
-    const m = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(hex || '');
-    if (!m) return hex;
-    let h = m[1];
-    if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
-    const n = parseInt(h, 16);
-    return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
-  }
-
   function applyColors(left, right) {
     const root = document.documentElement.style;
     const leftD = left.toLowerCase() === HL_DEFAULTS.left ? HL_DEFAULTS.leftD : darken(left, 0.22);
@@ -54,9 +43,6 @@ RMX.overlay = (function () {
     root.setProperty('--rmx-left-d', leftD);
     root.setProperty('--rmx-right', right);
     root.setProperty('--rmx-right-d', rightD);
-    // Explanation-card highlights track the same configured colours.
-    root.setProperty('--rmx-left-t', hexToRgba(left, 0.26));
-    root.setProperty('--rmx-right-t', hexToRgba(right, 0.26));
   }
 
   // Pull the stored blink colours (falling back to defaults) and mirror them onto
@@ -115,7 +101,7 @@ RMX.overlay = (function () {
         border:1px solid var(--borderColor-default,#d0d7de);background:var(--bgColor-muted,#f6f8fa);
         color:inherit;font:15px/1 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
         display:flex;align-items:center;justify-content:center;}
-      .rmx-nav-btn:hover{background:var(--bgColor-neutral,#eaeef2);}
+      .rmx-nav-btn:hover{background:var(--bgColor-neutral-muted,rgba(140,149,159,.18));}
       .rmx-nav-btn:disabled{opacity:.4;cursor:default;}
       .rmx-nav-main{display:flex;align-items:center;gap:7px;min-width:0;flex:1;}
       .rmx-nav-swatch{flex:0 0 auto;width:9px;height:9px;border-radius:3px;}
@@ -169,6 +155,9 @@ RMX.overlay = (function () {
       #rmx-report .rmx-rp-head{display:flex;align-items:center;justify-content:space-between;
         padding:8px 11px;cursor:pointer;font-weight:600;user-select:none;
         border-bottom:1px solid var(--borderColor-muted,#d8dee4);}
+      /* Panel title sits a notch above the 12px list rows so the header reads as
+         the heading, not another entry. */
+      #rmx-report .rmx-rp-title{font-size:15px;line-height:1.2;font-weight:700;}
       #rmx-report .rmx-rp-caret{font-size:10px;color:var(--fgColor-muted,#656d76);transition:transform .15s;}
       #rmx-report.rmx-collapsed .rmx-rp-body{display:none;}
       #rmx-report.rmx-collapsed .rmx-rp-head{border-bottom:0;}
@@ -180,27 +169,25 @@ RMX.overlay = (function () {
       #rmx-report .rmx-rp-row{display:flex;align-items:flex-start;gap:6px;padding:6px 11px;}
       #rmx-report .rmx-rp-main{flex:1;min-width:0;cursor:pointer;}
       #rmx-report .rmx-rp-type{font-weight:600;}
-      #rmx-report .rmx-rp-sum{color:var(--fgColor-muted,#656d76);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+      /* Collapsed rows show only the type; the summary joins the detail card the
+         moment the row is opened (by a title click or the explain caret). */
+      #rmx-report .rmx-rp-sum{display:none;color:var(--fgColor-muted,#656d76);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+      #rmx-report .rmx-rp-item.rmx-open .rmx-rp-sum{display:block;margin-top:1px;white-space:normal;overflow:visible;overflow-wrap:anywhere;}
       #rmx-report .rmx-rp-info{flex:0 0 auto;margin-top:1px;width:20px;height:20px;padding:0;cursor:pointer;
         display:flex;align-items:center;justify-content:center;border:0;border-radius:5px;background:transparent;
         color:var(--fgColor-muted,#656d76);font-size:11px;line-height:1;transition:background .12s,color .12s;}
-      #rmx-report .rmx-rp-info:hover{background:var(--bgColor-neutral,#eaeef2);color:var(--fgColor-default,#1f2328);}
+      #rmx-report .rmx-rp-info:hover{background:var(--bgColor-neutral-muted,rgba(140,149,159,.18));color:var(--fgColor-default,#1f2328);}
       #rmx-report .rmx-rp-info-caret{display:inline-block;transition:transform .15s;}
-      #rmx-report .rmx-rp-item.rmx-open .rmx-rp-info{background:var(--bgColor-neutral,#eaeef2);color:var(--fgColor-default,#1f2328);}
+      #rmx-report .rmx-rp-item.rmx-open .rmx-rp-info{background:var(--bgColor-neutral-muted,rgba(140,149,159,.18));color:var(--fgColor-default,#1f2328);}
       #rmx-report .rmx-rp-item.rmx-open .rmx-rp-info-caret{transform:rotate(180deg);}
       #rmx-report .rmx-rp-detail{display:none;padding:0 12px 11px;}
       #rmx-report .rmx-rp-item.rmx-open .rmx-rp-detail{display:block;}
+      /* Detail card: RefactoringMiner's description, one clause per line. */
       #rmx-report .rmx-rp-desc{margin:0;line-height:1.55;color:var(--fgColor-default,#1f2328);overflow-wrap:anywhere;}
       #rmx-report .rmx-rp-desclist{display:flex;flex-direction:column;gap:5px;}
       #rmx-report .rmx-rp-descline{line-height:1.45;overflow-wrap:anywhere;}
       #rmx-report .rmx-rp-rel{color:var(--fgColor-muted,#656d76);}
       #rmx-report .rmx-rp-codeel{font:11.5px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--fgColor-default,#1f2328);}
-      /* before = left colour, after = right colour — a marker-style wash that
-         wraps cleanly across lines and tracks the user's configured colours. */
-      #rmx-report .rmx-rp-side-L,#rmx-report .rmx-rp-side-R{border-radius:3px;padding:0 3px;
-        box-decoration-break:clone;-webkit-box-decoration-break:clone;}
-      #rmx-report .rmx-rp-side-L{background:var(--rmx-left-t,rgba(236,72,153,.26));}
-      #rmx-report .rmx-rp-side-R{background:var(--rmx-right-t,rgba(124,58,237,.26));}
       #rmx-report .rmx-rp-msg{padding:10px 11px;color:var(--fgColor-muted,#656d76);display:flex;align-items:center;gap:8px;}
       #rmx-report .rmx-rp-err{color:var(--fgColor-danger,#cf222e);}
       #rmx-report .rmx-rp-spinner{width:12px;height:12px;flex:0 0 auto;border-radius:50%;
@@ -922,75 +909,42 @@ RMX.overlay = (function () {
   }
 
   // Report rows are expandable: the row body reveals/blinks the refactoring, and
-  // an inline "explain" disclosure opens a readable card with RefactoringMiner's
-  // description — replacing the old hover tooltip.
+  // an inline disclosure opens a card with RefactoringMiner's description for it,
+  // formatted into one clause per line.
   let rpItems = {};      // feed index (string) -> item element, for current-row sync
   let rpOpenItem = null; // single-open accordion
 
-  // Connective phrases RefactoringMiner uses to join clauses. Splitting on these
-  // turns its run-on sentence into one relation per line ("extracted from …",
-  // "in class …"), which reads far better than a wall of text. Longer phrases are
-  // listed first so the regex/prefix match prefers them.
-  const DESC_FROM = [ // introduces a BEFORE (source) element
-    'extracted and moved from', 'moved and renamed from', 'extracted from', 'moved from',
-    'inlined from', 'renamed from', 'from class', 'from method', 'from package',
+  // Connective phrases RefactoringMiner uses to join a description's clauses.
+  // Splitting on them turns its run-on sentence into one relation per line
+  // ("extracted from ...", "in class ..."), which reads better than a wall of
+  // text. Longer phrases are listed first so the match prefers them.
+  const DESC_CONNECTORS = [
+    'extracted and moved from', 'moved and renamed from', 'moved and renamed to',
+    'extracted from', 'moved from', 'inlined from', 'renamed from',
+    'moved to', 'renamed to', 'inlined to', 'merged into', 'split into',
+    'pulled up to', 'pushed down to',
+    'from class', 'from method', 'from package',
+    'to class', 'to method', 'to package',
+    'in class', 'in method', 'in package',
   ];
-  const DESC_TO = [ // introduces an AFTER (target) element
-    'moved and renamed to', 'moved to', 'renamed to', 'inlined to', 'merged into', 'split into',
-    'pulled up to', 'pushed down to', 'to class', 'to method', 'to package',
-  ];
-  const DESC_CTX = ['in class', 'in method', 'in package']; // location — inherits the current side
-  const DESC_CONNECTORS = DESC_FROM.concat(DESC_TO, DESC_CTX);
 
-  // A fully-qualified name shows just its final segment (org.foo.Bar → Bar), with
-  // the full path kept for the hover title. Signatures (with spaces/parens) pass
-  // through untouched.
-  function simpleName(code) {
-    if (/^[\w$]+(\.[\w$]+)+$/.test(code)) {
-      return { text: code.slice(code.lastIndexOf('.') + 1), full: code };
-    }
-    return { text: code, full: null };
-  }
-
-  // Break the description into { rel, code } clauses: `rel` is the leading
-  // connective phrase (empty for the first clause), `code` the element it names.
+  // Break a RefactoringMiner description into readable clauses: each is a leading
+  // connective phrase (empty for the first clause) plus the element it names.
   function describeClauses(text, type) {
     let s = (text || '').replace(/\s+/g, ' ').trim();
     if (type && s.toLowerCase().indexOf(type.toLowerCase()) === 0) s = s.slice(type.length).trim();
     if (!s) return [];
     const re = new RegExp('\\s+(' + DESC_CONNECTORS.map((c) => c.replace(/ /g, '\\s+')).join('|') + ')\\s+', 'ig');
     const marked = s.replace(re, (m, c) => '\n' + c + ' ');
-    const clauses = marked.split('\n').map((seg) => seg.trim()).filter(Boolean).map((seg) => {
-      const baseRel = DESC_CONNECTORS.find((c) => seg.toLowerCase().indexOf(c) === 0) || '';
-      let rel = baseRel;
-      let code = (baseRel ? seg.slice(baseRel.length) : seg).replace(/^&\s*/, '').replace(/\s*&\s*$/, '').trim();
-      // Fold a leading structural keyword into the relation: "moved to" + "class X".
-      const km = /^(class|interface|enum|package)\s+/i.exec(code);
-      if (baseRel && km) { rel = baseRel + ' ' + km[1].toLowerCase(); code = code.slice(km[0].length); }
-      return { rel, baseRel, code };
+    return marked.split('\n').map((seg) => seg.trim()).filter(Boolean).map((seg) => {
+      const rel = DESC_CONNECTORS.find((c) => seg.toLowerCase().indexOf(c) === 0) || '';
+      const code = (rel ? seg.slice(rel.length) : seg).replace(/^&\s*/, '').replace(/\s*&\s*$/, '').trim();
+      return { rel, code };
     });
-
-    // Assign before/after. A "from …" phrase names a source (before); a "to/into …"
-    // phrase names a target (after); "in …" is a location that inherits the current
-    // side. The lead element is the result when there's a source (Extract → after),
-    // else the subject of a rename/move (before).
-    const hasFrom = clauses.some((c) => DESC_FROM.indexOf(c.baseRel) !== -1);
-    const hasTo = clauses.some((c) => DESC_TO.indexOf(c.baseRel) !== -1);
-    let last = null;
-    clauses.forEach((c, i) => {
-      let side;
-      if (i === 0) side = hasFrom ? 'R' : (hasTo ? 'L' : null);
-      else if (DESC_FROM.indexOf(c.baseRel) !== -1) side = 'L';
-      else if (DESC_TO.indexOf(c.baseRel) !== -1) side = 'R';
-      else side = last; // "in class/method" — same side as the element it qualifies
-      c.side = side;
-      if (side) last = side;
-    });
-    return clauses;
   }
 
-  // The explanation card body: the detector's description, structured into
-  // readable clauses (or shown verbatim if it doesn't match a known shape).
+  // The explanation card body: RefactoringMiner's description for the refactoring,
+  // formatted one clause per line (or shown verbatim when it doesn't split).
   function buildDetail(row) {
     const frag = document.createDocumentFragment();
     const desc = (row.detail || '').replace(/\s+/g, ' ').trim();
@@ -1011,15 +965,12 @@ RMX.overlay = (function () {
       if (c.rel) {
         const rel = document.createElement('span');
         rel.className = 'rmx-rp-rel';
-        rel.textContent = c.rel;
+        rel.textContent = c.rel + ' ';
         line.appendChild(rel);
-        line.appendChild(document.createTextNode(' '));
       }
       const code = document.createElement('span');
-      code.className = 'rmx-rp-codeel' + (c.side ? ' rmx-rp-side-' + c.side : '');
-      const name = simpleName(c.code);
-      code.textContent = name.text;
-      if (name.full) code.title = name.full;
+      code.className = 'rmx-rp-codeel';
+      code.textContent = c.code;
       line.appendChild(code);
       list.appendChild(line);
     });
@@ -1027,8 +978,8 @@ RMX.overlay = (function () {
     return frag;
   }
 
-  function toggleDetail(item) {
-    const open = !item.classList.contains('rmx-open');
+  function toggleDetail(item, force) {
+    const open = force !== undefined ? force : !item.classList.contains('rmx-open');
     if (rpOpenItem && rpOpenItem !== item) {
       rpOpenItem.classList.remove('rmx-open');
       rpOpenItem.querySelector('.rmx-rp-info').setAttribute('aria-expanded', 'false');
@@ -1078,8 +1029,9 @@ RMX.overlay = (function () {
       sum.textContent = row.summary;
       main.appendChild(type);
       main.appendChild(sum);
-      // reveal → blink → centre, shared with the navigator and minimap.
-      main.addEventListener('click', () => focus(row.index));
+      // reveal → blink → centre (shared with the navigator and minimap), and
+      // open this row so its summary + explanation appear on the same click.
+      main.addEventListener('click', () => { focus(row.index); toggleDetail(item, true); });
 
       const info = document.createElement('button');
       info.className = 'rmx-rp-info';
