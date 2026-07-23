@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Refactoring-Aware-Commit-Review",
-  "version": "3.2.1",
+  "version": "3.2.0",
   "description": "Overlays the refactorings detected by the RefactoringMiner GitHub Action directly onto GitHub PR and commit diffs.",
   "permissions": [
     "storage",

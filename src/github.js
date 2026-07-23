@@ -1,4 +1,4 @@
-var RMX = window.RMX || (window.RMX = {});
+window.RMX = window.RMX || {};
 
 // Maps a RefactoringMiner CodeRange to GitHub diff line cells across GitHub's
 // diff UIs. In all of them the file digest is sha256(filePath), so we never
@@ -9,7 +9,7 @@ var RMX = window.RMX || (window.RMX = {});
 //   - commit React diff: each cell has a UNIQUE `data-line-anchor` /
 //     `data-grid-cell-id` = `diff-<digest><L|R><line>` and a side class
 //     (`left-side-diff-cell` / `right-side-diff-cell`), but no `data-diff-side`.
-RMX.github = (function () {
+window.RMX.github = (function () {
   const digestCache = new Map();
 
   async function fileDigest(filePath) {
@@ -109,14 +109,12 @@ RMX.github = (function () {
 
   // Resolve once (file, side, line) is in the DOM, polling briefly while the
   // clicked control's async load lands. Resolves to the cells, or [] on timeout.
-  function waitForLine(digest, side, line, tries = 20, delay = 150) {
-    return new Promise((resolve) => {
-      (function poll(n) {
-        const cells = lineCells(digest, side, line);
-        if (cells.length || n <= 0) return resolve(cells);
-        setTimeout(() => poll(n - 1), delay);
-      })(tries);
-    });
+  async function waitForLine(digest, side, line, tries = 20, delay = 150) {
+    for (let n = tries; ; n--) {
+      const cells = lineCells(digest, side, line);
+      if (cells.length || n <= 0) return cells;
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
   }
 
   // Force GitHub to render the file that owns (side, line) so the line becomes

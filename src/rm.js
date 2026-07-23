@@ -1,4 +1,4 @@
-var RMX = window.RMX || (window.RMX = {});
+window.RMX = window.RMX || {};
 
 // Standalone data source. When there's no action-published feed — commit pages,
 // or repos that don't run the RefactoringMiner GitHub Action — we ask a hosted
@@ -14,7 +14,7 @@ var RMX = window.RMX || (window.RMX = {});
 // *sha* commitId as a single commit. So the whole-PR "Files changed" page is one
 // request (no per-commit loop), and a single commit page is a separate request
 // for just that sha.
-RMX.rm = (function () {
+window.RMX.rm = (function () {
   const DEFAULTS = {
     // Concordia's public RefactoringMiner server (same default as
     // Refactoring-Aware-Commit-Review). Override in the extension's options page.

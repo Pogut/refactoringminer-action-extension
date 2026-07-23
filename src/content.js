@@ -1,9 +1,10 @@
-var RMX = window.RMX || (window.RMX = {});
+window.RMX = window.RMX || {};
 
 // Orchestrator: figure out the page, pick a view adapter, fetch the feed the
 // action published, and paint the overlays. Re-paints on GitHub's soft (Turbo)
 // navigations and as the virtualized diff mounts more rows on scroll.
 (function () {
+  const RMX = window.RMX;
   let currentRefactorings = null;
   let autoTrigger = false;
   // Bumped on every run() so an in-flight analysis from a page we've since
