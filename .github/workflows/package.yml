@@ -1,0 +1,47 @@
+name: Package extension
+
+# Builds a clean install zip from an explicit allowlist of runtime files only
+# (no tests, tooling, or design sources can leak in) and attaches it to the
+# release. Run automatically when a release is published, or on demand.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build extension.zip from allowlist
+        run: |
+          set -euo pipefail
+          staging="$(mktemp -d)"
+          mkdir -p "$staging/src" "$staging/media"
+
+          # Runtime files only — mirror manifest.json.
+          cp manifest.json options.html options.js "$staging/"
+          cp src/config.js src/content.js src/github.js src/messaging.js \
+             src/overlay.js src/rm.js src/service-worker.js src/views.js "$staging/src/"
+          cp media/icon16.png media/icon32.png media/icon48.png media/icon128.png \
+             media/logo-black.png media/logo-white.png "$staging/media/"
+
+          (cd "$staging" && zip -r -X "$GITHUB_WORKSPACE/extension.zip" .)
+          echo "--- packaged contents ---"
+          unzip -l extension.zip
+
+      - name: Upload as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: extension
+          path: extension.zip
+
+      - name: Attach to release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ github.event.release.tag_name }}" extension.zip --clobber

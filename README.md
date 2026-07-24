@@ -30,7 +30,9 @@ instead make it activate automatically on supported diffs.
 
 Either way, a collapsible **Refactorings** panel (bottom-left) lists every
 refactoring; clicking a row blinks it on the diff — handy when you don't have the
-action posting a PR comment, or don't want to leave the diff to read it.
+action posting a PR comment, or don't want to leave the diff to read it. The
+options page sets how fast that blink pulses, from a constant (never blinking)
+highlight up to a rapid flash.
 
 ## How it works
 
@@ -65,14 +67,17 @@ Feed shape (RefactoringMiner's classic `-json` output):
 
 ## Load it (unpacked)
 
-1. `chrome://extensions` → enable **Developer mode**.
-2. **Load unpacked** → select this folder.
-3. Open a PR **Files changed** page (on a repo whose action published a feed) or
-   any **commit** page. Click a line involved in a refactoring — or a row in the
-   bottom-left **Refactorings** panel, or a line link from the action's PR comment
-   — and the whole refactoring blinks in neon on both sides, with its off-screen
+1. Get the files: download **`extension.zip`** from the
+   [latest release](../../releases/latest) and unzip it (it holds only the files
+   the extension needs), or clone/download this repo.
+2. `chrome://extensions` → enable **Developer mode**.
+3. **Load unpacked** → select the unzipped folder (or this repo folder).
+4. Open a PR **Files changed** page (on a repo whose action published a feed) or
+   any **commit** page. Click a line involved in a refactoring, or a row in the
+   bottom-left **Refactorings** panel, or a line link from the action's PR comment,
+   and the whole refactoring blinks in neon on both sides, with its off-screen
    lines pinned to the top/bottom edge; hover a line for its type/description.
-4. *(Optional)* Right-click the extension → **Options** to point commit-page
+5. *(Optional)* Right-click the extension → **Options** to point commit-page
    analysis at a different RefactoringMiner server or add a token for private repos.
 
 ## Architecture
@@ -87,7 +92,7 @@ Feed shape (RefactoringMiner's classic `-json` output):
 | `src/rm.js` | standalone data source: hosted RefactoringMiner service client — one call per page, `commitId` = sha (single commit) or PR number (whole PR) |
 | `src/views.js` | view adapters (`files` = whole PR, `commit` = single commit) |
 | `src/content.js` | orchestrator: per-page feed→service source selection, stale-navigation guard, Turbo-navigation re-render |
-| `options.html` / `options.js` | activation mode, highlight colours, and standalone-service settings |
+| `options.html` / `options.js` | activation mode, highlight colours, blink speed, page theme, and standalone-service settings |
 
 ## Dev
 

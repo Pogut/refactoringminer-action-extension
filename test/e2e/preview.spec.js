@@ -29,6 +29,41 @@ async function openChanges(page, pr) {
   await waitForOverlay(page);
 }
 
+// src/overlay.js HL_DEFAULTS, in the rgb() form getComputedStyle() returns.
+// Kept as literals on purpose: that is what makes a wrong hex or a swapped L/R
+// rule fail here rather than silently agreeing with the implementation. These
+// are the DEFAULTS, which is what a fresh test profile gets — a user who picks
+// their own colour overrides both of these pairs.
+const PALETTE = {
+  light: {
+    leftFill: 'rgb(255, 225, 168)', leftAccent: 'rgb(154, 103, 0)', //   #ffe1a8 / #9a6700
+    rightFill: 'rgb(209, 231, 253)', rightAccent: 'rgb(9, 105, 218)', // #d1e7fd / #0969da
+  },
+  dark: {
+    leftFill: 'rgb(75, 58, 15)', leftAccent: 'rgb(212, 167, 44)', //     #4b3a0f / #d4a72c
+    rightFill: 'rgb(20, 61, 105)', rightAccent: 'rgb(88, 166, 255)', //  #143d69 / #58a6ff
+  },
+};
+
+// Which pair applies depends on GitHub's OWN theme, so measure the canvas the
+// diff is painted on instead of assuming the runner's default account setting.
+async function palette(page) {
+  const dark = await page.evaluate(() => {
+    const raw =
+      getComputedStyle(document.documentElement).getPropertyValue('--bgColor-default').trim() ||
+      getComputedStyle(document.body).backgroundColor;
+    let r, g, b;
+    const fn = /(\d+)[,\s]+(\d+)[,\s]+(\d+)/.exec(raw);
+    if (fn) [, r, g, b] = fn.map(Number);
+    else {
+      const n = parseInt(raw.replace('#', ''), 16);
+      [r, g, b] = [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+    }
+    return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255 < 0.5;
+  });
+  return PALETTE[dark ? 'dark' : 'light'];
+}
+
 // First single-line right-side location in the feed — guaranteed paintable (a
 // single line is never trimmed as an enclosing container) and addressable by the
 // same hash the action's PR comment links use. Returns null if the feed has none.
@@ -185,24 +220,20 @@ test('clicking a line selects its counterpart on both sides', async ({ page }) =
 
 // --- left/right side colour distinction -------------------------------------
 // Selecting a refactoring colours BOTH counterpart cells, but the two sides must
-// be visually distinguishable at a glance: the left ("before") cell gets a
-// hot-pink outline + fill, the right ("after") cell a violet one. We assert real
+// be visually distinguishable at a glance: the left ("before") cell gets an
+// amber outline + fill, the right ("after") cell an azure one. We assert real
 // *computed* CSS — not just that a class name is present — so a regression that
 // ships the wrong hex value, or swaps the L/R CSS rules, fails here even though
-// the class names would still look correct. Self-calibrating on a mounted pair.
+// the class names would still look correct. Self-calibrating on a mounted pair,
+// and on whichever theme GitHub itself is rendering in.
 /* TEMPORARILY DISABLED for demo — re-enable by removing this block comment.
-test('left cell paints hot pink, right cell paints violet, on selection', async ({ page }) => {
+test('left cell paints amber, right cell paints azure, on selection', async ({ page }) => {
   await openChanges(page, 9);
 
   const pair = await findMountedPair(page);
   expect(pair, 'expected a refactoring with both sides mounted on the Preview diff').toBeTruthy();
 
-  // Mirrors src/overlay.js's CSS literals (#be185d/#ec4899 left, #6d28d9/#7c3aed
-  // right) as the rgb() form getComputedStyle() returns them in Chromium.
-  const LEFT_OUTLINE = 'rgb(190, 24, 93)'; //   #be185d
-  const LEFT_FILL = 'rgb(236, 72, 153)'; //     #ec4899
-  const RIGHT_OUTLINE = 'rgb(109, 40, 217)'; // #6d28d9
-  const RIGHT_FILL = 'rgb(124, 58, 237)'; //    #7c3aed
+  const p = await palette(page);
 
   const left = page.locator(`[data-line-anchor="${pair.left}"][data-rmx-side="L"]`).first();
   const right = page.locator(`[data-line-anchor="${pair.right}"][data-rmx-side="R"]`).first();
@@ -214,14 +245,14 @@ test('left cell paints hot pink, right cell paints violet, on selection', async 
   // The outline (box-shadow) is present in both blink phases, so it's a stable
   // signal regardless of timing. Web-first toHaveCSS re-resolves each poll, so a
   // scroll/settle re-paint can't produce a detached-node read.
-  await expect(left, 'left (before) cell outline should be hot pink').toHaveCSS('box-shadow', new RegExp(escapeRe(LEFT_OUTLINE)));
-  await expect(right, 'right (after) cell outline should be violet').toHaveCSS('box-shadow', new RegExp(escapeRe(RIGHT_OUTLINE)));
+  await expect(left, 'left (before) cell outline should be amber').toHaveCSS('box-shadow', new RegExp(escapeRe(p.leftAccent)));
+  await expect(right, 'right (after) cell outline should be azure').toHaveCSS('box-shadow', new RegExp(escapeRe(p.rightAccent)));
 
   // The "on" fill: the blink toggles it, and the background-color transition
   // means it settles exactly on the fill colour during the on-hold — toHaveCSS
   // polls until it catches that.
-  await expect(left, 'left fill colour').toHaveCSS('background-color', LEFT_FILL);
-  await expect(right, 'right fill colour').toHaveCSS('background-color', RIGHT_FILL);
+  await expect(left, 'left fill colour').toHaveCSS('background-color', p.leftFill);
+  await expect(right, 'right fill colour').toHaveCSS('background-color', p.rightFill);
 });
 */
 
@@ -306,10 +337,12 @@ test('a selected line that scrolls away shows a single edge chip', async ({ page
   expect(await chips.first().locator('.rmx-edge-seg').count()).toBeGreaterThan(0);
 });
 
-// The edge chip's side dot uses the same side colour as the inline highlight
-// (pink for left/before, violet for right/after), keeping the cue consistent
-// wherever a selected line surfaces. Checked via real computed CSS.
-test('the edge chip dot uses the side colour — left pink, right violet', async ({ page }) => {
+// The edge chip's side dot carries the same side hue as the inline highlight
+// (amber for left/before, azure for right/after), keeping the cue consistent
+// wherever a selected line surfaces. It uses the ACCENT rather than the fill:
+// the fill is tuned to sit behind code and is close to the canvas by design, so
+// as a bare dot it would barely register. Checked via real computed CSS.
+test('the edge chip dot uses the side colour — left amber, right azure', async ({ page }) => {
   await openChanges(page, 9);
 
   const first = page.locator('.rmx-hl[data-rmx-index]').first();
@@ -322,10 +355,10 @@ test('the edge chip dot uses the side colour — left pink, right violet', async
 
   const chip = page.locator('.rmx-edge-chip.rmx-show').first();
   await expect(chip).toBeVisible({ timeout: 10_000 });
-  // Each per-side segment's dot is #ec4899 (left) or #7c3aed (right) — the fills.
+  const p = await palette(page);
   await expect(chip.locator('.rmx-edge-seg .rmx-edge-dot').first()).toHaveCSS(
     'background-color',
-    /rgb\(236, 72, 153\)|rgb\(124, 58, 237\)/,
+    new RegExp(`${escapeRe(p.leftAccent)}|${escapeRe(p.rightAccent)}`),
   );
 });
 

@@ -1,11 +1,10 @@
 {
   "manifest_version": 3,
   "name": "Refactoring-Aware-Commit-Review",
-  "version": "3.2.0",
+  "version": "3.2.1",
   "description": "Overlays the refactorings detected by the RefactoringMiner GitHub Action directly onto GitHub PR and commit diffs.",
   "permissions": [
-    "storage",
-    "activeTab"
+    "storage"
   ],
   "host_permissions": [
     "https://github.com/*",
@@ -15,8 +14,20 @@
   "background": {
     "service_worker": "src/service-worker.js"
   },
+  "icons": {
+    "16": "media/icon16.png",
+    "32": "media/icon32.png",
+    "48": "media/icon48.png",
+    "128": "media/icon128.png"
+  },
   "action": {
-    "default_title": "Activate RefactoringMiner"
+    "default_title": "Activate RefactoringMiner",
+    "default_icon": {
+      "16": "media/icon16.png",
+      "32": "media/icon32.png",
+      "48": "media/icon48.png",
+      "128": "media/icon128.png"
+    }
   },
   "content_scripts": [
     {

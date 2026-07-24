@@ -62,13 +62,15 @@ exists the whole suite is **skipped**, so `npm test` stays green when logged out
     the feed's. (Tagged cells carry no colour of their own — they only light up
     when selected.)
   - **click-to-pair selection** — clicking a tagged line lights the whole
-    refactoring in gold (`rmx-sel` + the blinking `rmx-on` fill) on **both** sides.
+    refactoring (`rmx-sel` + the blinking `rmx-on` fill) on **both** sides.
     Self-calibrating: it discovers a refactoring whose left and right cells are
     both mounted, so it doesn't depend on the diff's exact layout.
   - **left/right selection colour distinction** — on selection the left
-    ("before") cell paints a hot-pink outline + fill, the right ("after") cell a
-    violet one. Asserted with real *computed* CSS, so a wrong hex or a swapped L/R
-    rule fails here even though the class names would still look correct.
+    ("before") cell paints an amber outline + fill, the right ("after") cell an
+    azure one. Asserted with real *computed* CSS, so a wrong hex or a swapped L/R
+    rule fails here even though the class names would still look correct. The
+    default pair depends on which theme GitHub itself is in, so the assertion
+    resolves which pair to expect from the canvas the diff is painted on.
   - **PR #14** — tooltip shows the feed description on hover; an action
     comment-link hash (`#diff-<digest>R<line>`) neon-selects the refactoring it
     points at (the test scrolls the target file into view so the virtualized row
