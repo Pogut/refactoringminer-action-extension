@@ -1,0 +1,15 @@
+# Keep dev-only files in the repo but strip them from GitHub's downloadable
+# archives (the "Download ZIP" button and the auto-generated release source
+# archives are built with `git archive`, which honours `export-ignore`).
+# Note: this affects archives only, not `git clone`.
+.gitattributes       export-ignore
+.gitignore           export-ignore
+.github/             export-ignore
+.vscode/             export-ignore
+.claude/             export-ignore
+test/                export-ignore
+test-results/        export-ignore
+playwright.config.js export-ignore
+package.json         export-ignore
+package-lock.json    export-ignore
+design/              export-ignore

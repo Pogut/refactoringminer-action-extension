@@ -67,14 +67,17 @@ Feed shape (RefactoringMiner's classic `-json` output):
 
 ## Load it (unpacked)
 
-1. `chrome://extensions` → enable **Developer mode**.
-2. **Load unpacked** → select this folder.
-3. Open a PR **Files changed** page (on a repo whose action published a feed) or
-   any **commit** page. Click a line involved in a refactoring — or a row in the
-   bottom-left **Refactorings** panel, or a line link from the action's PR comment
-   — and the whole refactoring blinks in neon on both sides, with its off-screen
+1. Get the files: download **`extension.zip`** from the
+   [latest release](../../releases/latest) and unzip it (it holds only the files
+   the extension needs), or clone/download this repo.
+2. `chrome://extensions` → enable **Developer mode**.
+3. **Load unpacked** → select the unzipped folder (or this repo folder).
+4. Open a PR **Files changed** page (on a repo whose action published a feed) or
+   any **commit** page. Click a line involved in a refactoring, or a row in the
+   bottom-left **Refactorings** panel, or a line link from the action's PR comment,
+   and the whole refactoring blinks in neon on both sides, with its off-screen
    lines pinned to the top/bottom edge; hover a line for its type/description.
-4. *(Optional)* Right-click the extension → **Options** to point commit-page
+5. *(Optional)* Right-click the extension → **Options** to point commit-page
    analysis at a different RefactoringMiner server or add a token for private repos.
 
 ## Architecture
