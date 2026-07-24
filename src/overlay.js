@@ -420,10 +420,16 @@ window.RMX.overlay = (function () {
     return /^\s*(async\s+def\b|def\b|class\b)/.test(code);
   }
 
+  // index (string) -> its hover summary. A cell's data-rmx-desc dedups and joins
+  // every summary it carries, losing the per-index mapping; this keeps it so the
+  // tooltip can show just the active refactoring's title (see peekHtml).
+  const descByIndex = {};
+
   // Tag every line in [startLine,endLine] for one side of one file so the
   // selection can find them. A cell touched by several refactorings accumulates
   // each one's summary (deduped) and index. Returns the count of mounted lines.
   function highlightRange({ digest, side, startLine, endLine, summary, index, filePath }) {
+    descByIndex[String(index)] = summary;
     let painted = 0;
     for (let line = startLine; line <= endLine; line++) {
       const cells = RMX.github.lineCells(digest, side, line);
@@ -960,24 +966,44 @@ window.RMX.overlay = (function () {
   // on the other side — the actual code lines when they're mounted, or a jump
   // hint when they've scrolled off / sit in a collapsed file.
   function peekHtml(cell) {
-    const desc = cell.getAttribute('data-rmx-desc') || '';
-    let html = '<div class="rmx-tip-title">' + escapeHtml(desc) + '</div>';
-    const idx = (cell.getAttribute('data-rmx-index') || '').split(' ')[0];
-    if (!idx) return html;
+    const cellIndices = (cell.getAttribute('data-rmx-index') || '').split(' ').filter(Boolean);
+    if (!cellIndices.length) {
+      return '<div class="rmx-tip-title">' +
+        escapeHtml(cell.getAttribute('data-rmx-desc') || '') + '</div>';
+    }
+    // A line can belong to several refactorings. When one is currently selected
+    // (blinking / stepped to in the navigator) and this line is part of it, scope
+    // the peek to just that refactoring; otherwise show every one the line joins.
+    const active = cellIndices.filter((i) => selectedIndices.indexOf(i) !== -1);
+    const indices = active.length ? active : cellIndices;
+    // One title row per shown refactoring, using its own summary (data-rmx-desc
+    // dedups them into one blob, so use the per-index map instead).
+    let html = indices
+      .map((i) => descByIndex[i])
+      .filter(Boolean)
+      .map((d) => '<div class="rmx-tip-title">' + escapeHtml(d) + '</div>')
+      .join('') ||
+      '<div class="rmx-tip-title">' + escapeHtml(cell.getAttribute('data-rmx-desc') || '') + '</div>';
     const other = cell.getAttribute('data-rmx-side') === 'L' ? 'R' : 'L';
-    // One entry per counterpart line (collapse its number + code cells), ordered
-    // by line number. Keeps whichever cell holds the most text (the code).
-    const byLine = {};
-    mountedCells(idx, other).forEach((c) => {
-      const ln = lineNum(c);
-      if (!ln) return;
-      const txt = (c.textContent || '').replace(/\s+$/, '');
-      if (!byLine[ln] || txt.length > byLine[ln].length) byLine[ln] = txt;
+    // One entry per counterpart line, gathered across the shown refactoring(s).
+    // Keyed by file+side+line so the number + code cells collapse and different
+    // files can't clobber each other; keeps whichever cell holds the most text.
+    const byKey = {};
+    indices.forEach((idx) => {
+      mountedCells(idx, other).forEach((c) => {
+        const ln = lineNum(c);
+        if (!ln) return;
+        const key = lineKey(c);
+        const txt = (c.textContent || '').replace(/\s+$/, '');
+        if (!byKey[key] || txt.length > byKey[key].txt.length) {
+          byKey[key] = { ln, file: c.getAttribute('data-rmx-file') || '', txt };
+        }
+      });
     });
-    const lines = Object.keys(byLine)
-      .map(Number)
-      .sort((a, b) => a - b)
-      .map((ln) => byLine[ln])
+    const lines = Object.keys(byKey)
+      .map((k) => byKey[k])
+      .sort((a, b) => (a.file < b.file ? -1 : a.file > b.file ? 1 : a.ln - b.ln))
+      .map((e) => e.txt)
       .filter((txt) => txt && !/^\s*\d*\s*$/.test(txt))
       // Drop GitHub's leading diff marker (it sits in the cell text, before the
       // indentation) so it doesn't block the dedent below or waste a column.
