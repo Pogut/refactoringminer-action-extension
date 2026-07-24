@@ -12,15 +12,39 @@ window.RMX.overlay = (function () {
   const SEL = 'rmx-sel'; // neon "selected refactoring" highlight, both sides
   const ON = 'rmx-on'; // blink "on" phase — the darker-yellow fill is visible
 
-  // Blink colours are user-configurable (options page → chrome.storage.sync, one
-  // colour per side). The stylesheet references them as CSS custom properties
-  // with these defaults as fallbacks, so a fresh install (or a page loaded before
-  // storage resolves) still shows the original pink/purple. Keep the fills in
-  // sync with the defaults mirrored in options.js. `left`/`right` are the blink
-  // fills; `leftD`/`rightD` are the hand-picked outline+stripe shades used when a
-  // side stays at its default (preserving the original look exactly) — a custom
-  // colour derives its darker shade from the fill instead (see applyColors).
-  const HL_DEFAULTS = { left: '#ec4899', right: '#7c3aed', leftD: '#be185d', rightD: '#6d28d9' };
+  // Blink colours are user-configurable (options page → chrome.storage.sync) and
+  // come as two pairs: one for when GitHub itself is in light mode, one for dark.
+  // The fill replaces the diff cell's background while GitHub keeps painting its
+  // own syntax colours on top, so a fill that fights the text makes the code
+  // unreadable — hence pale tints against GitHub's dark-on-white code, and deep
+  // shades against its light-on-near-black code.
+  //
+  // Left is amber, right is azure: near-complementary (~39° vs ~210°), so the two
+  // sides of a pair are told apart by hue rather than by brightness, and they
+  // avoid the red/green that GitHub already uses for removed/added lines (which
+  // also keeps them legible for the common forms of colour blindness). Within
+  // each pair the two fills are matched in luminance to within 0.002, so neither
+  // side visually dominates.
+  //
+  // `left`/`right` are the fills; `leftA`/`rightA` are the hand-picked
+  // outline+stripe accents used while a side stays at its default. A custom
+  // colour derives its accent from the fill instead (see accentFor) — away from
+  // the page background, so it stays visible in either GitHub mode.
+  //
+  // Contrast against GitHub's syntax palette, worst token (its comment grey):
+  // 3.6:1 for all four fills; against default code text, 12.5:1 light / 9.3:1 dark.
+  // Keep in sync with the table mirrored in options.js.
+  const HL_DEFAULTS = {
+    light: { left: '#ffe1a8', leftA: '#9a6700', right: '#d1e7fd', rightA: '#0969da' },
+    dark: { left: '#4b3a0f', leftA: '#d4a72c', right: '#143d69', rightA: '#58a6ff' },
+  };
+
+  // The pair that used to be the default for both themes. The old options page
+  // wrote it out verbatim on every save, so a stored value equal to it means
+  // "never actually chosen" and is treated as unset — otherwise anyone who had
+  // hit Save would be pinned to the old pink/purple forever. Keep in sync with
+  // options.js.
+  const HL_LEGACY = { left: '#ec4899', right: '#7c3aed' };
 
   // Blink speed is user-configurable too (options page slider → blinkSpeed, an
   // index into this table of full pulse periods in ms). Step 0 means "constant":
@@ -31,28 +55,126 @@ window.RMX.overlay = (function () {
   const BLINK_SPEED_DEFAULT = 1;
   let blinkPeriod = BLINK_PERIODS[BLINK_SPEED_DEFAULT];
 
-  // Multiply a #rgb/#rrggbb colour toward black by `amt` (0–1) to get the
-  // outline/stripe shade. Returns the input unchanged if it isn't a hex colour.
-  function darken(hex, amt) {
+  // Slide a #rgb/#rrggbb colour toward black (amt < 0) or white (amt > 0) by
+  // |amt| (0–1). Returns the input unchanged if it isn't a hex colour.
+  function shift(hex, amt) {
     const m = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(hex || '');
     if (!m) return hex;
     let h = m[1];
     if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
     const n = parseInt(h, 16);
-    const r = Math.round(((n >> 16) & 255) * (1 - amt));
-    const g = Math.round(((n >> 8) & 255) * (1 - amt));
-    const b = Math.round((n & 255) * (1 - amt));
+    const mix = (c) => Math.round(amt < 0 ? c * (1 + amt) : c + (255 - c) * amt);
+    const r = mix((n >> 16) & 255);
+    const g = mix((n >> 8) & 255);
+    const b = mix(n & 255);
     return '#' + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
   }
 
-  function applyColors(left, right) {
+  // Outline/stripe shade for a fill. Defaults keep their hand-picked accent; a
+  // custom colour is pushed away from the page background so the outline reads
+  // against both the fill and the canvas around it.
+  function accentFor(fill, mode, side) {
+    const d = HL_DEFAULTS[mode];
+    if (String(fill).toLowerCase() === d[side]) return side === 'left' ? d.leftA : d.rightA;
+    return shift(fill, mode === 'dark' ? 0.5 : -0.4);
+  }
+
+  // Relative luminance (0–1) of a CSS colour, or null if it can't be read as one
+  // — including fully transparent, which tells us nothing about what shows through.
+  function luminanceOf(color) {
+    const s = String(color || '').trim();
+    let r, g, b;
+    const fn = /^rgba?\(([^)]+)\)$/i.exec(s);
+    if (fn) {
+      const p = fn[1].split(/[\s,/]+/).filter(Boolean).map(parseFloat);
+      if (p.length >= 4 && p[3] === 0) return null;
+      [r, g, b] = p;
+    } else {
+      const m = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(s);
+      if (!m) return null;
+      let h = m[1];
+      if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+      const n = parseInt(h, 16);
+      r = (n >> 16) & 255;
+      g = (n >> 8) & 255;
+      b = n & 255;
+    }
+    if (![r, g, b].every(Number.isFinite)) return null;
+    return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+  }
+
+  // Which palette GitHub's own theme calls for. Read from its design tokens
+  // (current name first, then the older one), falling back to the rendered body
+  // background and finally the OS preference. Deliberately measures the canvas
+  // rather than matching theme names, so the dimmed/high-contrast/colourblind
+  // variants — and any GitHub renames — classify themselves correctly.
+  function githubMode() {
+    const root = getComputedStyle(document.documentElement);
+    for (const token of ['--bgColor-default', '--color-canvas-default']) {
+      const l = luminanceOf(root.getPropertyValue(token));
+      if (l !== null) return l < 0.5 ? 'dark' : 'light';
+    }
+    const body = document.body && luminanceOf(getComputedStyle(document.body).backgroundColor);
+    if (body !== null && body !== undefined) return body < 0.5 ? 'dark' : 'light';
+    const mq = window.matchMedia && matchMedia('(prefers-color-scheme: dark)');
+    return mq && mq.matches ? 'dark' : 'light';
+  }
+
+  // Last palette read from storage, kept so a GitHub theme change can re-pick the
+  // right pair without another storage round-trip.
+  let hlStored = {};
+  let lastMode = null;
+
+  // The user's own colour if they picked one, else the default for whichever
+  // theme GitHub is in. A chosen colour is a deliberate override and applies in
+  // both themes; only the untouched default follows GitHub.
+  function fillFor(mode, side) {
+    const chosen = hlStored[side === 'left' ? 'hlLeft' : 'hlRight'];
+    if (chosen && chosen.toLowerCase() !== HL_LEGACY[side]) return chosen;
+    return HL_DEFAULTS[mode][side];
+  }
+
+  // Record which theme GitHub turned out to be in, so the options page can show
+  // the defaults that actually apply. Device-local (it describes this browser,
+  // not a synced preference) and written only on a change, so it isn't a write
+  // on every diff load.
+  function recordMode(mode) {
+    if (mode === lastMode) return;
+    lastMode = mode;
+    const local = typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local;
+    if (local) local.set({ ghMode: mode });
+  }
+
+  function applyColors() {
+    const mode = githubMode();
+    recordMode(mode);
+    const left = fillFor(mode, 'left');
+    const right = fillFor(mode, 'right');
+    const leftA = accentFor(left, mode, 'left');
+    const rightA = accentFor(right, mode, 'right');
     const root = document.documentElement.style;
-    const leftD = left.toLowerCase() === HL_DEFAULTS.left ? HL_DEFAULTS.leftD : darken(left, 0.22);
-    const rightD = right.toLowerCase() === HL_DEFAULTS.right ? HL_DEFAULTS.rightD : darken(right, 0.22);
     root.setProperty('--rmx-left', left);
-    root.setProperty('--rmx-left-d', leftD);
+    root.setProperty('--rmx-left-d', leftA);
     root.setProperty('--rmx-right', right);
-    root.setProperty('--rmx-right-d', rightD);
+    root.setProperty('--rmx-right-d', rightA);
+    // The peek popover is always dark, so whichever of the two is the lighter
+    // one in this mode is what shows up on it: the pale fill in GitHub light
+    // mode, the bright accent in GitHub dark mode.
+    root.setProperty('--rmx-left-tip', mode === 'dark' ? leftA : left);
+    root.setProperty('--rmx-right-tip', mode === 'dark' ? rightA : right);
+  }
+
+  // Re-pick the palette when GitHub's theme changes under us: its own switcher
+  // rewrites the data-*-theme attributes on <html>, and "auto" follows the OS.
+  function watchGithubTheme() {
+    if (window.__rmxThemeWatch) return;
+    window.__rmxThemeWatch = true;
+    new MutationObserver(applyColors).observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['data-color-mode', 'data-light-theme', 'data-dark-theme', 'class'],
+    });
+    const mq = window.matchMedia && matchMedia('(prefers-color-scheme: dark)');
+    if (mq && mq.addEventListener) mq.addEventListener('change', applyColors);
   }
 
   // Adopt a blink-speed index: remember its period, scale the background-color
@@ -70,22 +192,24 @@ window.RMX.overlay = (function () {
   // Pull the stored blink colours and speed (falling back to defaults) and mirror
   // them onto :root, then keep them in sync so edits in the options page recolour
   // or re-time any open diff live. The onChanged listener is installed once per page.
+  const HL_KEYS = ['hlLeft', 'hlRight'];
+
   function loadPrefs() {
+    watchGithubTheme();
+    applyColors(); // defaults up front, so nothing flashes while storage resolves
     const store =
       typeof chrome !== 'undefined' && chrome.storage && chrome.storage.sync;
-    if (!store) {
-      applyColors(HL_DEFAULTS.left, HL_DEFAULTS.right);
-      return applyBlinkSpeed(BLINK_SPEED_DEFAULT);
-    }
-    store.get(['hlLeft', 'hlRight', 'blinkSpeed'], (r) => {
-      r = r || {};
-      applyColors(r.hlLeft || HL_DEFAULTS.left, r.hlRight || HL_DEFAULTS.right);
-      applyBlinkSpeed(r.blinkSpeed);
+    if (!store) return applyBlinkSpeed(BLINK_SPEED_DEFAULT);
+    store.get(HL_KEYS.concat('blinkSpeed'), (r) => {
+      hlStored = r || {};
+      applyColors();
+      applyBlinkSpeed(hlStored.blinkSpeed);
     });
     if (chrome.storage.onChanged && !window.__rmxColorWatch) {
       window.__rmxColorWatch = true;
       chrome.storage.onChanged.addListener((changes, area) => {
-        if (area === 'sync' && (changes.hlLeft || changes.hlRight || changes.blinkSpeed)) loadPrefs();
+        if (area !== 'sync') return;
+        if (changes.blinkSpeed || HL_KEYS.some((k) => changes[k])) loadPrefs();
       });
     }
   }
@@ -96,10 +220,10 @@ window.RMX.overlay = (function () {
     const s = document.createElement('style');
     s.id = 'rmx-style';
     s.textContent = `
-      .${CLASS}.${SEL}[data-rmx-side="L"]{box-shadow:inset 3px 0 0 var(--rmx-left-d,#be185d),0 0 0 2px var(--rmx-left-d,#be185d) !important;transition:background-color var(--rmx-blink-fade,2s) ease-in-out;}
-      .${CLASS}.${SEL}[data-rmx-side="L"].${ON}{background:var(--rmx-left,#ec4899) !important;}
-      .${CLASS}.${SEL}[data-rmx-side="R"]{box-shadow:inset 3px 0 0 var(--rmx-right-d,#6d28d9),0 0 0 2px var(--rmx-right-d,#6d28d9) !important;transition:background-color var(--rmx-blink-fade,2s) ease-in-out;}
-      .${CLASS}.${SEL}[data-rmx-side="R"].${ON}{background:var(--rmx-right,#7c3aed) !important;}
+      .${CLASS}.${SEL}[data-rmx-side="L"]{box-shadow:inset 3px 0 0 var(--rmx-left-d,#9a6700),0 0 0 2px var(--rmx-left-d,#9a6700) !important;transition:background-color var(--rmx-blink-fade,2s) ease-in-out;}
+      .${CLASS}.${SEL}[data-rmx-side="L"].${ON}{background:var(--rmx-left,#ffe1a8) !important;}
+      .${CLASS}.${SEL}[data-rmx-side="R"]{box-shadow:inset 3px 0 0 var(--rmx-right-d,#0969da),0 0 0 2px var(--rmx-right-d,#0969da) !important;transition:background-color var(--rmx-blink-fade,2s) ease-in-out;}
+      .${CLASS}.${SEL}[data-rmx-side="R"].${ON}{background:var(--rmx-right,#d1e7fd) !important;}
       .${TIP}{position:absolute;z-index:2147483647;max-width:460px;white-space:pre-wrap;
         background:#1f2328;color:#fff;padding:6px 9px;border-radius:6px;pointer-events:none;
         font:12px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;opacity:0;transition:opacity .08s;}
@@ -110,8 +234,10 @@ window.RMX.overlay = (function () {
       .rmx-tip-title{font-weight:600;}
       .rmx-tip-code{margin-top:6px;padding:6px 8px;border-radius:5px;background:rgba(255,255,255,.09);
         font:11px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;display:flex;flex-direction:column;gap:1px;}
-      .rmx-tip-code.rmx-tip-L{box-shadow:inset 3px 0 0 var(--rmx-left,#ec4899);}
-      .rmx-tip-code.rmx-tip-R{box-shadow:inset 3px 0 0 var(--rmx-right,#7c3aed);}
+      /* The peek popover is dark whatever mode GitHub is in, so it needs its own
+         "bright on dark" variant rather than the fill or the on-canvas accent. */
+      .rmx-tip-code.rmx-tip-L{box-shadow:inset 3px 0 0 var(--rmx-left-tip,#ffe1a8);}
+      .rmx-tip-code.rmx-tip-R{box-shadow:inset 3px 0 0 var(--rmx-right-tip,#d1e7fd);}
       .rmx-tip-line{white-space:pre;overflow:hidden;text-overflow:ellipsis;max-width:420px;}
       .rmx-tip-more,.rmx-tip-hint{opacity:.75;margin-top:4px;}
 
@@ -160,11 +286,14 @@ window.RMX.overlay = (function () {
         transition:width .12s;}
       #rmx-minimap.rmx-show{display:block;}
       #rmx-minimap:hover{width:16px;}
-      .rmx-mm-tick{position:absolute;left:2px;right:2px;height:3px;border-radius:2px;cursor:pointer;opacity:.5;
+      /* Ticks take the ACCENT, not the fill: the fill is a background for code
+         text and is deliberately close to the canvas, so it would barely show as
+         a 3px mark on the rail. Same reasoning for the nav swatch and edge dots. */
+      .rmx-mm-tick{position:absolute;left:2px;right:2px;height:3px;border-radius:2px;cursor:pointer;opacity:.7;
         transition:opacity .12s,height .12s;}
-      .rmx-mm-tick.rmx-mm-L{background:var(--rmx-left,#ec4899);}
-      .rmx-mm-tick.rmx-mm-R{background:var(--rmx-right,#7c3aed);}
-      .rmx-mm-tick:hover{opacity:.85;}
+      .rmx-mm-tick.rmx-mm-L{background:var(--rmx-left-d,#9a6700);}
+      .rmx-mm-tick.rmx-mm-R{background:var(--rmx-right-d,#0969da);}
+      .rmx-mm-tick:hover{opacity:.9;}
       .rmx-mm-tick.rmx-mm-active{opacity:1;height:5px;left:1px;right:1px;box-shadow:0 0 0 1px var(--bgColor-default,#fff);}
       .rmx-mm-thumb{position:absolute;left:0;right:0;background:rgba(110,120,135,.16);
         border-top:1px solid var(--fgColor-muted,#656d76);border-bottom:1px solid var(--fgColor-muted,#656d76);pointer-events:none;}
@@ -485,8 +614,11 @@ window.RMX.overlay = (function () {
     const t = selectTargets[index];
     return t && t.side === 'L' ? 'L' : 'R';
   }
+  // Small solid marks (nav swatch, edge-chip dot) sit on canvas-coloured chrome,
+  // so they take the accent — the fill is tuned to sit behind code, not to be
+  // seen on its own against the page.
   function sideVar(side) {
-    return side === 'L' ? 'var(--rmx-left,#ec4899)' : 'var(--rmx-right,#7c3aed)';
+    return side === 'L' ? 'var(--rmx-left-d,#9a6700)' : 'var(--rmx-right-d,#0969da)';
   }
   function escapeHtml(s) {
     return String(s == null ? '' : s)

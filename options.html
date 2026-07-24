@@ -259,25 +259,32 @@
         display: flex; align-items: center; gap: 8px;
         padding: 9px 12px; background: var(--pv-base); color: var(--fg);
       }
-      .pv-line + .pv-line { border-left: 1px solid var(--border-muted); }
+      .pv-line + .pv-line { border-left: 1px solid rgba(128, 128, 128, 0.3); }
       .pv-line .pv-stripe { width: 4px; height: 16px; border-radius: 2px; flex: 0 0 auto; }
-      .pv-line .pv-tag { color: var(--muted); flex: 0 0 auto; }
+      .pv-line .pv-tag { opacity: 0.6; flex: 0 0 auto; }
       .pv-line .pv-code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .pv-left {
-        box-shadow: inset 3px 0 0 var(--pv-left-d, #be185d);
+        box-shadow: inset 3px 0 0 var(--pv-left-d);
         animation: pv-blink-l var(--pv-period, 5s) ease-in-out infinite;
       }
       .pv-right {
-        box-shadow: inset 3px 0 0 var(--pv-right-d, #6d28d9);
+        box-shadow: inset 3px 0 0 var(--pv-right-d);
         animation: pv-blink-r var(--pv-period, 5s) ease-in-out infinite;
       }
-      .pv-left .pv-stripe { background: var(--pv-left-d, #be185d); }
-      .pv-right .pv-stripe { background: var(--pv-right-d, #6d28d9); }
-      @keyframes pv-blink-l { 0%, 100% { background: var(--pv-base); } 50% { background: var(--pv-left, #ec4899); } }
-      @keyframes pv-blink-r { 0%, 100% { background: var(--pv-base); } 50% { background: var(--pv-right, #7c3aed); } }
+      .pv-left .pv-stripe { background: var(--pv-left-d); }
+      .pv-right .pv-stripe { background: var(--pv-right-d); }
+      @keyframes pv-blink-l { 0%, 100% { background: var(--pv-base); } 50% { background: var(--pv-left); } }
+      @keyframes pv-blink-r { 0%, 100% { background: var(--pv-base); } 50% { background: var(--pv-right); } }
       /* Speed step 0: the highlight is constant, so the preview holds the fill. */
-      .preview.pv-constant .pv-left { animation: none; background: var(--pv-left, #ec4899); }
-      .preview.pv-constant .pv-right { animation: none; background: var(--pv-right, #7c3aed); }
+      .preview.pv-constant .pv-left { animation: none; background: var(--pv-left); }
+      .preview.pv-constant .pv-right { animation: none; background: var(--pv-right); }
+
+      /* GitHub's real canvas + default code colour, so the preview shows the
+         contrast the fill will actually have to survive. Fixed on purpose: these
+         do not follow the options page's own light/dark setting. */
+      .pv-gh-light { --pv-base: #ffffff; --pv-fg: #1f2328; }
+      .pv-gh-dark { --pv-base: #0d1117; --pv-fg: #e6edf3; }
+      .pv-gh-light .pv-line, .pv-gh-dark .pv-line { color: var(--pv-fg); }
 
       /* Actions */
       .actions {
@@ -372,12 +379,12 @@
       <section class="card">
         <h2>Highlight colours</h2>
         <p class="desc">
-          The colour each selected refactoring blinks in, used in every mode, on
-          both PR and commit pages. The left (old) and right (new) sides of the diff
-          blink in different colours so their counterparts are easy to pair up. The
-          outline and off-screen line markers use a slightly darker shade, derived
-          automatically.
+          The colour each selected refactoring blinks in, on both PR and commit
+          pages. The left (old) and right (new) sides of the diff blink in
+          different colours so their counterparts are easy to pair up. The outline
+          and off-screen line markers use a matching accent, derived automatically.
         </p>
+        <p class="desc" id="ghModeNote"></p>
 
         <div class="swatches">
           <div class="swatch">
@@ -397,7 +404,7 @@
         </div>
 
         <div class="preview" aria-hidden="true">
-          <div class="pv-cap">Live preview</div>
+          <div class="pv-cap" id="pvCap">Live preview</div>
           <div class="pv-body">
             <div class="pv-line pv-left"><span class="pv-stripe"></span><span class="pv-tag">−</span><span class="pv-code">extractHelper()</span></div>
             <div class="pv-line pv-right"><span class="pv-stripe"></span><span class="pv-tag">+</span><span class="pv-code">buildHelper()</span></div>
