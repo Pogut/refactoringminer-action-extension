@@ -22,6 +22,15 @@ window.RMX.overlay = (function () {
   // colour derives its darker shade from the fill instead (see applyColors).
   const HL_DEFAULTS = { left: '#ec4899', right: '#7c3aed', leftD: '#be185d', rightD: '#6d28d9' };
 
+  // Blink speed is user-configurable too (options page slider → blinkSpeed, an
+  // index into this table of full pulse periods in ms). Step 0 means "constant":
+  // the selection lights up and stays lit, with no blinking at all. Step 1 is the
+  // original 5 s pulse, so a fresh install is unchanged. Keep in sync with
+  // BLINK_PERIODS in options.js.
+  const BLINK_PERIODS = [0, 5000, 3000, 1800, 1000, 600, 320];
+  const BLINK_SPEED_DEFAULT = 1;
+  let blinkPeriod = BLINK_PERIODS[BLINK_SPEED_DEFAULT];
+
   // Multiply a #rgb/#rrggbb colour toward black by `amt` (0–1) to get the
   // outline/stripe shade. Returns the input unchanged if it isn't a hex colour.
   function darken(hex, amt) {
@@ -46,34 +55,50 @@ window.RMX.overlay = (function () {
     root.setProperty('--rmx-right-d', rightD);
   }
 
-  // Pull the stored blink colours (falling back to defaults) and mirror them onto
-  // :root, then keep them in sync so edits in the options page recolour any open
-  // diff live. The onChanged listener is installed once per page.
-  function loadColors() {
+  // Adopt a blink-speed index: remember its period, scale the background-color
+  // fade so a fast pulse still reaches full colour (the CSS transition would
+  // otherwise outlast the phase), and re-sync an in-flight selection.
+  function applyBlinkSpeed(index) {
+    const i = BLINK_PERIODS[index] === undefined ? BLINK_SPEED_DEFAULT : index;
+    const changed = BLINK_PERIODS[i] !== blinkPeriod;
+    blinkPeriod = BLINK_PERIODS[i];
+    const fade = blinkPeriod ? Math.min(2000, Math.round(blinkPeriod * 0.4)) : 250;
+    document.documentElement.style.setProperty('--rmx-blink-fade', fade + 'ms');
+    if (changed && selectedIndices.length) resyncPulse();
+  }
+
+  // Pull the stored blink colours and speed (falling back to defaults) and mirror
+  // them onto :root, then keep them in sync so edits in the options page recolour
+  // or re-time any open diff live. The onChanged listener is installed once per page.
+  function loadPrefs() {
     const store =
       typeof chrome !== 'undefined' && chrome.storage && chrome.storage.sync;
-    if (!store) return applyColors(HL_DEFAULTS.left, HL_DEFAULTS.right);
-    store.get(['hlLeft', 'hlRight'], (r) => {
+    if (!store) {
+      applyColors(HL_DEFAULTS.left, HL_DEFAULTS.right);
+      return applyBlinkSpeed(BLINK_SPEED_DEFAULT);
+    }
+    store.get(['hlLeft', 'hlRight', 'blinkSpeed'], (r) => {
       r = r || {};
       applyColors(r.hlLeft || HL_DEFAULTS.left, r.hlRight || HL_DEFAULTS.right);
+      applyBlinkSpeed(r.blinkSpeed);
     });
     if (chrome.storage.onChanged && !window.__rmxColorWatch) {
       window.__rmxColorWatch = true;
       chrome.storage.onChanged.addListener((changes, area) => {
-        if (area === 'sync' && (changes.hlLeft || changes.hlRight)) loadColors();
+        if (area === 'sync' && (changes.hlLeft || changes.hlRight || changes.blinkSpeed)) loadPrefs();
       });
     }
   }
 
   function ensureStyle() {
     if (document.getElementById('rmx-style')) return;
-    loadColors();
+    loadPrefs();
     const s = document.createElement('style');
     s.id = 'rmx-style';
     s.textContent = `
-      .${CLASS}.${SEL}[data-rmx-side="L"]{box-shadow:inset 3px 0 0 var(--rmx-left-d,#be185d),0 0 0 2px var(--rmx-left-d,#be185d) !important;transition:background-color 2s ease-in-out;}
+      .${CLASS}.${SEL}[data-rmx-side="L"]{box-shadow:inset 3px 0 0 var(--rmx-left-d,#be185d),0 0 0 2px var(--rmx-left-d,#be185d) !important;transition:background-color var(--rmx-blink-fade,2s) ease-in-out;}
       .${CLASS}.${SEL}[data-rmx-side="L"].${ON}{background:var(--rmx-left,#ec4899) !important;}
-      .${CLASS}.${SEL}[data-rmx-side="R"]{box-shadow:inset 3px 0 0 var(--rmx-right-d,#6d28d9),0 0 0 2px var(--rmx-right-d,#6d28d9) !important;transition:background-color 2s ease-in-out;}
+      .${CLASS}.${SEL}[data-rmx-side="R"]{box-shadow:inset 3px 0 0 var(--rmx-right-d,#6d28d9),0 0 0 2px var(--rmx-right-d,#6d28d9) !important;transition:background-color var(--rmx-blink-fade,2s) ease-in-out;}
       .${CLASS}.${SEL}[data-rmx-side="R"].${ON}{background:var(--rmx-right,#7c3aed) !important;}
       .${TIP}{position:absolute;z-index:2147483647;max-width:460px;white-space:pre-wrap;
         background:#1f2328;color:#fff;padding:6px 9px;border-radius:6px;pointer-events:none;
@@ -319,7 +344,17 @@ window.RMX.overlay = (function () {
   }
   const ATTENTION_BLINKS = 3;   // number of fast blinks before settling into slow pulse
   const BLINK_FAST_MS = 167;    // per phase during attention (~3 blinks in ~1 second)
-  const BLINK_MS = 2500;        // half-cycle — matches half of PIN_BLINK_MS so full period = 5s
+
+  // Half-cycle of the settled pulse, derived from the user's blink speed. Zero
+  // when the speed is "constant" — callers check for that and skip blinking.
+  function halfPeriod() {
+    return blinkPeriod / 2;
+  }
+  // The attention flash must stay faster than the pulse it hands off to, or the
+  // top speeds would "flash" slower than they settle.
+  function attentionPhaseMs() {
+    return blinkPeriod ? Math.min(BLINK_FAST_MS, halfPeriod()) : BLINK_FAST_MS;
+  }
 
   // Marks every cell of the selected refactoring(s) and sets its fill to the
   // current blink phase. Additive + idempotent, so scroll re-paints just sync
@@ -350,7 +385,34 @@ window.RMX.overlay = (function () {
   function slowTick() {
     blinkOn = !blinkOn;
     document.querySelectorAll(`.${CLASS}.${SEL}`).forEach((el) => el.classList.toggle(ON, blinkOn));
-    blinkTimer = setTimeout(slowTick, BLINK_MS);
+    blinkTimer = setTimeout(slowTick, halfPeriod());
+  }
+
+  // Settle the current selection into the slow pulse, phase-locked to blinkEpoch
+  // so every selected cell (and any cell mounted later) pulses in step.
+  function settleIntoPulse() {
+    inAttentionPhase = false;
+    document.querySelectorAll(`.${CLASS}.${SEL}`).forEach((el) => { el.style.transitionDuration = ''; });
+    schedulePins();
+    if (!blinkPeriod) return holdLit(); // "constant" speed: light up and stay lit
+    const elapsed = (Date.now() - blinkEpoch) % blinkPeriod;
+    blinkOn = elapsed < halfPeriod();
+    document.querySelectorAll(`.${CLASS}.${SEL}`).forEach((el) => el.classList.toggle(ON, blinkOn));
+    const timeUntilNext = blinkOn ? (halfPeriod() - elapsed) : (blinkPeriod - elapsed);
+    blinkTimer = setTimeout(slowTick, timeUntilNext);
+  }
+
+  // The "constant" end of the speed slider: the fill goes on and never comes off.
+  function holdLit() {
+    blinkOn = true;
+    document.querySelectorAll(`.${CLASS}.${SEL}`).forEach((el) => el.classList.add(ON));
+  }
+
+  // Re-time a live selection after the speed preference changes, so a slider move
+  // in the options page takes effect on an already-blinking diff.
+  function resyncPulse() {
+    clearTimeout(blinkTimer);
+    settleIntoPulse();
   }
 
   async function select(indices) {
@@ -361,6 +423,15 @@ window.RMX.overlay = (function () {
     selectedIndices = indices.slice();
     clearTimeout(blinkTimer);
 
+    // At "constant" speed the attention flashes would be the only blinking on the
+    // page, which is exactly what that setting opts out of — go straight to lit.
+    if (!blinkPeriod) {
+      inAttentionPhase = false;
+      blinkOn = true;
+      applySelection();
+      return;
+    }
+
     // Phase 1: ATTENTION_BLINKS fast crisp flashes to grab the user's eye.
     inAttentionPhase = true;
     blinkOn = true;
@@ -370,20 +441,13 @@ window.RMX.overlay = (function () {
       blinkOn = !blinkOn;
       document.querySelectorAll(`.${CLASS}.${SEL}`).forEach((el) => el.classList.toggle(ON, blinkOn));
       if (--togglesLeft > 0) {
-        blinkTimer = setTimeout(fastTick, BLINK_FAST_MS);
+        blinkTimer = setTimeout(fastTick, attentionPhaseMs());
         return;
       }
       // Phase 2: attention done — restore transitions and settle into slow synced pulse.
-      inAttentionPhase = false;
-      document.querySelectorAll(`.${CLASS}.${SEL}`).forEach((el) => { el.style.transitionDuration = ''; });
-      schedulePins();
-      const elapsed = (Date.now() - blinkEpoch) % PIN_BLINK_MS;
-      blinkOn = elapsed < BLINK_MS;
-      document.querySelectorAll(`.${CLASS}.${SEL}`).forEach((el) => el.classList.toggle(ON, blinkOn));
-      const timeUntilNext = blinkOn ? (BLINK_MS - elapsed) : (PIN_BLINK_MS - elapsed);
-      blinkTimer = setTimeout(slowTick, timeUntilNext);
+      settleIntoPulse();
     }
-    blinkTimer = setTimeout(fastTick, BLINK_FAST_MS);
+    blinkTimer = setTimeout(fastTick, attentionPhaseMs());
   }
 
   function clearSelection() {
@@ -411,8 +475,7 @@ window.RMX.overlay = (function () {
   // folded file before scrolling.
   const TOP_ZONE = 96;        // header + navigator band: cells above this read as "off-screen up"
   const BOTTOM_GAP = 20;      // matching gap at the bottom edge
-  const PIN_BLINK_MS = 5000;  // selection pulse period (kept: select() syncs its slow blink to it)
-  const blinkEpoch = Date.now();
+  const blinkEpoch = Date.now(); // phase origin the settled pulse locks onto
   const stackCollapsed = { top: false, bottom: false }; // retained: clearSelection() still resets it
   let refreshRaf = null;
 

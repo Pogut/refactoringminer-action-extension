@@ -3,8 +3,9 @@
 // its own extension context (not the content script), so it can't see RMX.rm —
 // the defaults are mirrored here (keep in sync with src/rm.js DEFAULTS).
 //
-// The highlight colours (hlLeft/hlRight) are read by src/overlay.js and apply in
-// every mode; keep these defaults in sync with overlay.js HL_DEFAULTS.
+// The highlight colours (hlLeft/hlRight) and the blink speed (blinkSpeed) are
+// read by src/overlay.js and apply in every mode; keep these defaults in sync
+// with overlay.js HL_DEFAULTS / BLINK_PERIODS.
 const DEFAULTS = {
   baseurl: 'https://rminer.encs.concordia.ca:8000/RefactoringMiner',
   token: '',
@@ -12,7 +13,48 @@ const DEFAULTS = {
   autoTrigger: false,
   hlLeft: '#ec4899',
   hlRight: '#7c3aed',
+  blinkSpeed: 1,
+  theme: 'light',
 };
+
+// Blink speed steps: slider index → full pulse period in ms. Step 0 is
+// "constant" — the highlight stays lit and never blinks. Step 1 is the original
+// 5 s pulse, so a fresh install behaves exactly as before. Keep in sync with
+// BLINK_PERIODS in src/overlay.js.
+const BLINK_PERIODS = [0, 5000, 3000, 1800, 1000, 600, 320];
+const BLINK_NAMES = [
+  'Constant · no blinking',
+  'Very slow',
+  'Slow',
+  'Medium',
+  'Fast',
+  'Very fast',
+  'Fastest',
+];
+
+// Mirror of the stored theme, kept in localStorage as well as chrome.storage.
+// storage.sync is async, so a reload would flash the light palette before the
+// dark one resolves; this synchronous copy is read before the body paints (the
+// page loads this script from <head>) and storage.sync reconciles it after.
+const THEME_KEY = 'rmxOptionsTheme';
+
+function applyTheme(theme) {
+  const t = theme === 'dark' ? 'dark' : 'light';
+  document.documentElement.dataset.theme = t;
+  const btn = document.getElementById('themeToggle');
+  if (btn) {
+    btn.setAttribute('aria-pressed', String(t === 'dark'));
+    btn.title = t === 'dark' ? 'Switch to light mode' : 'Switch to dark mode';
+  }
+  return t;
+}
+
+// Runs before <body> exists — applyTheme only touches documentElement here.
+try {
+  applyTheme(localStorage.getItem(THEME_KEY));
+} catch {
+  applyTheme(DEFAULTS.theme);
+}
 
 const $ = (id) => document.getElementById(id);
 
@@ -39,6 +81,13 @@ function darken(hex, amt) {
   return '#' + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
 }
 
+// Clamp an arbitrary stored value to a valid slider index.
+function normSpeed(v) {
+  const n = parseInt(v, 10);
+  if (!Number.isInteger(n) || n < 0 || n >= BLINK_PERIODS.length) return DEFAULTS.blinkSpeed;
+  return n;
+}
+
 function updatePreview() {
   const left = $('hlLeft').value;
   const right = $('hlRight').value;
@@ -49,6 +98,26 @@ function updatePreview() {
   pv.setProperty('--pv-left-d', leftD);
   pv.setProperty('--pv-right', right);
   pv.setProperty('--pv-right-d', rightD);
+}
+
+// Paint everything driven by the speed slider: the gradient fill on the track,
+// the tick highlighting, the readout, and the preview's pulse period.
+function updateSpeed() {
+  const slider = $('blinkSpeed');
+  const idx = normSpeed(slider.value);
+  const period = BLINK_PERIODS[idx];
+  const max = BLINK_PERIODS.length - 1;
+
+  slider.style.setProperty('--fill', (idx / max) * 100 + '%');
+  document.querySelectorAll('.speed-ticks i').forEach((tick, i) => {
+    tick.classList.toggle('on', i <= idx);
+  });
+  $('speedName').textContent = BLINK_NAMES[idx];
+  $('speedDetail').textContent = period ? (period / 1000).toFixed(2) + ' s per pulse' : 'always lit';
+
+  const preview = document.querySelector('.preview');
+  preview.classList.toggle('pv-constant', period === 0);
+  preview.style.setProperty('--pv-period', (period || 5000) + 'ms');
 }
 
 // Keep a colour picker and its hex text field mirrored. `picker` is the source of
@@ -77,7 +146,7 @@ let getLeft, getRight;
 
 function load() {
   chrome.storage.sync.get(
-    ['baseurl', 'token', 'timeout', 'autoTrigger', 'hlLeft', 'hlRight'],
+    ['baseurl', 'token', 'timeout', 'autoTrigger', 'hlLeft', 'hlRight', 'blinkSpeed', 'theme'],
     (r) => {
       r = r || {};
       $('baseurl').value = r.baseurl || DEFAULTS.baseurl;
@@ -86,9 +155,25 @@ function load() {
       $('triggerAuto').checked = r.autoTrigger === true;
       getLeft = bindColor('hlLeft', 'hlLeftHex', normHex(r.hlLeft) || DEFAULTS.hlLeft);
       getRight = bindColor('hlRight', 'hlRightHex', normHex(r.hlRight) || DEFAULTS.hlRight);
+      $('blinkSpeed').value = normSpeed(r.blinkSpeed);
+      setTheme(r.theme, false);
       updatePreview();
+      updateSpeed();
     }
   );
+}
+
+// The theme is applied (and mirrored to localStorage) immediately; `persist`
+// only controls whether it is also pushed to chrome.storage.sync, so loading a
+// stored value doesn't write it straight back.
+function setTheme(theme, persist) {
+  const t = applyTheme(theme);
+  try {
+    localStorage.setItem(THEME_KEY, t);
+  } catch {
+    /* private mode / storage disabled — the sync copy still carries it */
+  }
+  if (persist) chrome.storage.sync.set({ theme: t });
 }
 
 function save() {
@@ -98,12 +183,16 @@ function save() {
   const autoTrigger = $('triggerAuto').checked;
   const hlLeft = getLeft();
   const hlRight = getRight();
-  chrome.storage.sync.set({ baseurl, token, timeout, autoTrigger, hlLeft, hlRight }, () => {
-    $('timeout').value = timeout;
-    const status = $('status');
-    status.textContent = 'Saved.';
-    setTimeout(() => (status.textContent = ''), 1500);
-  });
+  const blinkSpeed = normSpeed($('blinkSpeed').value);
+  chrome.storage.sync.set(
+    { baseurl, token, timeout, autoTrigger, hlLeft, hlRight, blinkSpeed },
+    () => {
+      $('timeout').value = timeout;
+      const status = $('status');
+      status.textContent = 'Saved.';
+      setTimeout(() => (status.textContent = ''), 1500);
+    }
+  );
 }
 
 function resetColors() {
@@ -114,6 +203,13 @@ function resetColors() {
   updatePreview();
 }
 
-document.addEventListener('DOMContentLoaded', load);
-$('save').addEventListener('click', save);
-$('reset').addEventListener('click', resetColors);
+document.addEventListener('DOMContentLoaded', () => {
+  applyTheme(document.documentElement.dataset.theme); // sync the button's label/state
+  load();
+  $('save').addEventListener('click', save);
+  $('reset').addEventListener('click', resetColors);
+  $('blinkSpeed').addEventListener('input', updateSpeed);
+  $('themeToggle').addEventListener('click', () => {
+    setTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark', true);
+  });
+});

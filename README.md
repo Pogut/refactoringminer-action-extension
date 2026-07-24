@@ -30,7 +30,9 @@ instead make it activate automatically on supported diffs.
 
 Either way, a collapsible **Refactorings** panel (bottom-left) lists every
 refactoring; clicking a row blinks it on the diff — handy when you don't have the
-action posting a PR comment, or don't want to leave the diff to read it.
+action posting a PR comment, or don't want to leave the diff to read it. The
+options page sets how fast that blink pulses, from a constant (never blinking)
+highlight up to a rapid flash.
 
 ## How it works
 
@@ -87,7 +89,7 @@ Feed shape (RefactoringMiner's classic `-json` output):
 | `src/rm.js` | standalone data source: hosted RefactoringMiner service client — one call per page, `commitId` = sha (single commit) or PR number (whole PR) |
 | `src/views.js` | view adapters (`files` = whole PR, `commit` = single commit) |
 | `src/content.js` | orchestrator: per-page feed→service source selection, stale-navigation guard, Turbo-navigation re-render |
-| `options.html` / `options.js` | activation mode, highlight colours, and standalone-service settings |
+| `options.html` / `options.js` | activation mode, highlight colours, blink speed, page theme, and standalone-service settings |
 
 ## Dev
 

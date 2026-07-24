@@ -3,17 +3,56 @@
   <head>
     <meta charset="utf-8" />
     <title>RefactoringLab Options</title>
+    <!-- Loaded in <head> (not deferred) so the theme bootstrap at the top of
+         options.js paints the right colours before the body renders. -->
+    <script src="options.js"></script>
     <style>
       :root {
+        color-scheme: light;
         --fg: #1f2328;
         --muted: #656d76;
         --border: #d0d7de;
         --border-muted: #e3e8ee;
         --bg: #f6f8fa;
         --card: #ffffff;
+        --field: #ffffff;
+        --sunken: #f6f8fa;
         --accent: #1f2328;
-        --accent-2: #ec4899;
+        --ring: rgba(31, 35, 40, 0.15);
+        --shadow: rgba(31, 35, 40, 0.08);
+        --shadow-soft: rgba(31, 35, 40, 0.04);
+        --btn-bg: #1f2328;
+        --btn-bg-hover: #000000;
+        --btn-fg: #ffffff;
+        --btn-shadow: rgba(31, 35, 40, 0.25);
+        --track-off: #d0d7de;
+        --switch-off: #8c959f;
+        --ok: #1a7f37;
+        --pv-base: #ffffff;
         --grad: linear-gradient(135deg, #ec4899 0%, #7c3aed 100%);
+      }
+      :root[data-theme="dark"] {
+        color-scheme: dark;
+        --fg: #e6edf3;
+        --muted: #9198a1;
+        --border: #3d444d;
+        --border-muted: #2a3039;
+        --bg: #0d1117;
+        --card: #161b22;
+        --field: #0d1117;
+        --sunken: #1c222b;
+        --accent: #e6edf3;
+        --ring: rgba(230, 237, 243, 0.22);
+        --shadow: rgba(1, 4, 9, 0.5);
+        --shadow-soft: rgba(1, 4, 9, 0.35);
+        --btn-bg: #e6edf3;
+        --btn-bg-hover: #ffffff;
+        --btn-fg: #0d1117;
+        --btn-shadow: rgba(1, 4, 9, 0.6);
+        --track-off: #30363d;
+        --switch-off: #545d68;
+        --ok: #3fb950;
+        --pv-base: #0d1117;
       }
       * { box-sizing: border-box; }
       body {
@@ -22,6 +61,7 @@
         background: var(--bg);
         margin: 0;
         padding: 40px 16px 64px;
+        transition: background 0.18s ease, color 0.18s ease;
       }
       .wrap { max-width: 640px; margin: 0 auto; }
 
@@ -32,18 +72,35 @@
         gap: 18px;
         margin-bottom: 28px;
       }
-      .hero .logo {
-        width: 60px;
-        height: 60px;
-        border-radius: 14px;
-        background: #fff;
-        border: 1px solid var(--border);
-        box-shadow: 0 1px 3px rgba(31, 35, 40, 0.08);
-        padding: 6px;
+      /* Background-free mark, one file per ink. Both are shipped and swapped by
+         CSS rather than by script, so the right one is already in place on the
+         first paint (the theme is set on <html> before the body renders). */
+      .hero .logo { width: 260px; height: 260px; flex: 0 0 auto; }
+      .hero .logo img { display: block; width: 100%; height: 100%; }
+      .hero .logo .ink-white { display: none; }
+      :root[data-theme="dark"] .hero .logo .ink-black { display: none; }
+      :root[data-theme="dark"] .hero .logo .ink-white { display: block; }
+      .hero h1 { font-size: 34px; margin: 0; letter-spacing: -0.02em; line-height: 1.15; }
+      .hero .tagline { color: var(--muted); font-size: 15px; margin-top: 6px; }
+      .hero .spacer { flex: 1 1 auto; }
+
+      /* Light/dark toggle */
+      .theme-btn {
         flex: 0 0 auto;
+        display: inline-flex; align-items: center; justify-content: center;
+        width: 38px; height: 38px; padding: 0;
+        border: 1px solid var(--border); border-radius: 10px;
+        background: var(--card); color: var(--muted); cursor: pointer;
+        box-shadow: 0 1px 3px var(--shadow-soft);
+        transition: color 0.12s, border-color 0.12s, background 0.12s, transform 0.06s;
       }
-      .hero h1 { font-size: 22px; margin: 0; letter-spacing: -0.01em; }
-      .hero .tagline { color: var(--muted); font-size: 13px; margin-top: 2px; }
+      .theme-btn:hover { color: var(--fg); border-color: var(--accent); }
+      .theme-btn:active { transform: translateY(1px); }
+      .theme-btn:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--ring); }
+      .theme-btn svg { width: 18px; height: 18px; display: block; }
+      .theme-btn .icon-moon { display: none; }
+      :root[data-theme="dark"] .theme-btn .icon-sun { display: none; }
+      :root[data-theme="dark"] .theme-btn .icon-moon { display: block; }
 
       /* Cards */
       .card {
@@ -52,7 +109,7 @@
         border-radius: 12px;
         padding: 22px 24px;
         margin-bottom: 20px;
-        box-shadow: 0 1px 3px rgba(31, 35, 40, 0.04);
+        box-shadow: 0 1px 3px var(--shadow-soft);
       }
       .card h2 {
         font-size: 15px;
@@ -75,17 +132,22 @@
         border: 1px solid var(--border);
         border-radius: 8px;
         font: inherit;
-        background: #fff;
+        color: var(--fg);
+        background: var(--field);
         transition: border-color 0.12s, box-shadow 0.12s;
       }
-      input:focus {
+      /* Scoped to the bordered text fields — the range slider draws its own ring
+         on the thumb, and a box-shadow here would frame the whole track. */
+      input[type="url"]:focus, input[type="password"]:focus,
+      input[type="number"]:focus, input[type="text"]:focus,
+      input[type="color"]:focus {
         outline: none;
         border-color: var(--accent);
-        box-shadow: 0 0 0 3px rgba(31, 35, 40, 0.15);
+        box-shadow: 0 0 0 3px var(--ring);
       }
       code {
         font: 12px ui-monospace, SFMono-Regular, Menlo, monospace;
-        background: var(--bg);
+        background: var(--sunken);
         border: 1px solid var(--border-muted);
         border-radius: 4px;
         padding: 1px 4px;
@@ -98,19 +160,84 @@
         border: 1px solid var(--border);
         border-radius: 10px;
         padding: 14px;
-        background: var(--bg);
+        background: var(--sunken);
       }
       .swatch .side { font-weight: 600; font-size: 12px; margin-bottom: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
       .swatch .pair { display: flex; align-items: center; gap: 10px; }
       .swatch input[type="color"] {
         width: 46px; height: 38px; padding: 3px;
-        border: 1px solid var(--border); border-radius: 8px; background: #fff; cursor: pointer;
+        border: 1px solid var(--border); border-radius: 8px; background: var(--field); cursor: pointer;
       }
       .swatch input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
       .swatch input[type="color"]::-webkit-color-swatch { border: none; border-radius: 5px; }
       .swatch .hex {
         flex: 1; min-width: 0; text-transform: lowercase;
         font: 13px ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+
+      /* Blink-speed slider */
+      .speed { display: flex; flex-direction: column; }
+      .speed-head {
+        display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+        margin-bottom: 10px;
+      }
+      .speed-name { font-weight: 600; font-size: 13px; }
+      .speed-detail {
+        color: var(--muted);
+        font: 12px ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+      input[type="range"] {
+        -webkit-appearance: none; appearance: none;
+        width: 100%; height: 18px; margin: 0; display: block;
+        background: transparent; cursor: pointer;
+      }
+      input[type="range"]::-webkit-slider-runnable-track {
+        height: 6px; border-radius: 999px;
+        /* A one-colour gradient is the filled portion: sizing a background layer
+           to --fill is what draws it, and only image layers can be sized. */
+        background:
+          linear-gradient(var(--accent), var(--accent)) 0 0 / var(--fill, 0%) 100% no-repeat,
+          var(--track-off);
+      }
+      input[type="range"]::-webkit-slider-thumb {
+        -webkit-appearance: none; appearance: none;
+        width: 18px; height: 18px; margin-top: -6px; border-radius: 50%;
+        background: var(--card); border: 2px solid var(--fg);
+        box-shadow: 0 1px 3px var(--shadow);
+        transition: transform 0.1s ease;
+      }
+      input[type="range"]::-moz-range-track {
+        height: 6px; border-radius: 999px;
+        /* A one-colour gradient is the filled portion: sizing a background layer
+           to --fill is what draws it, and only image layers can be sized. */
+        background:
+          linear-gradient(var(--accent), var(--accent)) 0 0 / var(--fill, 0%) 100% no-repeat,
+          var(--track-off);
+      }
+      input[type="range"]::-moz-range-thumb {
+        width: 14px; height: 14px; border-radius: 50%;
+        background: var(--card); border: 2px solid var(--fg);
+        box-shadow: 0 1px 3px var(--shadow);
+      }
+      input[type="range"]:hover::-webkit-slider-thumb,
+      input[type="range"]:active::-webkit-slider-thumb { transform: scale(1.12); }
+      input[type="range"]:focus { outline: none; }
+      input[type="range"]:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 4px var(--ring); }
+      input[type="range"]:focus-visible::-moz-range-thumb { box-shadow: 0 0 0 4px var(--ring); }
+
+      /* Tick marks, one per increment, aligned to the thumb centres. */
+      .speed-ticks {
+        display: flex; justify-content: space-between;
+        padding: 0 8px; margin-top: 3px;
+      }
+      .speed-ticks i {
+        width: 2px; height: 6px; border-radius: 1px;
+        background: var(--border); transition: background 0.12s;
+      }
+      .speed-ticks i.on { background: var(--muted); }
+      .speed-ends {
+        display: flex; justify-content: space-between;
+        color: var(--muted); font-size: 11.5px; margin-top: 5px;
       }
 
       /* Live blink preview */
@@ -124,13 +251,13 @@
       .preview .pv-cap {
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
         font-size: 11px; color: var(--muted); padding: 7px 12px;
-        background: var(--bg); border-bottom: 1px solid var(--border-muted);
+        background: var(--sunken); border-bottom: 1px solid var(--border-muted);
       }
       .pv-body { display: flex; }
       .pv-line {
         flex: 1; min-width: 0;
         display: flex; align-items: center; gap: 8px;
-        padding: 9px 12px; background: #fff; color: #1f2328;
+        padding: 9px 12px; background: var(--pv-base); color: var(--fg);
       }
       .pv-line + .pv-line { border-left: 1px solid var(--border-muted); }
       .pv-line .pv-stripe { width: 4px; height: 16px; border-radius: 2px; flex: 0 0 auto; }
@@ -138,16 +265,19 @@
       .pv-line .pv-code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .pv-left {
         box-shadow: inset 3px 0 0 var(--pv-left-d, #be185d);
-        animation: pv-blink-l 2.4s ease-in-out infinite;
+        animation: pv-blink-l var(--pv-period, 5s) ease-in-out infinite;
       }
       .pv-right {
         box-shadow: inset 3px 0 0 var(--pv-right-d, #6d28d9);
-        animation: pv-blink-r 2.4s ease-in-out infinite;
+        animation: pv-blink-r var(--pv-period, 5s) ease-in-out infinite;
       }
       .pv-left .pv-stripe { background: var(--pv-left-d, #be185d); }
       .pv-right .pv-stripe { background: var(--pv-right-d, #6d28d9); }
-      @keyframes pv-blink-l { 0%, 100% { background: #fff; } 50% { background: var(--pv-left, #ec4899); } }
-      @keyframes pv-blink-r { 0%, 100% { background: #fff; } 50% { background: var(--pv-right, #7c3aed); } }
+      @keyframes pv-blink-l { 0%, 100% { background: var(--pv-base); } 50% { background: var(--pv-left, #ec4899); } }
+      @keyframes pv-blink-r { 0%, 100% { background: var(--pv-base); } 50% { background: var(--pv-right, #7c3aed); } }
+      /* Speed step 0: the highlight is constant, so the preview holds the fill. */
+      .preview.pv-constant .pv-left { animation: none; background: var(--pv-left, #ec4899); }
+      .preview.pv-constant .pv-right { animation: none; background: var(--pv-right, #7c3aed); }
 
       /* Actions */
       .actions {
@@ -156,18 +286,19 @@
       }
       .btn {
         padding: 9px 24px; border: 0; border-radius: 8px; cursor: pointer;
-        font: inherit; font-weight: 600; color: #fff; background: #1f2328;
-        box-shadow: 0 1px 3px rgba(31, 35, 40, 0.25);
+        font: inherit; font-weight: 600; color: var(--btn-fg); background: var(--btn-bg);
+        box-shadow: 0 1px 3px var(--btn-shadow);
         transition: transform 0.06s, box-shadow 0.12s, background 0.12s;
       }
-      .btn:hover { background: #000; box-shadow: 0 2px 8px rgba(31, 35, 40, 0.3); }
+      .btn:hover { background: var(--btn-bg-hover); box-shadow: 0 2px 8px var(--btn-shadow); }
       .btn:active { transform: translateY(1px); }
+      .btn:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--ring); }
       .linkbtn {
         padding: 0; border: 0; background: none; color: var(--muted);
         font: inherit; font-size: 13px; cursor: pointer;
       }
       .linkbtn:hover { color: var(--fg); text-decoration: underline; }
-      #status { color: #1a7f37; font-size: 13px; font-weight: 500; }
+      #status { color: var(--ok); font-size: 13px; font-weight: 500; }
       .row-between { display: flex; align-items: center; justify-content: space-between; margin-top: 16px; }
       .switch-row {
         display: flex; align-items: center; justify-content: space-between; gap: 20px;
@@ -180,27 +311,45 @@
       .switch { position: relative; width: 44px; height: 24px; flex: 0 0 auto; }
       .switch input { position: absolute; opacity: 0; width: 1px; height: 1px; }
       .switch-track {
-        position: absolute; inset: 0; border-radius: 999px; background: #8c959f;
+        position: absolute; inset: 0; border-radius: 999px; background: var(--switch-off);
         transition: background 0.16s ease;
       }
       .switch-track::after {
         content: ""; position: absolute; width: 18px; height: 18px; left: 3px; top: 3px;
-        border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(31,35,40,.35);
+        border-radius: 50%; background: var(--card); box-shadow: 0 1px 3px var(--shadow);
         transition: transform 0.16s ease;
       }
-      .switch input:checked + .switch-track { background: #1f2328; }
+      .switch input:checked + .switch-track { background: var(--accent); }
       .switch input:checked + .switch-track::after { transform: translateX(20px); }
-      .switch input:focus-visible + .switch-track { box-shadow: 0 0 0 3px rgba(31,35,40,.2); }
+      .switch input:focus-visible + .switch-track { box-shadow: 0 0 0 3px var(--ring); }
+
+      @media (prefers-reduced-motion: reduce) {
+        .pv-left, .pv-right { animation: none; }
+      }
     </style>
   </head>
   <body>
     <div class="wrap">
       <header class="hero">
-        <img class="logo" src="media/refactoringLab.png" alt="RefactoringLab logo" />
+        <div class="logo" role="img" aria-label="RefactoringLab logo">
+          <img class="ink-black" src="media/logo-black.png" alt="" />
+          <img class="ink-white" src="media/logo-white.png" alt="" />
+        </div>
         <div>
           <h1>RefactoringMiner</h1>
           <div class="tagline">Refactoring-aware commit &amp; PR review overlay for GitHub</div>
         </div>
+        <div class="spacer"></div>
+        <button id="themeToggle" class="theme-btn" type="button" aria-pressed="false" title="Switch to dark mode">
+          <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="4.2" />
+            <path d="M12 2.4v2.3M12 19.3v2.3M4.2 4.2l1.7 1.7M18.1 18.1l1.7 1.7M2.4 12h2.3M19.3 12h2.3M4.2 19.8l1.7-1.7M18.1 5.9l1.7-1.7" />
+          </svg>
+          <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M20.5 14.6A8.6 8.6 0 0 1 9.4 3.5a8.6 8.6 0 1 0 11.1 11.1z" />
+          </svg>
+          <span class="sr-only" hidden>Toggle dark mode</span>
+        </button>
       </header>
 
       <section class="card">
@@ -260,6 +409,34 @@
         </div>
       </section>
 
+      <!-- Blink speed: one increment per step, step 0 = constant highlight -->
+      <section class="card">
+        <h2>Blink speed</h2>
+        <p class="desc">
+          How fast a selected refactoring pulses once it has been clicked. At the
+          lowest setting the highlight stays lit constantly and never blinks; each
+          step up shortens the pulse. The preview above follows this setting.
+        </p>
+
+        <div class="speed">
+          <div class="speed-head">
+            <span class="speed-name" id="speedName">Very slow</span>
+            <span class="speed-detail" id="speedDetail">5.0 s per pulse</span>
+          </div>
+          <input
+            id="blinkSpeed" type="range" min="0" max="6" step="1" value="1"
+            aria-label="Blink speed" aria-describedby="speedName"
+          />
+          <div class="speed-ticks" aria-hidden="true">
+            <i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+          </div>
+          <div class="speed-ends" aria-hidden="true">
+            <span>Constant</span>
+            <span>Fastest</span>
+          </div>
+        </div>
+      </section>
+
       <!-- Standalone service settings -->
       <section class="card">
         <h2>Standalone service</h2>
@@ -286,7 +463,5 @@
         <span id="status"></span>
       </div>
     </div>
-
-    <script src="options.js"></script>
   </body>
 </html>
