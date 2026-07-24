@@ -17,7 +17,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build extension.zip from allowlist
+      - name: Resolve version and zip name
+        run: |
+          set -euo pipefail
+          # On a release, take the version from the tag; on a manual run there is
+          # no tag, so fall back to manifest.json. Strip any leading "v" either way
+          # so the name is always rmx_v<version>.zip (e.g. rmx_v3.2.2.zip).
+          if [ "${{ github.event_name }}" = "release" ]; then
+            raw="${{ github.event.release.tag_name }}"
+          else
+            raw="$(jq -r .version manifest.json)"
+          fi
+          ver="${raw#v}"
+          echo "VERSION=$ver" >> "$GITHUB_ENV"
+          echo "ZIP=rmx_v${ver}.zip" >> "$GITHUB_ENV"
+
+      - name: Build ${{ env.ZIP }} from allowlist
         run: |
           set -euo pipefail
           staging="$(mktemp -d)"
@@ -30,18 +45,18 @@ jobs:
           cp media/icon16.png media/icon32.png media/icon48.png media/icon128.png \
              media/logo-black.png media/logo-white.png "$staging/media/"
 
-          (cd "$staging" && zip -r -X "$GITHUB_WORKSPACE/extension.zip" .)
+          (cd "$staging" && zip -r -X "$GITHUB_WORKSPACE/$ZIP" .)
           echo "--- packaged contents ---"
-          unzip -l extension.zip
+          unzip -l "$ZIP"
 
       - name: Upload as workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: extension
-          path: extension.zip
+          name: rmx_v${{ env.VERSION }}
+          path: ${{ env.ZIP }}
 
       - name: Attach to release
         if: github.event_name == 'release'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "${{ github.event.release.tag_name }}" extension.zip --clobber
+        run: gh release upload "${{ github.event.release.tag_name }}" "$ZIP" --clobber
