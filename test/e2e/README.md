@@ -51,6 +51,14 @@ exists the whole suite is **skipped**, so `npm test` stays green when logged out
 
 ## What it checks
 
+- `unfold.spec.js` — **no session needed**. GitHub folds away the context it
+  reads as unchanged, but RefactoringMiner points at plenty of those lines (the
+  attribute an Encapsulate Attribute wraps), so selecting a refactoring has to
+  drive GitHub's own unfold controls first. Synthetic diffs in *both* markups —
+  the classic table and the React diff, whose expander is an icon-only button —
+  pin down that the right fold is opened, that it's scoped to the file that owns
+  the line, that a long fold is walked in bounded steps, and that a selection
+  reveals **every** line it paints on rather than one representative.
 - `fixtures.js` — boots Chromium with the extension (`--load-extension`), waits
   for its MV3 service worker, injects the saved GitHub session, and mirrors
   `[RMX] …` console logs onto the page.

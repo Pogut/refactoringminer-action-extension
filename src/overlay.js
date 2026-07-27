@@ -460,22 +460,53 @@ window.RMX.overlay = (function () {
   let blinkTimer = null;
   let inAttentionPhase = false;
 
-  // index → { digest, side, line }: a representative line per refactoring, set
-  // by content.js from the feed data (independent of what's mounted, so it's
-  // known even for a collapsed file that tagged nothing). select() uses it to
-  // reveal a collapsed/folded file before blinking, so a report-row or deep-link
-  // selection works even when the target file wasn't rendered.
+  // index → [{ digest, side, line }, …]: EVERY line the refactoring paints on,
+  // set by content.js from the feed data (independent of what's mounted, so
+  // they're known even for a collapsed file or a folded hunk that tagged
+  // nothing). select() reveals them all before blinking, so a selection also
+  // works when the target file wasn't rendered — and, the common case, so the
+  // parts GitHub folded away (an untouched field, a kept signature: lines
+  // RefactoringMiner calls part of the refactoring but GitHub calls unchanged
+  // context) light up with the rest instead of silently going missing.
   let selectTargets = {};
   function setTargets(t) {
     selectTargets = t || {};
   }
+  function targetsFor(index) {
+    const t = selectTargets[index];
+    return Array.isArray(t) ? t : t ? [t] : [];
+  }
+
+  // Cap per file: a refactoring spanning dozens of locations shouldn't turn one
+  // click into a long burst of unfold requests.
+  const MAX_REVEALS_PER_FILE = 12;
+
+  // Reveal each selected refactoring's hidden lines. Grouped by file and walked
+  // in order within one — unfolding for a line usually mounts its neighbours
+  // too, so later targets in that file resolve without another click — while
+  // separate files run in parallel, being independent.
   async function ensureRevealed(indices) {
+    const byFile = {};
+    indices.forEach((i) => {
+      targetsFor(i).forEach((t) => {
+        (byFile[t.digest] = byFile[t.digest] || []).push(t);
+      });
+    });
     await Promise.all(
-      indices.map((i) => {
-        const t = selectTargets[i];
-        return t ? RMX.github.revealLine(t.digest, t.side, t.line) : null;
+      Object.keys(byFile).map(async (digest) => {
+        const targets = byFile[digest].slice(0, MAX_REVEALS_PER_FILE);
+        for (const t of targets) await RMX.github.revealLine(t.digest, t.side, t.line);
       }),
     );
+  }
+
+  // content.js's additive re-paint, so a selection can tag the lines an unfold
+  // just mounted straight away instead of waiting out the scroll observer's
+  // debounce — which would leave freshly revealed lines dark for a beat, exactly
+  // when the user is looking for them.
+  let repaint = null;
+  function setRepaint(fn) {
+    repaint = fn;
   }
   const ATTENTION_BLINKS = 3;   // number of fast blinks before settling into slow pulse
   const BLINK_FAST_MS = 167;    // per phase during attention (~3 blinks in ~1 second)
@@ -551,9 +582,11 @@ window.RMX.overlay = (function () {
   }
 
   async function select(indices) {
-    // Load/expand a collapsed file first so its lines mount and get tagged (the
-    // MutationObserver repaint runs during the await); then blink as usual.
+    // Load/expand a collapsed file and unfold every hidden line of this
+    // refactoring first, then re-tag what that mounted, so the blink below
+    // covers the whole refactoring rather than just the parts GitHub had shown.
     await ensureRevealed(indices);
+    if (repaint) await repaint();
     removeSelectionClasses();
     selectedIndices = indices.slice();
     clearTimeout(blinkTimer);
@@ -617,7 +650,7 @@ window.RMX.overlay = (function () {
   // Which side a refactoring mainly lives on, for its accent colour — the "after"
   // (right) side by default, since that's where extracted/renamed code lands.
   function refSide(index) {
-    const t = selectTargets[index];
+    const t = targetsFor(index)[0];
     return t && t.side === 'L' ? 'L' : 'R';
   }
   // Small solid marks (nav swatch, edge-chip dot) sit on canvas-coloured chrome,
@@ -1295,7 +1328,7 @@ window.RMX.overlay = (function () {
 
   return {
     ensureStyle, clearAll, startPass, endPass, highlightRange, installTooltip,
-    select, applySelection, clearSelection, scrollToRefactoring, setTargets,
+    select, applySelection, clearSelection, scrollToRefactoring, setTargets, setRepaint,
     showReport, reportLoading, reportError, hideReport,
   };
 })();
