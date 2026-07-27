@@ -213,8 +213,9 @@ window.RMX = window.RMX || {};
       }),
     );
 
-    // Hand the overlay a representative line per refactoring so a selection can
-    // reveal a collapsed/folded file whose lines tagged nothing this pass.
+    // Hand the overlay every line each refactoring paints on, so a selection can
+    // reveal the ones GitHub hid — a collapsed file, or a hunk folded because
+    // GitHub sees those lines as unchanged — before it blinks.
     RMX.overlay.setTargets(selectTargets(refactorings, digests));
 
     let tagged = 0;
@@ -223,8 +224,17 @@ window.RMX = window.RMX || {};
     RMX.overlay.startPass();
     refactorings.forEach((r, index) => {
       const summary = summarize(r);
-      tagged += paintSide(r.leftSideLocations, 'L', summary, index, digests);
-      tagged += paintSide(r.rightSideLocations, 'R', summary, index, digests);
+      effectiveRanges(r, digests).forEach((range) => {
+        tagged += RMX.overlay.highlightRange({
+          digest: range.digest,
+          side: range.side,
+          startLine: range.startLine,
+          endLine: range.endLine,
+          filePath: range.filePath,
+          summary,
+          index,
+        });
+      });
     });
     RMX.overlay.endPass();
 
@@ -233,57 +243,65 @@ window.RMX = window.RMX || {};
     handleDeepLink();
   }
 
-  // Tags the diff cells for each of a side's locations so the click/deep-link
-  // selection can find and blink them. Cells carry no visible style until
-  // selected — only the refactoring index, side, file, and hover summary.
-  function paintSide(locations, side, summary, index, digests) {
-    const locs = locations || [];
-    // Decide which lines a location contributes, applied identically to left and
-    // right so related parts stay consistent:
-    //   • A newly created declaration (added getter, extracted method/type) is
-    //     genuine new code → tag it in full.
-    //   • Otherwise a big enclosing method/type declaration is context: skip it
-    //     when the side has a finer location to tag instead, or — when it's the
-    //     only location (Rename/Pull Up/Move/Change-modifier on a whole method or
-    //     type) — tag just its header line so the side is still selectable without
-    //     flooding the diff.
-    //   • Anything finer (statement, field, param, conditional…) → full range.
-    const hasFiner = locs.some((cr) => !isContainer(cr));
-    let tagged = 0;
-    locs.forEach((cr) => {
-      let startLine = cr.startLine;
-      let endLine = cr.endLine;
-      if (isContainer(cr) && !isNewDeclaration(cr)) {
-        if (hasFiner) return;
-        endLine = startLine; // declaration-only refactoring → header line only
-      }
-      const digest = digests[cr.filePath];
-      if (!digest) return;
-      tagged += RMX.overlay.highlightRange({
-        digest,
-        side,
-        startLine,
-        endLine,
-        summary,
-        index,
-        filePath: cr.filePath,
+  // The line ranges one refactoring actually paints on, both sides, as
+  // { digest, side, startLine, endLine, filePath }. Single source of truth for
+  // the two things that have to agree about a refactoring's extent: what gets
+  // tagged, and what a selection must unfold before it CAN be tagged.
+  //
+  // Which lines a location contributes, applied identically to left and right so
+  // related parts stay consistent:
+  //   • A newly created declaration (added getter, extracted method/type) is
+  //     genuine new code → tag it in full.
+  //   • Otherwise a big enclosing method/type declaration is context: skip it
+  //     when the side has a finer location to tag instead, or — when it's the
+  //     only location (Rename/Pull Up/Move/Change-modifier on a whole method or
+  //     type) — tag just its header line so the side is still selectable without
+  //     flooding the diff.
+  //   • Anything finer (statement, field, param, conditional…) → full range.
+  //
+  // Right side first, so the "after" side leads wherever the order shows: the
+  // navigator's accent colour, and which line a reveal opens first.
+  function effectiveRanges(r, digests) {
+    const ranges = [];
+    [['R', r.rightSideLocations], ['L', r.leftSideLocations]].forEach(([side, locations]) => {
+      const locs = locations || [];
+      const hasFiner = locs.some((cr) => !isContainer(cr));
+      locs.forEach((cr) => {
+        let startLine = cr.startLine;
+        let endLine = cr.endLine;
+        if (isContainer(cr) && !isNewDeclaration(cr)) {
+          if (hasFiner) return;
+          endLine = startLine; // declaration-only refactoring → header line only
+        }
+        const digest = digests[cr.filePath];
+        if (!digest) return;
+        ranges.push({ digest, side, startLine, endLine, filePath: cr.filePath });
       });
     });
-    return tagged;
+    return ranges;
   }
 
-  // A representative { digest, side, line } per refactoring — the first location
-  // on the right side, else the left. The overlay reveals this file (clicking
-  // "Load diff" / "Expand all") before selecting, so a report-row or deep-link
-  // selection lands even when the target file was collapsed and tagged nothing.
+  // index → the { digest, side, line } list a selection has to make visible:
+  // the first and last line of every range it paints on. The overlay walks these
+  // through GitHub's own reveal controls ("Load diff", the per-hunk unfold
+  // arrows) before selecting, so a refactoring lights up whole — including the
+  // lines GitHub folded away because IT reads them as unchanged context, and the
+  // files it collapsed entirely. Interior lines need no entry of their own: an
+  // unfold opens the block around a line, not the single line.
   function selectTargets(refactorings, digests) {
     const targets = {};
     refactorings.forEach((r, index) => {
-      const right = (r.rightSideLocations || [])[0];
-      const loc = right || (r.leftSideLocations || [])[0];
-      const digest = loc && digests[loc.filePath];
-      if (!digest) return;
-      targets[index] = { digest, side: right ? 'R' : 'L', line: loc.startLine };
+      const seen = {};
+      const list = [];
+      effectiveRanges(r, digests).forEach((range) => {
+        [range.startLine, range.endLine].forEach((line) => {
+          const key = range.digest + range.side + line;
+          if (seen[key]) return;
+          seen[key] = true;
+          list.push({ digest: range.digest, side: range.side, line });
+        });
+      });
+      if (list.length) targets[index] = list;
     });
     return targets;
   }
@@ -358,6 +376,11 @@ window.RMX = window.RMX || {};
   }
 
   // --- lifecycle ------------------------------------------------------------
+
+  // A selection unfolds the hidden lines of its refactoring; this lets it tag
+  // them the moment they mount, instead of leaving them dark until the scroll
+  // observer's debounce below catches up.
+  RMX.overlay.setRepaint(() => (currentRefactorings ? render(currentRefactorings, true) : null));
 
   // The /changes diff is virtualized: rows mount as you scroll. Re-tag
   // (debounced) when the diff DOM grows, so newly mounted lines get tagged.
