@@ -298,7 +298,10 @@ window.RMX = window.RMX || {};
           const key = range.digest + range.side + line;
           if (seen[key]) return;
           seen[key] = true;
-          list.push({ digest: range.digest, side: range.side, line });
+          // filePath rides along so a file collapsed behind "Viewed" can still
+          // be identified: with none of its rows rendered, the path is the only
+          // handle GitHub's markup reliably offers.
+          list.push({ digest: range.digest, side: range.side, line, filePath: range.filePath });
         });
       });
       if (list.length) targets[index] = list;

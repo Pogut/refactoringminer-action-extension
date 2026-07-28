@@ -495,7 +495,7 @@ window.RMX.overlay = (function () {
     await Promise.all(
       Object.keys(byFile).map(async (digest) => {
         const targets = byFile[digest].slice(0, MAX_REVEALS_PER_FILE);
-        for (const t of targets) await RMX.github.revealLine(t.digest, t.side, t.line);
+        for (const t of targets) await RMX.github.revealLine(t.digest, t.side, t.line, t.filePath);
       }),
     );
   }

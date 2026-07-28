@@ -59,6 +59,17 @@ exists the whole suite is **skipped**, so `npm test` stays green when logged out
   pin down that the right fold is opened, that it's scoped to the file that owns
   the line, that a long fold is walked in bounded steps, and that a selection
   reveals **every** line it paints on rather than one representative.
+- `viewed.spec.js` — **no session needed**. Ticking "Viewed" collapses a file,
+  and a reviewer part-way through a PR has most of them collapsed, which hid a
+  refactoring two different ways: the classic diff keeps the rows in the DOM at
+  `display:none` (so they resolved, and the neon was painted where nobody could
+  see it), while the React diff renders none at all (so the refactoring was
+  simply unreachable, the "all files viewed, clicking does nothing" case). Pins
+  down that a collapsed file is found with zero rendered rows, by anchor or by
+  path, and expanded. Every test also asserts the **"Viewed" checkbox is left
+  untouched**: expanding is local, unticking would rewrite the reviewer's review
+  progress on GitHub. Includes a guard that an already-open file with a merely
+  folded line is left to `unfold.spec.js`'s path instead.
 - `fixtures.js` — boots Chromium with the extension (`--load-extension`), waits
   for its MV3 service worker, injects the saved GitHub session, and mirrors
   `[RMX] …` console logs onto the page.
