@@ -100,6 +100,153 @@ window.RMX.github = (function () {
   const MAX_UNFOLD_ROUNDS = 6; // a long fold opens ~20 lines a click; bound the walk
   const MAX_CLIMB = 10;
 
+  // --- files the reviewer has collapsed ------------------------------------
+  // Ticking "Viewed" collapses a file, and a reviewer part-way through a PR has
+  // most of them collapsed. That hides a refactoring in two different ways:
+  //   • the classic diff keeps the rows in the DOM but display:none, so
+  //     lineCells still resolves them and the selection paints its neon onto
+  //     cells nobody can see, while the scroll lands on a zero-height element;
+  //   • the React diff renders no rows at all, so every lookup that starts from
+  //     a mounted cell (which, before this, was all of them) comes back empty
+  //     and the refactoring is simply unreachable.
+  // Both are fixed by expanding the file first.
+  //
+  // We expand it WITHOUT touching the "Viewed" checkbox. That state is the
+  // reviewer's own bookkeeping, persisted on GitHub across sessions and used to
+  // track how far through a PR they are; clicking a refactoring has no business
+  // rewriting it. GitHub keeps the two controls separate (the chevron collapses
+  // and expands locally, the checkbox records review progress), so driving the
+  // chevron gets the lines on screen and leaves the file still marked viewed.
+  // This is also why we don't need RefactoringMiner's GraphQL markFileAsViewed
+  // path: that exists to reach GitHub from RefactoringMiner's own page, whereas
+  // we already run inside github.com under the reviewer's session.
+
+  // Escape a value for use inside a quoted attribute selector.
+  function attrValue(value) {
+    return String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  }
+
+  // Present in the DOM is not the same as on screen: a collapsed classic file
+  // keeps every row, at display:none. Only a rendered box means we can highlight.
+  function isRendered(el) {
+    return !!el && !!el.getClientRects && el.getClientRects().length > 0;
+  }
+
+  // The cells for a line, but only once they're actually rendered.
+  function visibleCells(digest, side, line) {
+    const cells = lineCells(digest, side, line);
+    return cells.some(isRendered) ? cells : [];
+  }
+
+  // The file box around an element we matched on (a header, an anchor link, the
+  // span that spells out the path). The classic diff gives us a container to
+  // close on; the React header is a plain wrapper, so fall back to climbing
+  // until an ancestor actually holds a control that could open the file. Bounded,
+  // and it stops short of <body> so a miss can never hand back half the page
+  // (and with it some other file's toggle).
+  function fileBoxOf(el) {
+    const known = el.closest('[data-details-container-group="file"], .js-file, .file, [data-diff-anchor]');
+    if (known) return known;
+    let node = el;
+    for (let n = 0; n < MAX_CLIMB && node && node !== document.body; n++) {
+      if (expandControl(node)) return node;
+      node = node.parentElement;
+    }
+    return el;
+  }
+
+  // Identify a file from sha256(path) with NONE of its rows on the page, which
+  // is the state a collapsed file is in and the reason it used to be
+  // unreachable. Ordered most certain first, and every step is just a lookup:
+  // a miss falls through to the next, and a total miss returns what the old
+  // code would have returned, so nothing regresses when GitHub moves things.
+  //   1. id="diff-<digest>"          — the classic file box.
+  //   2. data-anchor / data-diff-anchor / an href ending in #diff-<digest>
+  //                                  — the classic file header sets data-anchor;
+  //                                    file-tree and permalink entries carry the href.
+  //   3. the file path, which the feed gives us, against the attributes GitHub
+  //      renders it into (data-tagsearch-path and data-path on the classic
+  //      header) or a title/aria-label that spells it out.
+  //   4. the old climb from a mounted cell.
+  function fileRoot(digest, filePath) {
+    const anchor = 'diff-' + digest;
+    const byId = document.getElementById(anchor);
+    if (byId) return byId;
+    const byAnchor = document.querySelector(
+      `[data-anchor="${anchor}"], [data-diff-anchor="${anchor}"], a[href$="#${anchor}"]`,
+    );
+    if (byAnchor) return fileBoxOf(byAnchor);
+    if (filePath) {
+      const p = attrValue(filePath);
+      const byPath = document.querySelector(
+        `[data-tagsearch-path="${p}"], [data-path="${p}"], [data-file-path="${p}"], [title="${p}"], [aria-label="${p}"]`,
+      );
+      if (byPath) return fileBoxOf(byPath);
+    }
+    return fileContainer(digest);
+  }
+
+  // The "Viewed" checkbox and anything wrapping it. Never clicked: unchecking it
+  // would rewrite the reviewer's review progress on GitHub.
+  function isViewedControl(el) {
+    return !!el.querySelector('input[type="checkbox"]') ||
+      el.getAttribute('type') === 'checkbox' ||
+      /viewed/i.test(labelOf(el));
+  }
+
+  // The chevron that opens and closes a file: `octicon-chevron-*` on the classic
+  // `button.js-details-target` (confirmed against live github.com) and the > / v
+  // in the React file row. Deliberately NOT octicon-fold/unfold — those are the
+  // in-diff context expanders, a different control with a different job.
+  const CHEVRON_ICON = /octicon-(chevron|triangle)/;
+
+  // Everything that sits beside the chevron in a file header and must never be
+  // mistaken for it. The comment button is the one that bit: it carries
+  // aria-expanded="false" exactly like a collapsed toggle does, so scanning for
+  // that attribute alone opened "Add comment on file" instead of the file.
+  const NOT_EXPAND = /comment|review|resolve|menu|more|options|copy|link|permalink|viewed|unviewed|suggest/i;
+
+  // Controls that turned out not to open the file. GitHub's headers differ
+  // between UIs and we only infer which control is the chevron, so a wrong guess
+  // is possible; remembering it means one harmless misfire instead of one per
+  // line of the refactoring.
+  const duds = new WeakSet();
+
+  // Does this control positively look like the file's expand chevron? An
+  // aria-expanded="false" is NOT sufficient on its own (that was the bug): it
+  // has to be the known classic button, carry a chevron icon, or say so in its
+  // label. Anything unrecognised is left alone, so the failure mode is "the file
+  // does not open" rather than "some other button gets pressed".
+  function isExpandCandidate(el) {
+    if (!isRendered(el) || duds.has(el) || isViewedControl(el)) return false;
+    const label = labelOf(el);
+    const icon = iconClass(el);
+    if (NOT_EXPAND.test(label) || NOT_EXPAND.test(icon)) return false;
+    const looksLikeToggle =
+      el.classList.contains('js-details-target') ||
+      CHEVRON_ICON.test(icon) ||
+      /^(toggle diff contents|show diff|hide diff|expand file|collapse file|expand|collapse)$/i.test(label);
+    if (!looksLikeToggle) return false;
+    return el.getAttribute('aria-expanded') !== 'true'; // already open ⇒ nothing to do
+  }
+
+  function expandControl(root) {
+    return Array.prototype.find.call(
+      root.querySelectorAll('button, summary, [role="button"]'),
+      isExpandCandidate,
+    );
+  }
+
+  // Expand a file the reviewer collapsed, leaving "Viewed" as they set it.
+  // Returns the control it clicked, so the caller can retire it if the file
+  // stayed shut.
+  function expandFile(root) {
+    const control = root && expandControl(root);
+    if (!control) return null;
+    control.click();
+    return control;
+  }
+
   // A stable per-file root to search for the load/expand controls. Classic
   // /files & /commit hang id="diff-<digest>" on the file element; the React
   // diffs don't, so derive it from any mounted cell of the file.
@@ -127,11 +274,23 @@ window.RMX.github = (function () {
     );
   }
 
-  // Any rendered row of this file, or null when none of it is on the page.
+  function rowSelector(digest) {
+    return `[data-line-anchor^="diff-${digest}"], [data-grid-cell-id^="diff-${digest}"], [id^="diff-${digest}"][data-line-number]`;
+  }
+
+  // Any row of this file present in the DOM, or null when none of it is there.
   function anyRow(digest) {
-    return document.querySelector(
-      `[data-line-anchor^="diff-${digest}"], [data-grid-cell-id^="diff-${digest}"], [id^="diff-${digest}"][data-line-number]`,
-    );
+    return document.querySelector(rowSelector(digest));
+  }
+
+  // At least one row of this file actually on screen. This is the test for "the
+  // file is open": a collapsed classic file has all its rows but renders none of
+  // them, and a collapsed React file has none to begin with. Gating the expand
+  // step on this keeps it away from files that are already showing, where a
+  // stray aria-expanded="false" control (a collapsed comment thread, a
+  // dropdown) would otherwise be a tempting and quite wrong thing to click.
+  function anyRenderedRow(digest) {
+    return Array.prototype.some.call(document.querySelectorAll(rowSelector(digest)), isRendered);
   }
 
   // The subtree to look for this file's folds in: its element when GitHub gives
@@ -264,11 +423,14 @@ window.RMX.github = (function () {
     return best;
   }
 
-  // Resolve once (file, side, line) is in the DOM, polling briefly while the
+  // Resolve once (file, side, line) is rendered, polling briefly while the
   // clicked control's async load lands. Resolves to the cells, or [] on timeout.
+  // Rendered, not merely present: a collapsed file's rows are in the DOM at
+  // display:none, and resolving on those would report success while the line
+  // stays invisible.
   async function waitForLine(digest, side, line, tries = 20, delay = 150) {
     for (let n = tries; ; n--) {
-      const cells = lineCells(digest, side, line);
+      const cells = visibleCells(digest, side, line);
       if (cells.length || n <= 0) return cells;
       await new Promise((resolve) => setTimeout(resolve, delay));
     }
@@ -283,7 +445,7 @@ window.RMX.github = (function () {
   async function waitForUnfold(digest, side, line, sig, scope) {
     let host = scope;
     for (let n = 12; ; n--) {
-      const cells = lineCells(digest, side, line);
+      const cells = visibleCells(digest, side, line);
       if (cells.length) return cells;
       if (!host.isConnected) host = fileScope(digest);
       const gap = host && gapFor(host, digest, side, line);
@@ -317,12 +479,32 @@ window.RMX.github = (function () {
 
   // Force GitHub to render (side, line) so it becomes taggable, then resolve to
   // its cells (or [] if it stays unavailable). Cheap when the line is already
-  // mounted — a single lineCells lookup.
-  async function revealLine(digest, side, line) {
-    let cells = lineCells(digest, side, line);
+  // on screen — a single lineCells lookup. `filePath` is optional and only
+  // widens how a collapsed file can be identified.
+  async function revealLine(digest, side, line, filePath) {
+    let cells = visibleCells(digest, side, line);
     if (cells.length) return cells;
 
-    const file = fileContainer(digest);
+    // A file the reviewer marked "Viewed" is collapsed, and nothing below can
+    // work until it is open: the React diff has no rows to unfold, and the
+    // classic diff's rows are present but display:none. Expanding leaves the
+    // "Viewed" tick exactly as they set it. Skipped entirely for a file that is
+    // already showing, so a merely folded or virtualized line takes the same
+    // route it always did.
+    const root = anyRenderedRow(digest) ? null : fileRoot(digest, filePath);
+    const opener = root && expandFile(root);
+    if (opener) {
+      // Short wait: expanding is local and near-instant, and if the line turns
+      // out to ALSO be folded inside the file we just opened, the walk below is
+      // what places it. No reason to sit out a long timeout first.
+      cells = await waitForLine(digest, side, line, 10, 100);
+      if (cells.length) return cells;
+      // Still nothing of the file on screen, so that control was not the
+      // chevron. Retire it rather than press it again for every remaining line.
+      if (!anyRenderedRow(digest)) duds.add(opener);
+    }
+
+    const file = fileContainer(digest) || root;
     if (file) {
       // Bring the file to the viewport only when NONE of it is rendered — a
       // virtualized page mounts nothing for a file that's far off screen. Doing
@@ -354,9 +536,9 @@ window.RMX.github = (function () {
     }
 
     // Targeted unfolding didn't place it — fall back to opening the whole file.
-    const root = fileContainer(digest);
-    if (root && expandAll(root)) return waitForLine(digest, side, line);
-    return lineCells(digest, side, line);
+    const whole = fileContainer(digest) || root;
+    if (whole && expandAll(whole)) return waitForLine(digest, side, line);
+    return visibleCells(digest, side, line);
   }
 
   function resetCache() {
