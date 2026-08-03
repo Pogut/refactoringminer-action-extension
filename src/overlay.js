@@ -363,36 +363,9 @@ window.RMX.overlay = (function () {
 
   function clearAll() {
     document.querySelectorAll('.' + CLASS).forEach(clearCell);
-  }
-
-  // --- paint reconciliation ------------------------------------------------
-  // The /changes diff virtualizes rows: React *recycles* a DOM node to render a
-  // different line as you scroll, rewriting the text/anchor it manages but
-  // leaving our class + data-rmx-* attributes on it. Additive re-paints (the
-  // scroll path) never clearAll, so that node keeps a highlight for a line no
-  // refactoring references. To stop those stale highlights, each paint pass
-  // records every cell it (re)touches; endPass() then strips any still-classed
-  // cell that wasn't touched — i.e. one that was recycled to a non-target line.
-  let paintedThisPass = null;
-  function startPass() {
-    paintedThisPass = new Set();
-  }
-  function endPass() {
-    if (!paintedThisPass) return;
-    const touched = paintedThisPass;
-    paintedThisPass = null;
-    document.querySelectorAll('.' + CLASS).forEach((el) => {
-      if (!touched.has(el)) clearCell(el);
-    });
-  }
-
-  function appendUnique(el, attr, value, sep) {
-    const prev = el.getAttribute(attr);
-    if (!prev) {
-      el.setAttribute(attr, value);
-    } else if (prev.split(sep).indexOf(value) === -1) {
-      el.setAttribute(attr, prev + sep + value);
-    }
+    cellsByIndex = new Map();
+    selCells = [];
+    cachedHost = null; // the diff (and its scroll container) is being rebuilt
   }
 
   // A diff line is "blank" when its only content is the gutter line number, i.e.
@@ -420,35 +393,103 @@ window.RMX.overlay = (function () {
     return /^\s*(async\s+def\b|def\b|class\b)/.test(code);
   }
 
+  // --- plan-driven painting -------------------------------------------------
+  // content.js compiles the feed into a plan once per page: a Map keyed by
+  // cellKey(digest, side, line) covering every line any refactoring paints on,
+  // plus index → summary for the tooltip. Painting is then a SINGLE scan of the
+  // mounted cells matched against that Map (O(cells on screen), independent of
+  // how many refactorings the page carries) instead of the old per-line
+  // document queries (O(refactoring-lines × whole document), which is what made
+  // a 400-refactoring page crawl and scroll-repaints jank).
+  //
+  // Each entry: { filePath, contribs: [{ index, summary, trailing }] }, where
+  // `trailing` marks the closing line of a multi-line range (candidate for the
+  // over-shot-declaration trim below).
+  let paintPlan = null;
+
   // index (string) -> its hover summary. A cell's data-rmx-desc dedups and joins
   // every summary it carries, losing the per-index mapping; this keeps it so the
   // tooltip can show just the active refactoring's title (see peekHtml).
-  const descByIndex = {};
+  let descByIndex = {};
 
-  // Tag every line in [startLine,endLine] for one side of one file so the
-  // selection can find them. A cell touched by several refactorings accumulates
-  // each one's summary (deduped) and index. Returns the count of mounted lines.
-  function highlightRange({ digest, side, startLine, endLine, summary, index, filePath }) {
-    descByIndex[String(index)] = summary;
-    let painted = 0;
-    for (let line = startLine; line <= endLine; line++) {
-      const cells = RMX.github.lineCells(digest, side, line);
-      if (!cells.length) continue;
-      if (!lineHasCode(cells, line)) continue; // skip blank source lines (nothing to tag)
-      // Stop a multi-line range before an over-shot trailing declaration (the
-      // next method/class), but never trim the range's own opening line.
-      if (line === endLine && line !== startLine && startsDeclaration(cells, line)) continue;
-      cells.forEach((cell) => {
-        if (paintedThisPass) paintedThisPass.add(cell);
-        cell.classList.add(CLASS);
-        cell.setAttribute('data-rmx-side', side);
-        if (filePath) cell.setAttribute('data-rmx-file', filePath);
-        appendUnique(cell, 'data-rmx-desc', summary, '\n');
-        appendUnique(cell, 'data-rmx-index', String(index), ' ');
-      });
-      painted++;
+  // index (string) -> the cells currently tagged with it. Rebuilt by every
+  // paintAll pass, so selection, minimap, tooltip, and counterpart lookups are
+  // map reads instead of document scans.
+  let cellsByIndex = new Map();
+
+  function setPlan(plan) {
+    paintPlan = plan || null;
+    descByIndex = (plan && plan.descByIndex) || {};
+  }
+
+  function indexCell(map, index, cell) {
+    let list = map.get(index);
+    if (!list) map.set(index, (list = []));
+    if (list.indexOf(cell) === -1) list.push(cell);
+  }
+
+  // Tag every mounted cell the plan covers, and untag every cell it no longer
+  // does. The /changes diff virtualizes rows: React *recycles* a DOM node to
+  // render a different line as you scroll, rewriting the text/anchor it manages
+  // but leaving our class + data-rmx-* attributes on it, so a full pass ends by
+  // stripping any still-classed cell it didn't touch (one recycled to a
+  // non-target line). Returns the number of tagged lines.
+  function paintAll() {
+    const plan = paintPlan;
+    const byKey = new Map(); // key -> { id, cells } for the plan lines mounted now
+    if (plan && plan.byKey.size) {
+      const candidates = RMX.github.candidateCells();
+      for (let k = 0; k < candidates.length; k++) {
+        const el = candidates[k];
+        const id = RMX.github.cellIdentity(el);
+        if (!id) continue;
+        const key = RMX.github.cellKey(id.digest, id.side, id.line);
+        if (!plan.byKey.has(key)) continue;
+        let group = byKey.get(key);
+        if (!group) byKey.set(key, (group = { id, cells: [] }));
+        group.cells.push(el);
+      }
     }
-    return painted;
+
+    const touched = new Set();
+    const nextByIndex = new Map();
+    let tagged = 0;
+    byKey.forEach((group, key) => {
+      const entry = plan.byKey.get(key);
+      const line = group.id.line;
+      if (!lineHasCode(group.cells, line)) return; // skip blank source lines (nothing to tag)
+      // Stop a multi-line range before an over-shot trailing declaration (the
+      // next method/class), but keep any range that OPENS on this line.
+      let contribs = entry.contribs;
+      if (contribs.some((c) => c.trailing) && startsDeclaration(group.cells, line)) {
+        contribs = contribs.filter((c) => !c.trailing);
+        if (!contribs.length) return;
+      }
+      const indices = [];
+      const descs = [];
+      contribs.forEach((c) => {
+        if (indices.indexOf(c.index) === -1) indices.push(c.index);
+        if (descs.indexOf(c.summary) === -1) descs.push(c.summary);
+      });
+      const indexAttr = indices.join(' ');
+      const descAttr = descs.join('\n');
+      group.cells.forEach((cell) => {
+        touched.add(cell);
+        cell.classList.add(CLASS);
+        cell.setAttribute('data-rmx-side', group.id.side);
+        if (entry.filePath) cell.setAttribute('data-rmx-file', entry.filePath);
+        if (cell.getAttribute('data-rmx-desc') !== descAttr) cell.setAttribute('data-rmx-desc', descAttr);
+        if (cell.getAttribute('data-rmx-index') !== indexAttr) cell.setAttribute('data-rmx-index', indexAttr);
+        indices.forEach((i) => indexCell(nextByIndex, i, cell));
+      });
+      tagged++;
+    });
+
+    document.querySelectorAll('.' + CLASS).forEach((el) => {
+      if (!touched.has(el)) clearCell(el);
+    });
+    cellsByIndex = nextByIndex;
+    return tagged;
   }
 
   // --- click-to-pair selection -------------------------------------------
@@ -459,6 +500,11 @@ window.RMX.overlay = (function () {
   let blinkOn = false;
   let blinkTimer = null;
   let inAttentionPhase = false;
+  // The cells the blink toggles, cached by applySelection so the pulse (and the
+  // fast attention flashes) never run a document-wide querySelectorAll on a
+  // tick: a scan that, landing mid-scroll, janked the page. Rebuilt on every
+  // applySelection, so scroll repaints fold newly mounted cells in.
+  let selCells = [];
 
   // index → [{ digest, side, line }, …]: EVERY line the refactoring paints on,
   // set by content.js from the feed data (independent of what's mounted, so
@@ -528,14 +574,20 @@ window.RMX.overlay = (function () {
   // ON (the fill) is what blinks. During the attention phase transitions are
   // suppressed so the fast blink is a crisp binary flash.
   function applySelection() {
+    const seen = new Set();
     selectedIndices.forEach((i) => {
-      document.querySelectorAll(`.${CLASS}[data-rmx-index~="${i}"]`).forEach((el) => {
+      (cellsByIndex.get(String(i)) || []).forEach((el) => {
+        if (!el.isConnected || seen.has(el)) return;
+        seen.add(el);
         el.classList.add(SEL);
         el.classList.toggle(ON, blinkOn);
         el.style.transitionDuration = inAttentionPhase ? '0s' : '';
       });
     });
-    schedulePins();
+    selCells = Array.from(seen);
+    // With no selection, a repaint only needs the viewport-relative refresh (a
+    // tick that just became measurable); a live selection re-syncs everything.
+    schedulePins(selectedIndices.length > 0);
   }
 
   function removeSelectionClasses() {
@@ -543,6 +595,16 @@ window.RMX.overlay = (function () {
       el.classList.remove(SEL, ON);
       el.style.transitionDuration = '';
     });
+    selCells = [];
+  }
+
+  // Toggle the fill on the cached selection. A disconnected cell (React
+  // virtualized its row away) is skipped rather than re-queried; the next
+  // applySelection rebuilds the set with whatever is mounted then.
+  function paintFill(on) {
+    for (let k = 0; k < selCells.length; k++) {
+      if (selCells[k].isConnected) selCells[k].classList.toggle(ON, on);
+    }
   }
 
   // The slow synced pulse the selection settles into after its attention blinks;
@@ -550,7 +612,7 @@ window.RMX.overlay = (function () {
   // fastTick hands off to it via setTimeout once the fast attention blinks end.
   function slowTick() {
     blinkOn = !blinkOn;
-    document.querySelectorAll(`.${CLASS}.${SEL}`).forEach((el) => el.classList.toggle(ON, blinkOn));
+    paintFill(blinkOn);
     blinkTimer = setTimeout(slowTick, halfPeriod());
   }
 
@@ -558,12 +620,12 @@ window.RMX.overlay = (function () {
   // so every selected cell (and any cell mounted later) pulses in step.
   function settleIntoPulse() {
     inAttentionPhase = false;
-    document.querySelectorAll(`.${CLASS}.${SEL}`).forEach((el) => { el.style.transitionDuration = ''; });
-    schedulePins();
+    for (let k = 0; k < selCells.length; k++) selCells[k].style.transitionDuration = '';
+    schedulePins(true);
     if (!blinkPeriod) return holdLit(); // "constant" speed: light up and stay lit
     const elapsed = (Date.now() - blinkEpoch) % blinkPeriod;
     blinkOn = elapsed < halfPeriod();
-    document.querySelectorAll(`.${CLASS}.${SEL}`).forEach((el) => el.classList.toggle(ON, blinkOn));
+    paintFill(blinkOn);
     const timeUntilNext = blinkOn ? (halfPeriod() - elapsed) : (blinkPeriod - elapsed);
     blinkTimer = setTimeout(slowTick, timeUntilNext);
   }
@@ -571,7 +633,7 @@ window.RMX.overlay = (function () {
   // The "constant" end of the speed slider: the fill goes on and never comes off.
   function holdLit() {
     blinkOn = true;
-    document.querySelectorAll(`.${CLASS}.${SEL}`).forEach((el) => el.classList.add(ON));
+    paintFill(true);
   }
 
   // Re-time a live selection after the speed preference changes, so a slider move
@@ -607,7 +669,7 @@ window.RMX.overlay = (function () {
     let togglesLeft = ATTENTION_BLINKS * 2; // each blink = one on + one off toggle
     function fastTick() {
       blinkOn = !blinkOn;
-      document.querySelectorAll(`.${CLASS}.${SEL}`).forEach((el) => el.classList.toggle(ON, blinkOn));
+      paintFill(blinkOn);
       if (--togglesLeft > 0) {
         blinkTimer = setTimeout(fastTick, attentionPhaseMs());
         return;
@@ -667,23 +729,38 @@ window.RMX.overlay = (function () {
   // The scroll container the diff actually lives in: the nearest scrollable
   // ancestor of a tagged cell, else the document. Covers both the classic
   // whole-window scroll and the React diff's inner virtualized scroller.
+  //
+  // Cached: this walks ancestors calling getComputedStyle (a style flush) and
+  // used to run on every scroll frame. The container doesn't change within a
+  // page (a diff either scrolls the window or an inner box, never both), so
+  // resolve it once and hold it until clearAll rebuilds the diff; isConnected
+  // guards the rare re-mount.
+  let cachedHost = null;
   function scrollHost() {
+    if (cachedHost && cachedHost.isConnected) return cachedHost;
     const cell = document.querySelector('.' + CLASS);
     let el = cell && cell.parentElement;
     while (el && el !== document.body && el !== document.documentElement) {
       const oy = getComputedStyle(el).overflowY;
-      if ((oy === 'auto' || oy === 'scroll') && el.scrollHeight > el.clientHeight + 40) return el;
+      if ((oy === 'auto' || oy === 'scroll') && el.scrollHeight > el.clientHeight + 40) {
+        cachedHost = el;
+        return el;
+      }
       el = el.parentElement;
     }
-    return document.scrollingElement || document.documentElement;
+    cachedHost = document.scrollingElement || document.documentElement;
+    return cachedHost;
   }
 
-  // Every mounted, tagged cell for one refactoring (optionally one side). Empty
-  // when the refactoring's lines are all virtualized out or in a collapsed file.
+  // Every mounted, tagged cell for one refactoring (optionally one side). Reads
+  // the index paintAll builds (no document scan). Empty when the refactoring's
+  // lines are all virtualized out or in a collapsed file.
   function mountedCells(index, side) {
-    const sel = '.' + CLASS + '[data-rmx-index~="' + index + '"]' +
-      (side ? '[data-rmx-side="' + side + '"]' : '');
-    return Array.prototype.slice.call(document.querySelectorAll(sel));
+    const list = cellsByIndex.get(String(index));
+    if (!list) return [];
+    return list.filter(
+      (c) => c.isConnected && (!side || c.getAttribute('data-rmx-side') === side),
+    );
   }
 
   // One source line's number, from GitHub's own attribute or parsed off the
@@ -706,14 +783,17 @@ window.RMX.overlay = (function () {
 
   // Selected cells, one per source line — collapse each line's number + code
   // cells to one entry, keeping whichever holds the most text (the code cell).
+  // Reads the cached selection set (refreshEdges calls this on every scroll
+  // frame), so it never scans the whole document.
   function distinctSelected() {
     const byLine = {};
-    document.querySelectorAll('.' + CLASS + '.' + SEL).forEach((cell) => {
-      if (!lineNum(cell)) return; // unresolved line (e.g. a spacer) — nothing to count
+    for (let k = 0; k < selCells.length; k++) {
+      const cell = selCells[k];
+      if (!cell.isConnected || !lineNum(cell)) continue; // virtualized out, or a spacer
       const key = lineKey(cell);
       const len = (cell.textContent || '').length;
       if (!byLine[key] || len > byLine[key].len) byLine[key] = { cell, len };
-    });
+    }
     return Object.keys(byLine).map((k) => byLine[k].cell);
   }
 
@@ -772,9 +852,15 @@ window.RMX.overlay = (function () {
       : (pos + dir + navRows.length) % navRows.length;
     focus(navRows[pos].index);
   }
+  // What the pill currently shows; repaints re-run updateNav often, and an
+  // unchanged position shouldn't cost an innerHTML rebuild each time.
+  let navSig = null;
   function updateNav() {
     if (!navEl) return;
     const pos = navPos();
+    const sig = pos + '/' + navRows.length;
+    if (sig === navSig) return;
+    navSig = sig;
     if (pos === -1) {
       navMain.innerHTML = '<span class="rmx-nav-idle">Select a refactoring to trace it across the diff</span>';
       navCount.textContent = navRows.length ? '0 / ' + navRows.length : '';
@@ -818,29 +904,45 @@ window.RMX.overlay = (function () {
       mmTicks[r.index] = tick;
     });
   }
-  function refreshMinimap() {
+  // `relocate`: re-measure every mounted tick (the layout moved: a reveal, a
+  // resize, a selection change). A plain scroll passes false: a tick's position
+  // within the scroll CONTENT (rect.top - hostTop + scrollTop) is invariant as
+  // you scroll, so already-located ticks need no getBoundingClientRect at all;
+  // only ticks never located yet (their rows just mounted) get measured. Reads
+  // are gathered first and writes applied second, so measuring N ticks forces at
+  // most one reflow rather than one per tick.
+  function refreshMinimap(relocate) {
     if (!mmEl || !navRows.length) { if (mmEl) mmEl.classList.remove('rmx-show'); return; }
     const host = scrollHost();
     const isDoc = host === document.scrollingElement || host === document.documentElement || host === document.body;
-    const hostTop = isDoc ? 0 : host.getBoundingClientRect().top;
     const sh = host.scrollHeight, ch = host.clientHeight, st = host.scrollTop;
     if (sh <= ch + 40) { mmEl.classList.remove('rmx-show'); return; } // fits on screen — no map needed
+
+    // READ phase: measure only the ticks that actually need (re)placing.
+    const hostTop = isDoc ? 0 : host.getBoundingClientRect().top;
+    const measured = [];
+    navRows.forEach((r) => {
+      const tick = mmTicks[r.index];
+      if (!tick || (!relocate && tick.dataset.pct != null)) return; // held from before
+      const cell = mountedCells(r.index)[0];
+      if (cell) measured.push({ tick, top: cell.getBoundingClientRect().top });
+    });
+
+    // WRITE phase: nothing below reads layout, so the reads above never
+    // interleave with a style mutation. Position within the full scroll content
+    // is cached on the tick, so it holds its place after that line scrolls off
+    // and gets virtualized away.
     mmEl.classList.add('rmx-show');
+    measured.forEach(({ tick, top }) => {
+      const pct = Math.max(0, Math.min(1, (top - hostTop + st) / sh));
+      tick.dataset.pct = pct;
+      tick.style.top = (pct * 100) + '%';
+      tick.style.display = '';
+    });
     navRows.forEach((r) => {
       const tick = mmTicks[r.index];
       if (!tick) return;
-      const cell = mountedCells(r.index)[0];
-      if (cell) {
-        // Position within the full scroll content, cached so the tick holds its
-        // place after that line scrolls off and gets virtualized away.
-        const pos = cell.getBoundingClientRect().top - hostTop + st;
-        const pct = Math.max(0, Math.min(1, pos / sh));
-        tick.dataset.pct = pct;
-        tick.style.top = (pct * 100) + '%';
-        tick.style.display = '';
-      } else if (tick.dataset.pct == null) {
-        tick.style.display = 'none'; // never located yet
-      }
+      if (tick.dataset.pct == null) tick.style.display = 'none'; // never located yet
       tick.classList.toggle('rmx-mm-active', selectedIndices.indexOf(String(r.index)) !== -1);
     });
     mmThumb.style.top = (st / sh * 100) + '%';
@@ -927,21 +1029,40 @@ window.RMX.overlay = (function () {
   }
 
   /* ---- shared refresh (kept names so select()/applySelection() drive it) ---- */
-  function schedulePins() {
+  // `full` distinguishes the two triggers that share the frame budget:
+  //   • scroll (full=false) only moves the viewport, so it re-runs the
+  //     viewport-relative bits (edge chips, minimap thumb, any tick that just
+  //     became measurable) and nothing else; the nav pill and report-row
+  //     highlight don't move when you scroll, so refreshing them there was waste.
+  //   • a selection/nav/resize/reveal change (full=true) re-runs everything and
+  //     re-measures the minimap ticks, since the layout may have shifted.
+  // A full request always wins the coalesced frame.
+  let pendingFull = false;
+  function schedulePins(full) {
+    if (full) pendingFull = true;
     if (refreshRaf) return;
-    refreshRaf = requestAnimationFrame(() => { refreshRaf = null; updatePins(); });
+    refreshRaf = requestAnimationFrame(() => {
+      refreshRaf = null;
+      const runFull = pendingFull;
+      pendingFull = false;
+      if (runFull) updatePins(); else syncViewport();
+    });
+  }
+  function syncViewport() {
+    refreshEdges();
+    refreshMinimap(false);
   }
   function updatePins() {
     refreshEdges();
-    refreshMinimap();
+    refreshMinimap(true);
     updateNav();
     syncReportRow();
   }
   function clearPins() {
-    refreshEdges();    // no selection ⇒ both chips hide
-    refreshMinimap();  // drops the active-tick emphasis
-    updateNav();       // back to the idle prompt
-    syncReportRow();   // clear the current-row highlight
+    refreshEdges();        // no selection ⇒ both chips hide
+    refreshMinimap(false); // drops the active-tick emphasis (positions unchanged)
+    updateNav();           // back to the idle prompt
+    syncReportRow();       // clear the current-row highlight
   }
 
   // Focus one refactoring by feed index: reveal its file, blink it, and bring a
@@ -961,8 +1082,9 @@ window.RMX.overlay = (function () {
     ensureNav();
     buildMinimap();
     navEl.classList.toggle('rmx-show', navRows.length > 0);
+    navSig = null; // the rows changed: force the pill to re-render
     updateNav();
-    schedulePins();
+    schedulePins(true);
   }
   function teardownFocusUI() {
     [navEl, mmEl,
@@ -985,7 +1107,7 @@ window.RMX.overlay = (function () {
   function scrollToCounterpart(cell, indices) {
     const side = cell.getAttribute('data-rmx-side');
     for (let k = 0; k < indices.length; k++) {
-      const matches = document.querySelectorAll(`.${CLASS}[data-rmx-index~="${indices[k]}"]`);
+      const matches = mountedCells(indices[k]);
       for (let j = 0; j < matches.length; j++) {
         if (matches[j].getAttribute('data-rmx-side') !== side) {
           if (!inViewport(matches[j])) matches[j].scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -1063,8 +1185,16 @@ window.RMX.overlay = (function () {
     tip.className = TIP;
     document.body.appendChild(tip);
     window.__rmxTip = tip;
+    // mouseover fires once per element entered, so moving along a single diff
+    // line raises one event per token span, all resolving to the same cell.
+    // Recompute (and reflow, via offsetHeight/Width below) only when the cell
+    // actually changes; a move within the same cell, or across unhighlighted
+    // code, does nothing.
+    let tipCell = null;
     document.addEventListener('mouseover', (e) => {
       const cell = e.target.closest && e.target.closest('.' + CLASS);
+      if (cell === tipCell) return;
+      tipCell = cell;
       if (!cell) {
         tip.style.opacity = 0;
         return;
@@ -1098,14 +1228,15 @@ window.RMX.overlay = (function () {
       scrollToCounterpart(cell, indices);
     });
     // Re-place the pinned bars as the user scrolls/resizes (capture so we catch
-    // scrolling from any inner container, not just the window).
-    window.addEventListener('scroll', schedulePins, true);
-    window.addEventListener('resize', schedulePins);
+    // scrolling from any inner container, not just the window). Scroll takes the
+    // light path (viewport only); resize re-measures, since the layout reflows.
+    window.addEventListener('scroll', () => schedulePins(false), true);
+    window.addEventListener('resize', () => schedulePins(true));
   }
 
   // Scroll to and flash a refactoring by its feed index (for ?rm= deep links).
   function scrollToRefactoring(index) {
-    const cell = document.querySelector(`.${CLASS}[data-rmx-index~="${index}"]`);
+    const cell = mountedCells(index)[0];
     if (!cell) return false;
     cell.scrollIntoView({ behavior: 'smooth', block: 'center' });
     cell.classList.add(FLASH);
@@ -1249,8 +1380,14 @@ window.RMX.overlay = (function () {
   }
 
   // Mark the report row of the current selection, so stepping in the navigator or
-  // clicking a minimap tick highlights the matching row here too.
+  // clicking a minimap tick highlights the matching row here too. Skipped when
+  // the selection hasn't changed: with hundreds of rows, re-toggling them all
+  // on every repaint frame was pure waste.
+  let rpSyncSig = null;
   function syncReportRow() {
+    const sig = selectedIndices.join(' ');
+    if (sig === rpSyncSig) return;
+    rpSyncSig = sig;
     Object.keys(rpItems).forEach((idx) => {
       rpItems[idx].classList.toggle('rmx-rp-cur', selectedIndices.indexOf(idx) !== -1);
     });
@@ -1313,6 +1450,7 @@ window.RMX.overlay = (function () {
       body.appendChild(item);
       rpItems[String(row.index)] = item;
     });
+    rpSyncSig = null; // fresh rows carry no current-row mark yet, so force a sync
     syncReportRow();
   }
 
@@ -1327,7 +1465,7 @@ window.RMX.overlay = (function () {
   }
 
   return {
-    ensureStyle, clearAll, startPass, endPass, highlightRange, installTooltip,
+    ensureStyle, clearAll, setPlan, paintAll, installTooltip,
     select, applySelection, clearSelection, scrollToRefactoring, setTargets, setRepaint,
     showReport, reportLoading, reportError, hideReport,
   };
