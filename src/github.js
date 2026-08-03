@@ -22,6 +22,71 @@ window.RMX.github = (function () {
     return hex;
   }
 
+  // --- cell identity, both directions ---------------------------------------
+  // lineCells answers "where are the cells for (file, side, line)?", a lookup
+  // BY identity. cellIdentity answers the inverse, "which (file, side, line) is
+  // this mounted cell showing?", parsed OUT of the cell, so a single scan of
+  // the page can be matched against a precomputed plan instead of running one
+  // document query per refactoring line (the O(refactorings × document) walk
+  // that made big pages crawl).
+
+  // Shared key for anything stored per (file, side, line).
+  function cellKey(digest, side, line) {
+    return digest + '|' + side + '|' + line;
+  }
+
+  // Every element that could be a diff line cell in any of the three UIs. The
+  // `[id^="diff-"]` arm also matches file containers and anchor links, but those
+  // fail cellIdentity's parse and drop out.
+  const CANDIDATE_CELL_SEL =
+    '[data-diff-side][data-line-number], [data-line-anchor^="diff-"], [data-grid-cell-id^="diff-"], [id^="diff-"]';
+
+  function candidateCells() {
+    return document.querySelectorAll(CANDIDATE_CELL_SEL);
+  }
+
+  // The (digest, side, line) a mounted cell is currently showing, or null when
+  // the element isn't a line cell. Mirrors lineCells' keying schemes exactly:
+  //   • /changes React split: data-diff-side + data-line-number are the truth
+  //     (the row anchor is shared and carries only the file digest);
+  //   • commit React diff / classic: parse the unique diff-<digest><L|R><line>
+  //     anchor, rejecting a side-class contradiction (the defensive scoping
+  //     lineCells applies for a split view that shares anchors).
+  function cellIdentity(el) {
+    const ds = el.getAttribute('data-diff-side');
+    if (ds) {
+      const line = parseInt(el.getAttribute('data-line-number'), 10);
+      if (!line) return null;
+      const anchor = el.getAttribute('data-line-anchor') || el.getAttribute('data-grid-cell-id') || '';
+      const m = /^diff-([0-9a-f]{64})/.exec(anchor);
+      if (!m) return null;
+      return { digest: m[1], side: ds === 'left' ? 'L' : 'R', line };
+    }
+    const key = el.getAttribute('data-line-anchor') || el.getAttribute('data-grid-cell-id') || el.id || '';
+    const m = /^diff-([0-9a-f]{64})([LR])(\d+)$/.exec(key);
+    if (!m) return null;
+    if (el.classList.contains('left-side-diff-cell') && m[2] !== 'L') return null;
+    if (el.classList.contains('right-side-diff-cell') && m[2] !== 'R') return null;
+    return { digest: m[1], side: m[2], line: parseInt(m[3], 10) };
+  }
+
+  // Resolved cells, memoized by cellKey. The reveal/selection paths re-ask for
+  // the same lines constantly (every unfold poll, every visibility probe), and
+  // each miss costs up to three document-wide queries. Entries are revalidated
+  // by IDENTITY, not just isConnected: the React diff recycles nodes (a still-
+  // connected cell may have been rewritten to show a different line), so a
+  // cached cell must parse back to the same (digest, side, line) before it can
+  // be trusted. Only non-empty results are stored: an empty [] means "not
+  // mounted yet" (folded / virtualized / collapsed), and revealLine may mount
+  // it later, so caching the miss would pin the line dark forever.
+  const cellCache = new Map();
+
+  function cellStillShows(el, digest, side, line) {
+    if (!el.isConnected) return false;
+    const id = cellIdentity(el);
+    return !!id && id.digest === digest && id.side === side && id.line === line;
+  }
+
   // The diff cells for one (file, side, line), or [] if that line isn't mounted
   // (the React diff virtualizes off-screen rows).
   //
@@ -34,6 +99,16 @@ window.RMX.github = (function () {
   // scope to the file via the digest prefix on data-line-anchor / data-grid-cell-id.
   // The classic /files view (unique element id per cell) is the fallback.
   function lineCells(digest, side, line) {
+    const key = cellKey(digest, side, line);
+    const cached = cellCache.get(key);
+    if (cached && cached.every((el) => cellStillShows(el, digest, side, line))) return cached;
+    const cells = resolveLineCells(digest, side, line);
+    if (cells.length) cellCache.set(key, cells);
+    else cellCache.delete(key);
+    return cells;
+  }
+
+  function resolveLineCells(digest, side, line) {
     // PR /changes (React split): disambiguate the shared row anchor via the
     // cell's own side + line, scoped to the file by the digest prefix.
     const sideAttr = side === 'L' ? 'left' : 'right';
@@ -542,8 +617,12 @@ window.RMX.github = (function () {
   }
 
   function resetCache() {
-    // Digests are pure functions of the path; nothing to reset between renders.
+    // Digests are pure functions of the path, so digestCache never goes stale.
+    // The cell cache does: a navigation replaces the whole diff DOM, and though
+    // identity revalidation would reject every stale entry, clearing here keeps
+    // the map from carrying dead keys (and detached nodes) across pages.
+    cellCache.clear();
   }
 
-  return { fileDigest, lineCells, revealLine, resetCache };
+  return { fileDigest, lineCells, cellKey, cellIdentity, candidateCells, revealLine, resetCache };
 })();

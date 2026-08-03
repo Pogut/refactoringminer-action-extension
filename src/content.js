@@ -193,14 +193,23 @@ window.RMX = window.RMX || {};
 
   // --- rendering ------------------------------------------------------------
 
-  // `additive` re-paints without clearing first — used by the scroll observer so
-  // the tagged cells and the neon selection (and its fade) aren't disturbed as
-  // the virtualized diff mounts new rows.
-  async function render(refactorings, additive) {
-    if (!additive) RMX.overlay.clearAll();
-    RMX.overlay.installTooltip();
+  // The paint plan is pure data compiled from the feed ONCE per page: every
+  // (file digest, side, line) any refactoring paints on, keyed for O(1) lookup
+  // while the overlay scans the mounted cells. Memoized on the refactorings
+  // array's identity, so the scroll repaints (which used to re-derive every
+  // range and re-query the document per line) reuse it as-is. This is what
+  // keeps a 1000-refactoring page painting at the same cost as a 2-refactoring
+  // one: the per-paint work depends only on how many cells are on screen.
+  let planCache = { source: null, promise: null };
+  function planFor(refactorings) {
+    if (planCache.source !== refactorings) {
+      planCache = { source: refactorings, promise: buildPlan(refactorings) };
+    }
+    return planCache.promise;
+  }
 
-    // Precompute each file's digest (sha256(path)) once so tagging is sync.
+  async function buildPlan(refactorings) {
+    // Precompute each file's digest (sha256(path)) once so key building is sync.
     const paths = new Set();
     refactorings.forEach((r) => {
       (r.leftSideLocations || []).forEach((cr) => paths.add(cr.filePath));
@@ -213,33 +222,53 @@ window.RMX = window.RMX || {};
       }),
     );
 
-    // Hand the overlay every line each refactoring paints on, so a selection can
-    // reveal the ones GitHub hid — a collapsed file, or a hunk folded because
-    // GitHub sees those lines as unchanged — before it blinks.
-    RMX.overlay.setTargets(selectTargets(refactorings, digests));
-
-    let tagged = 0;
-    // Track every cell this pass tags, then drop tags left on cells that
-    // virtualization recycled to a non-target line (see overlay.startPass).
-    RMX.overlay.startPass();
+    const byKey = new Map();
+    const descByIndex = {};
     refactorings.forEach((r, index) => {
       const summary = summarize(r);
+      descByIndex[String(index)] = summary;
       effectiveRanges(r, digests).forEach((range) => {
-        tagged += RMX.overlay.highlightRange({
-          digest: range.digest,
-          side: range.side,
-          startLine: range.startLine,
-          endLine: range.endLine,
-          filePath: range.filePath,
-          summary,
-          index,
-        });
+        for (let line = range.startLine; line <= range.endLine; line++) {
+          const key = RMX.github.cellKey(range.digest, range.side, line);
+          let entry = byKey.get(key);
+          if (!entry) {
+            entry = { filePath: range.filePath, contribs: [] };
+            byKey.set(key, entry);
+          }
+          // `trailing` marks the closing line of a multi-line range, which the
+          // overlay trims when it lands on the NEXT declaration (the inclusive
+          // ranges RefactoringMiner emits overshoot in indent-based languages).
+          entry.contribs.push({
+            index: String(index),
+            summary,
+            trailing: line === range.endLine && line !== range.startLine,
+          });
+        }
       });
     });
-    RMX.overlay.endPass();
 
+    return {
+      byKey,
+      descByIndex,
+      // Every line a selection has to make visible before it can blink whole:
+      // the overlay walks these through GitHub's reveal controls (see selectTargets).
+      targets: selectTargets(refactorings, digests),
+    };
+  }
+
+  // `additive` re-paints without clearing first: used by the mutation observer
+  // so the tagged cells and the neon selection (and its fade) aren't disturbed
+  // as the virtualized diff mounts new rows.
+  async function render(refactorings, additive) {
+    if (!additive) RMX.overlay.clearAll();
+    RMX.overlay.installTooltip();
+
+    const plan = await planFor(refactorings);
+    RMX.overlay.setTargets(plan.targets);
+    RMX.overlay.setPlan(plan);
+    const tagged = RMX.overlay.paintAll();
     RMX.overlay.applySelection(); // re-apply neon selection to any newly mounted cells
-    console.info(`[RMX] ${refactorings.length} refactorings, ${tagged} line-spans tagged`);
+    if (!additive) console.info(`[RMX] ${refactorings.length} refactorings, ${tagged} lines tagged`);
     handleDeepLink();
   }
 
@@ -385,20 +414,60 @@ window.RMX = window.RMX || {};
   // observer's debounce below catches up.
   RMX.overlay.setRepaint(() => (currentRefactorings ? render(currentRefactorings, true) : null));
 
-  // The /changes diff is virtualized: rows mount as you scroll. Re-tag
-  // (debounced) when the diff DOM grows, so newly mounted lines get tagged.
-  // We observe childList only, so our own class/attribute writes don't re-trigger.
+  // The /changes diff is virtualized: rows mount, unmount, and get RECYCLED (an
+  // existing node rewritten to show a different line) as you scroll. Re-paints
+  // are coalesced to one per animation frame (each is a single scan of the
+  // mounted cells against the plan Map, cheap enough to run at frame rate), so
+  // newly mounted lines light up immediately instead of after the old 250ms
+  // debounce (the "late/blinking highlights while scrolling" artifact). The
+  // attribute filter catches recycling, which rewrites a cell's identity
+  // attributes without any childList change; our own writes (class, data-rmx-*)
+  // are outside the filter, so painting never re-triggers the observer.
   let observer = null;
-  let repaintTimer = null;
+  let paintQueued = false;
+  function schedulePaint() {
+    if (paintQueued) return;
+    paintQueued = true;
+    requestAnimationFrame(() => {
+      paintQueued = false;
+      if (currentRefactorings) render(currentRefactorings, true);
+    });
+  }
+
+  // Mutations inside our own UI (the report panel, navigator, minimap, tooltip)
+  // can't contain diff cells; skipping them keeps hover/typing in the panel from
+  // scheduling pointless repaints.
+  const OWN_UI = '#rmx-report, #rmx-nav, #rmx-minimap, .rmx-edge, .rmx-tip';
+  function isOwnNode(n) {
+    return n.nodeType === 1 && typeof n.matches === 'function' &&
+      n.matches('[id^="rmx-"], [class*="rmx-"]');
+  }
+  function relevantMutation(m) {
+    const t = m.target;
+    if (t && t.nodeType === 1 && t.closest && t.closest(OWN_UI)) return false;
+    if (m.type === 'childList') {
+      const nodes = [];
+      m.addedNodes.forEach((n) => nodes.push(n));
+      m.removedNodes.forEach((n) => nodes.push(n));
+      return nodes.some((n) => !isOwnNode(n));
+    }
+    return true;
+  }
+
   function observe() {
     if (observer) return;
-    observer = new MutationObserver(() => {
-      clearTimeout(repaintTimer);
-      repaintTimer = setTimeout(() => {
-        if (currentRefactorings) render(currentRefactorings, true);
-      }, 250);
+    observer = new MutationObserver((mutations) => {
+      if (!currentRefactorings) return;
+      for (let i = 0; i < mutations.length; i++) {
+        if (relevantMutation(mutations[i])) return schedulePaint();
+      }
     });
-    observer.observe(document.body, { childList: true, subtree: true });
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['data-line-number', 'data-line-anchor', 'data-grid-cell-id', 'data-diff-side', 'id'],
+    });
   }
 
   let scheduleTimer = null;
