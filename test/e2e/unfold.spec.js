@@ -237,3 +237,72 @@ test('a fold that opens a slice at a time is walked until the line appears', asy
   expect(clicks).toBeGreaterThan(1);
   expect(clicks).toBeLessThanOrEqual(6); // bounded — never an unfold loop
 });
+
+test('the fold scope widens past the row that merely holds an expander', async ({ page }) => {
+  // Measured on a live 1,000-file commit: the climb from a mounted cell stopped
+  // at the <tr> that carries the hunk's expand buttons. That row holds no line
+  // of the target side, so foldGaps saw one 0..Infinity gap and the walk clicked
+  // whichever expander was there — the wrong end of the file, spending one of
+  // the six rounds. The scope has to keep widening until it can actually place
+  // the fold, i.e. until it holds a line of that side.
+  await page.evaluate((d) => {
+    window.__clicked = [];
+    const table = document.createElement('table');
+    const tbody = document.createElement('tbody');
+    table.appendChild(tbody);
+    document.body.appendChild(table);
+
+    const cellFor = (side, n) => {
+      const td = document.createElement('td');
+      td.setAttribute('data-line-anchor', `diff-${d}${side}${n}`);
+      td.textContent = `line ${n}`;
+      return td;
+    };
+    const lineRow = (side, n) => {
+      const tr = document.createElement('tr');
+      tr.appendChild(cellFor(side, n));
+      return tr;
+    };
+    const button = (label, onClick) => {
+      const btn = document.createElement('button');
+      btn.setAttribute('aria-label', label);
+      btn.style.display = 'block';
+      btn.style.height = '20px';
+      btn.addEventListener('click', () => { window.__clicked.push(label); onClick(btn); });
+      return btn;
+    };
+
+    // The shape measured live: the file's FIRST cell sits in a row that also
+    // carries an expander — and that cell is the LEFT side, while the line we
+    // want is on the right. One level of climb therefore reaches a control but
+    // no right-side line to place the fold against.
+    const head = document.createElement('tr');
+    head.appendChild(cellFor('L', 17));
+    const headTd = document.createElement('td');
+    headTd.appendChild(button('Expand file up from line 17', () => {}));
+    head.appendChild(headTd);
+    tbody.appendChild(head);
+
+    [17, 18, 49].forEach((n) => tbody.appendChild(lineRow('R', n)));
+    const gapRow = document.createElement('tr');
+    const gapTd = document.createElement('td');
+    gapTd.appendChild(button('Expand file from line 49 to line 53', () => {
+      setTimeout(() => { tbody.insertBefore(lineRow('R', 50), gapRow); }, 40);
+    }));
+    gapRow.appendChild(gapTd);
+    tbody.appendChild(gapRow);
+    [53, 54].forEach((n) => tbody.appendChild(lineRow('R', n)));
+  }, DIGEST);
+
+  const out = await page.evaluate(
+    async (d) => ({
+      cells: (await RMX.github.revealLine(d, 'R', 50)).length,
+      clicked: window.__clicked,
+    }),
+    DIGEST,
+  );
+
+  expect(out.cells).toBeGreaterThan(0);
+  // The very first click must be the expander that actually spans line 50.
+  expect(out.clicked[0]).toBe('Expand file from line 49 to line 53');
+});
