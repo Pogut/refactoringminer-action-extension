@@ -236,19 +236,32 @@ window.RMX.github = (function () {
   // a miss falls through to the next, and a total miss returns what the old
   // code would have returned, so nothing regresses when GitHub moves things.
   //   1. id="diff-<digest>"          — the classic file box.
-  //   2. data-anchor / data-diff-anchor / an href ending in #diff-<digest>
-  //                                  — the classic file header sets data-anchor;
-  //                                    file-tree and permalink entries carry the href.
+  //   2. data-anchor / data-diff-anchor — the file's OWN container, in the
+  //                                    classic header and the React diff alike.
   //   3. the file path, which the feed gives us, against the attributes GitHub
   //      renders it into (data-tagsearch-path and data-path on the classic
   //      header) or a title/aria-label that spells it out.
-  //   4. the old climb from a mounted cell.
+  //   4. a link pointing at the file — the file-tree entry or a permalink.
+  //   5. the old climb from a mounted cell.
+  //
+  // Step 4 has to stay LAST. It used to share step 2's querySelector, and since
+  // the file tree is rendered before the diff, that one call always returned the
+  // sidebar entry: a link with no "Load diff" button, no chevron and no rows
+  // under it. Every caller below then searched inside that link and found
+  // nothing, which is what made a large file — the ones GitHub parks behind
+  // "Large diffs are not rendered by default" — permanently unreachable.
+  function fileBox(digest) {
+    const anchor = 'diff-' + digest;
+    return document.getElementById(anchor) ||
+      document.querySelector(`[data-anchor="${anchor}"], [data-diff-anchor="${anchor}"]`);
+  }
+
   function fileRoot(digest, filePath) {
     const anchor = 'diff-' + digest;
     const byId = document.getElementById(anchor);
     if (byId) return byId;
     const byAnchor = document.querySelector(
-      `[data-anchor="${anchor}"], [data-diff-anchor="${anchor}"], a[href$="#${anchor}"]`,
+      `[data-anchor="${anchor}"], [data-diff-anchor="${anchor}"]`,
     );
     if (byAnchor) return fileBoxOf(byAnchor);
     if (filePath) {
@@ -258,6 +271,8 @@ window.RMX.github = (function () {
       );
       if (byPath) return fileBoxOf(byPath);
     }
+    const byHref = document.querySelector(`a[href$="#${anchor}"]`);
+    if (byHref) return fileBoxOf(byHref);
     return fileContainer(digest);
   }
 
@@ -368,11 +383,30 @@ window.RMX.github = (function () {
     return Array.prototype.some.call(document.querySelectorAll(rowSelector(digest)), isRendered);
   }
 
+  // Does `el` hold a line cell of this file on the side we're unfolding? The
+  // stop condition below needs it: a scope with no line of that side gives
+  // foldGaps nothing to measure against, so every fold in it collapses into one
+  // 0..Infinity "gap" and the control choice is a guess.
+  function hasSideCell(el, digest, side) {
+    return Array.prototype.some.call(
+      el.querySelectorAll(CELL_SEL),
+      (c) => cellLine(c, digest, side) > 0,
+    );
+  }
+
   // The subtree to look for this file's folds in: its element when GitHub gives
   // us one, else the smallest ancestor of a mounted cell that reaches an unfold
   // control without reaching into the next file. Climbing rather than matching a
   // wrapper class is what keeps this alive across GitHub's UI rewrites.
-  function fileScope(digest) {
+  //
+  // Stopping at the first ancestor holding ANY expander was too eager: on a
+  // large commit the climb starts at a cell whose own <tr> is the hunk header
+  // carrying the expand buttons, so it stopped one row up. That row has no line
+  // of the target side in it, so foldGaps saw a single 0..Infinity gap and the
+  // walk clicked whichever expander was there — the wrong end of the file,
+  // burning one of the six rounds. So a scope only counts as "wide enough" once
+  // it also holds a line of that side to place the fold against.
+  function fileScope(digest, side) {
     const byId = document.getElementById('diff-' + digest);
     if (byId) return byId;
     let el = anyRow(digest);
@@ -382,7 +416,8 @@ window.RMX.github = (function () {
       el = el.parentElement;
       if (hasForeignRows(el, digest)) break;
       best = el;
-      if (el.querySelector(EXPANDER_SEL)) break; // a control is in reach — stop widening
+      // A control is in reach AND we can tell where the fold sits — stop widening.
+      if (el.querySelector(EXPANDER_SEL) && (!side || hasSideCell(el, digest, side))) break;
     }
     return best;
   }
@@ -498,6 +533,71 @@ window.RMX.github = (function () {
     return best;
   }
 
+  // --- files the virtualized diff has not mounted --------------------------
+  // A diff with hundreds of files is virtualized per FILE, not just per row:
+  // GitHub sizes a placeholder for every file and keeps only the handful around
+  // the viewport in the DOM (a 1000-file commit mounts about five). For all the
+  // others there is no row, no id="diff-<digest>" box and no fold control, so
+  // every step of revealLine below (they all start from one of those) finds
+  // nothing, the selection tags no cells, and clicking the refactoring looks
+  // completely dead.
+  //
+  // GitHub mounts a file on demand when its own anchor is navigated to. Drive
+  // that (the file-tree entry, or the bare #diff-<digest> hash when the tree is
+  // hidden) and the rows appear at their real position in the document, where
+  // the rest of the machinery, and the caller's scroll, can reach them.
+  // The FILE anchor, never a line anchor: `#diff-<digest><L|R><line>` is what
+  // the action's own comment deep links use, and firing one here would re-enter
+  // content.js's hashchange handler in the middle of a selection.
+
+  // The file's own in-page anchor. Matched exactly, so this can only ever be a
+  // jump within the view being read: a tree entry that spells out a path
+  // (`…/pull/1/files#diff-<digest>`) would navigate away, and the hash fallback
+  // reaches the same file without that risk.
+  function fileAnchorLink(digest) {
+    return document.querySelector(`a[href="#diff-${digest}"]`);
+  }
+
+  // Drive the file's anchor. A plain click() is enough on a settled page, but a
+  // huge diff hydrates for many seconds and a bare synthetic click fired in that
+  // window gets swallowed; the full pointer sequence (what a real click emits)
+  // is what got through in testing against a 1,000-file commit, so retries use it.
+  function driveAnchor(link, thorough) {
+    if (!thorough) return link.click();
+    ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach((type) => {
+      link.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window, button: 0 }));
+    });
+  }
+
+  // Enough of the file is on the page to work with: either its rows, or just its
+  // container. The container alone counts because a file GitHub parked behind
+  // "Load diff" mounts with NO line cells at all, and waiting for rows there
+  // would burn the whole polling budget on a file that is already as mounted as
+  // it is going to get without that button being pressed.
+  function filePresent(digest) {
+    return !!(anyRow(digest) || fileBox(digest));
+  }
+
+  // Ask GitHub to mount a file it has virtualized away, and wait for it to land.
+  // Retried: against the live 1,000-file commit a mount was measured taking over
+  // 4s (past a single 2s poll), and a click can be lost outright while the page
+  // is still measuring itself — so the anchor is driven up to `attempts` times.
+  async function mountFile(digest, tries = 20, delay = 100, attempts = 3) {
+    if (filePresent(digest)) return true;
+    const hash = '#diff-' + digest;
+    for (let a = 0; a < attempts; a++) {
+      const link = fileAnchorLink(digest);
+      if (link) driveAnchor(link, a > 0);
+      else if (window.location.hash !== hash) window.location.hash = hash;
+      else return false; // already pointed here and still not mounted: nothing left to drive
+      for (let n = tries; n > 0; n--) {
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        if (filePresent(digest)) return true;
+      }
+    }
+    return false;
+  }
+
   // Resolve once (file, side, line) is rendered, polling briefly while the
   // clicked control's async load lands. Resolves to the cells, or [] on timeout.
   // Rendered, not merely present: a collapsed file's rows are in the DOM at
@@ -522,7 +622,7 @@ window.RMX.github = (function () {
     for (let n = 12; ; n--) {
       const cells = visibleCells(digest, side, line);
       if (cells.length) return cells;
-      if (!host.isConnected) host = fileScope(digest);
+      if (!host.isConnected) host = fileScope(digest, side);
       const gap = host && gapFor(host, digest, side, line);
       if (!gap || gapSig(gap) !== sig || n <= 0) return [];
       await new Promise((resolve) => setTimeout(resolve, 100));
@@ -579,7 +679,22 @@ window.RMX.github = (function () {
       if (!anyRenderedRow(digest)) duds.add(opener);
     }
 
-    const file = fileContainer(digest) || root;
+    // Still not a single row of this file anywhere: the diff has virtualized the
+    // whole file away, so there is nothing here to expand, load or unfold yet.
+    // Have GitHub mount it first, then take the normal route. Runs after the
+    // expand attempt above so a file that is merely collapsed (its rows present)
+    // never pays for this.
+    if (!anyRow(digest)) {
+      await mountFile(digest);
+      cells = visibleCells(digest, side, line);
+      if (cells.length) return cells;
+    }
+
+    // Re-resolved rather than reusing `root`: that was looked up before
+    // mountFile ran, when a virtualized file had no container on the page yet.
+    // fileContainer needs a mounted cell, which a "Load diff" file has none of,
+    // so fileRoot's container lookup is what finds those.
+    const file = fileContainer(digest) || fileRoot(digest, filePath) || root;
     if (file) {
       // Bring the file to the viewport only when NONE of it is rendered — a
       // virtualized page mounts nothing for a file that's far off screen. Doing
@@ -597,7 +712,7 @@ window.RMX.github = (function () {
     // gap and its controls are new nodes every time.
     let lastSig = '';
     for (let round = 0; round < MAX_UNFOLD_ROUNDS; round++) {
-      const scope = fileScope(digest);
+      const scope = fileScope(digest, side);
       const gap = scope && gapFor(scope, digest, side, line);
       if (!gap) break;
       const sig = gapSig(gap);
@@ -611,7 +726,7 @@ window.RMX.github = (function () {
     }
 
     // Targeted unfolding didn't place it — fall back to opening the whole file.
-    const whole = fileContainer(digest) || root;
+    const whole = file || fileContainer(digest) || root;
     if (whole && expandAll(whole)) return waitForLine(digest, side, line);
     return visibleCells(digest, side, line);
   }

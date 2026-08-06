@@ -527,10 +527,26 @@ window.RMX.overlay = (function () {
   // click into a long burst of unfold requests.
   const MAX_REVEALS_PER_FILE = 12;
 
+  // The location a selection should land on: the first target of the first
+  // index. content.js emits the right ("after") side first, which is where a
+  // reader wants to be taken.
+  function primaryTarget(indices) {
+    for (let k = 0; k < indices.length; k++) {
+      const t = targetsFor(indices[k])[0];
+      if (t) return t;
+    }
+    return null;
+  }
+
   // Reveal each selected refactoring's hidden lines. Grouped by file and walked
   // in order within one — unfolding for a line usually mounts its neighbours
-  // too, so later targets in that file resolve without another click — while
-  // separate files run in parallel, being independent.
+  // too, so later targets in that file resolve without another click.
+  //
+  // Files are walked one after another rather than in parallel: on a large diff
+  // a file that isn't mounted is reached by navigating GitHub's own file anchor,
+  // and two of those in flight at once means the second supersedes the first,
+  // leaving it to time out. They're independent in every other respect, and a
+  // refactoring spans one or two files, so the ordering costs next to nothing.
   async function ensureRevealed(indices) {
     const byFile = {};
     indices.forEach((i) => {
@@ -538,12 +554,23 @@ window.RMX.overlay = (function () {
         (byFile[t.digest] = byFile[t.digest] || []).push(t);
       });
     });
-    await Promise.all(
-      Object.keys(byFile).map(async (digest) => {
-        const targets = byFile[digest].slice(0, MAX_REVEALS_PER_FILE);
-        for (const t of targets) await RMX.github.revealLine(t.digest, t.side, t.line, t.filePath);
-      }),
-    );
+    // The primary file goes LAST. On a big diff, opening a file navigates to it,
+    // and the virtualizer then unmounts whatever is now far away — including a
+    // file this same call just opened. Measured on a 1,000-file commit: a
+    // refactoring spanning two "Load diff" files loaded the first one's 1,208
+    // rows, then opening the second threw every one of them back out, so the
+    // repaint below tagged nothing and the click looked dead. Revealing the file
+    // we're about to scroll to last means it is the one still standing.
+    const primary = primaryTarget(indices);
+    const order = Object.keys(byFile);
+    if (primary && order.indexOf(primary.digest) !== -1) {
+      order.splice(order.indexOf(primary.digest), 1);
+      order.push(primary.digest);
+    }
+    for (const digest of order) {
+      const targets = byFile[digest].slice(0, MAX_REVEALS_PER_FILE);
+      for (const t of targets) await RMX.github.revealLine(t.digest, t.side, t.line, t.filePath);
+    }
   }
 
   // content.js's additive re-paint, so a selection can tag the lines an unfold
@@ -1065,12 +1092,90 @@ window.RMX.overlay = (function () {
     syncReportRow();       // clear the current-row highlight
   }
 
+  // Bring a cell into view. Smooth for a target a screen or two away (that
+  // motion is what tells the user where they were taken from), but a straight
+  // jump for a distant one: a large diff mounts a far-off file at its true
+  // position, which can be hundreds of thousands of pixels down the page, and
+  // animating that ride mounts and unmounts every file in between.
+  const NEAR_SCREENS = 2;
+  function scrollCellIntoView(cell) {
+    const vh = window.innerHeight || document.documentElement.clientHeight;
+    const top = cell.getBoundingClientRect().top;
+    const far = top < -NEAR_SCREENS * vh || top > (NEAR_SCREENS + 1) * vh;
+    cell.scrollIntoView({ behavior: far ? 'auto' : 'smooth', block: 'center' });
+    return far;
+  }
+  // A far target means its file was just mounted at its TRUE document position —
+  // hundreds of thousands of pixels away on a 1,000-file commit — and no single
+  // scroll can get there: the virtualizer catches any long programmatic scroll
+  // and rubber-bands it back to the edge of what it has measured, letting the
+  // viewport advance only as fast as it measures files in between (~30k px/s,
+  // measured live). GitHub is bound by the same limit — its own tree-click glide
+  // and even a fresh page load on the file's #diff- anchor both stop hundreds of
+  // thousands of pixels short. The only thing that ARRIVES is to keep re-issuing
+  // the seek until the target reads as near, so that's what travel() does, at a
+  // cadence the re-measuring can absorb. Mid-page on that commit this takes
+  // ~20-25s; any real user input (wheel, key, pointer) cancels it, as does a
+  // newer travel, so the user is never trapped in the ride.
+  const TRAVEL_STEP_MS = 100;
+  const TRAVEL_MAX_MS = 60000;
+  let travelToken = 0; // bumped to cancel the crawl in flight
+  function cancelTravel() {
+    travelToken++;
+  }
+  // User input takes the wheel back. Capture-phase on window so no page handler
+  // can swallow it; our own scrollTop writes fire none of these events.
+  function watchTravelCancel() {
+    if (window.__rmxTravelWatch) return;
+    window.__rmxTravelWatch = true;
+    ['wheel', 'touchstart', 'keydown', 'mousedown'].forEach((type) => {
+      window.addEventListener(type, cancelTravel, { capture: true, passive: true });
+    });
+  }
+  async function travel(cell) {
+    watchTravelCancel();
+    const token = ++travelToken;
+    const host = scrollHost();
+    const isDoc = host === document.scrollingElement || host === document.documentElement || host === document.body;
+    const deadline = Date.now() + TRAVEL_MAX_MS;
+    while (token === travelToken && cell.isConnected && Date.now() < deadline) {
+      const vh = window.innerHeight || document.documentElement.clientHeight;
+      const top = cell.getBoundingClientRect().top;
+      if (top > -NEAR_SCREENS * vh && top < (NEAR_SCREENS + 1) * vh) {
+        cell.scrollIntoView({ behavior: 'smooth', block: 'center' }); // arrived — centre and stop
+        return;
+      }
+      const hostRect = isDoc ? { top: 0, height: vh } : host.getBoundingClientRect();
+      host.scrollTop += top - (hostRect.top + hostRect.height / 2);
+      await new Promise((resolve) => setTimeout(resolve, TRAVEL_STEP_MS));
+    }
+  }
+  function scrollToCell(cell) {
+    if (!scrollCellIntoView(cell)) return; // near: one smooth centring, done
+    travel(cell);
+  }
+
+  // Re-open the refactoring's landing spot and re-tag it. The safety net for a
+  // selection whose reveals were all undone before they could be painted: on a
+  // virtualized diff the page moves while later targets are being opened, and
+  // rows that existed a moment ago are gone by the time the repaint runs. One
+  // more reveal of just the primary location, with nothing after it to scroll
+  // the page away again, is what makes "open the file AND highlight it" hold.
+  async function revealPrimary(index) {
+    const t = primaryTarget([String(index)]);
+    if (!t) return null;
+    await RMX.github.revealLine(t.digest, t.side, t.line, t.filePath);
+    if (repaint) await repaint();
+    applySelection();
+    return mountedCells(index)[0] || null;
+  }
+
   // Focus one refactoring by feed index: reveal its file, blink it, and bring a
   // mounted line into view. Shared by the report rows, navigator, and minimap.
   async function focus(index) {
     await select([String(index)]);
-    const cell = mountedCells(index)[0];
-    if (cell) cell.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    const cell = mountedCells(index)[0] || (await revealPrimary(index));
+    if (cell) scrollToCell(cell);
   }
 
   // Populate the navigator + minimap from the report rows (feed order). Called by
@@ -1110,7 +1215,7 @@ window.RMX.overlay = (function () {
       const matches = mountedCells(indices[k]);
       for (let j = 0; j < matches.length; j++) {
         if (matches[j].getAttribute('data-rmx-side') !== side) {
-          if (!inViewport(matches[j])) matches[j].scrollIntoView({ behavior: 'smooth', block: 'center' });
+          if (!inViewport(matches[j])) scrollToCell(matches[j]);
           return;
         }
       }
@@ -1238,7 +1343,7 @@ window.RMX.overlay = (function () {
   function scrollToRefactoring(index) {
     const cell = mountedCells(index)[0];
     if (!cell) return false;
-    cell.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    scrollToCell(cell);
     cell.classList.add(FLASH);
     setTimeout(() => cell.classList.remove(FLASH), 2400);
     return true;

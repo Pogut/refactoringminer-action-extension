@@ -16,9 +16,10 @@ window.RMX = window.RMX || {};
 // for just that sha.
 window.RMX.rm = (function () {
   const DEFAULTS = {
-    // Concordia's public RefactoringMiner server (same default as
-    // Refactoring-Aware-Commit-Review). Override in the extension's options page.
-    baseurl: 'https://rminer.encs.concordia.ca:8000/RefactoringMiner',
+    // Public RefactoringMiner server (replaces the retired
+    // rminer.encs.concordia.ca:8000 host). Override in the extension's options
+    // page.
+    baseurl: 'https://rminer.gveloso.com/RefactoringMiner',
     token: '', // GitHub OAuth token for private repos (optional)
     timeout: 60, // seconds the server waits before giving up
   };
@@ -29,6 +30,17 @@ window.RMX.rm = (function () {
   // the same id in two different repos stays separate.
   const cache = new Map();
 
+  // Hosts that no longer serve RefactoringMiner. A user who ever saved the
+  // options page has the then-current default written to storage, so bumping
+  // DEFAULTS alone would leave them pointed at a dead server — rewrite those
+  // stored values to the current default instead. (Keep in sync with options.js.)
+  const RETIRED = ['rminer.encs.concordia.ca:8000'];
+
+  function liveBaseurl(saved) {
+    if (!saved) return DEFAULTS.baseurl;
+    return RETIRED.some((h) => saved.includes(h)) ? DEFAULTS.baseurl : saved;
+  }
+
   function settings() {
     return new Promise((resolve) => {
       const store =
@@ -37,7 +49,7 @@ window.RMX.rm = (function () {
       store.get(['baseurl', 'token', 'timeout'], (r) => {
         r = r || {};
         resolve({
-          baseurl: r.baseurl || DEFAULTS.baseurl,
+          baseurl: liveBaseurl(r.baseurl),
           token: r.token || DEFAULTS.token,
           timeout: r.timeout || DEFAULTS.timeout,
         });
