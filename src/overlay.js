@@ -379,18 +379,103 @@ window.RMX.overlay = (function () {
     });
   }
 
+  // The source text a line's mounted cells show, without the gutter number: the
+  // widest run of text that isn't just the line number (i.e. the code cell, not
+  // its numbering twin).
+  function codeOf(cells, line) {
+    let code = '';
+    cells.forEach((c) => {
+      const t = c.textContent || '';
+      if (t.trim() && t.trim() !== String(line)) code = t;
+    });
+    return code;
+  }
+
   // The line begins a new declaration (Python `def`/`class`). RefactoringMiner's
   // declaration ranges overshoot onto the *next* element's first line in
   // indent-based languages — and a `def`/`class` line can never legitimately be
   // the last line of a block (it needs a body) — so a range whose endLine starts
   // a declaration has over-shot. Brace languages end on `}`, so they're unaffected.
   function startsDeclaration(cells, line) {
-    let code = '';
-    cells.forEach((c) => {
-      const t = c.textContent || '';
-      if (t.trim() && t.trim() !== String(line)) code = t;
-    });
-    return /^\s*(async\s+def\b|def\b|class\b)/.test(code);
+    return /^\s*(async\s+def\b|def\b|class\b)/.test(codeOf(cells, line));
+  }
+
+  // --- annotated declarations ----------------------------------------------
+  // A refactoring reported on a whole declaration (Rename Method, Move Method,
+  // Change Modifier…) is tagged on that declaration's header line alone —
+  // highlighting the whole body would flood the diff. But RefactoringMiner's
+  // first line is the first line of the DECLARATION, and on an annotated member
+  // that is `@Override`: tagging it lights up the same annotation on both sides,
+  // which tells the reader nothing about the method that was renamed, while the
+  // signature one line below stays dark.
+  //
+  // So content.js leaves the choice open — it plans the whole window the
+  // signature can be in and marks those contributions with a header group — and
+  // this picks the single line to tag once the source text is on the page: the
+  // first line of the declaration that is not an annotation (or a Python
+  // decorator, a javadoc/comment line, or blank). Every other line of the window
+  // stays untagged.
+  let headerLines = new Map(); // header group -> the source line its signature is on
+
+  // A unified diff cell's text can carry the +/- marker, so allow one.
+  const ANNOTATION_RE = /^[+-]?\s*@[A-Za-z_$]/;   // Java annotation / Python decorator
+  const COMMENT_RE = /^[+-]?\s*(\/\/|\/\*|\*|#)/; // javadoc, block and line comments
+
+  // Net unclosed parentheses on a line, so a multi-line annotation's argument
+  // list (`@RequestMapping(value = "/x",` …) reads as part of the annotation
+  // rather than as the signature. Comment tails and string literals are blanked
+  // first, so a bracket inside one can't unbalance the count.
+  function parenDepth(code) {
+    const s = String(code)
+      .replace(/\/\/.*$/, '')
+      .replace(/"(?:\\.|[^"\\])*"/g, '""')
+      .replace(/'(?:\\.|[^'\\])*'/g, "''");
+    let depth = 0;
+    for (let i = 0; i < s.length; i++) {
+      if (s[i] === '(') depth++;
+      else if (s[i] === ')') depth--;
+    }
+    return depth;
+  }
+
+  // Walk a header window for its signature line, reading the text off the cells
+  // this paint pass found mounted. Returns 0 when it can't be decided yet — a
+  // line of the window still virtualized away, or nothing but annotations in it.
+  function scanHeader(mounted, group) {
+    let depth = 0;
+    for (let line = group.startLine; line <= group.endLine; line++) {
+      const entry = mounted.get(RMX.github.cellKey(group.digest, group.side, line));
+      if (!entry) return 0; // not on the page — a later paint decides
+      const code = codeOf(entry.cells, line);
+      if (depth > 0) { // inside an annotation's argument list
+        depth += parenDepth(code);
+        continue;
+      }
+      if (!code.trim() || COMMENT_RE.test(code)) continue;
+      if (ANNOTATION_RE.test(code)) {
+        depth += parenDepth(code);
+        continue;
+      }
+      return line;
+    }
+    return 0;
+  }
+
+  // The line of a header window to tag. Memoized across paints once resolved (a
+  // line's text can't change while the page is up) and across the cells of one
+  // pass otherwise, so a scroll re-paint doesn't re-scan every window on screen.
+  // Falls back to RefactoringMiner's own first line, so an undecidable window
+  // tags what it always used to rather than nothing at all.
+  function headerLine(plan, mounted, key, pass) {
+    const known = headerLines.get(key) || pass.get(key);
+    if (known) return known;
+    const group = plan.headerGroups && plan.headerGroups.get(key);
+    if (!group) return 0;
+    const found = scanHeader(mounted, group);
+    if (found) headerLines.set(key, found);
+    const line = found || group.startLine;
+    pass.set(key, line);
+    return line;
   }
 
   // --- plan-driven painting -------------------------------------------------
@@ -402,9 +487,10 @@ window.RMX.overlay = (function () {
   // document queries (O(refactoring-lines × whole document), which is what made
   // a 400-refactoring page crawl and scroll-repaints jank).
   //
-  // Each entry: { filePath, contribs: [{ index, summary, trailing }] }, where
-  // `trailing` marks the closing line of a multi-line range (candidate for the
-  // over-shot-declaration trim below).
+  // Each entry: { filePath, contribs: [{ index, summary, trailing, header }] },
+  // where `trailing` marks the closing line of a multi-line range (candidate for
+  // the over-shot-declaration trim below) and `header` names the declaration
+  // whose signature line this could be (candidate for the annotation skip above).
   let paintPlan = null;
 
   // index (string) -> its hover summary. A cell's data-rmx-desc dedups and joins
@@ -418,6 +504,10 @@ window.RMX.overlay = (function () {
   let cellsByIndex = new Map();
 
   function setPlan(plan) {
+    // Only a genuinely new plan invalidates the resolved header lines — the
+    // additive scroll re-paints hand back the same plan object, and dropping the
+    // memo there would re-scan every header window on screen every frame.
+    if (plan !== paintPlan) headerLines = new Map();
     paintPlan = plan || null;
     descByIndex = (plan && plan.descByIndex) || {};
   }
@@ -453,14 +543,23 @@ window.RMX.overlay = (function () {
 
     const touched = new Set();
     const nextByIndex = new Map();
+    const headerPass = new Map(); // header windows resolved during THIS pass
     let tagged = 0;
     byKey.forEach((group, key) => {
       const entry = plan.byKey.get(key);
       const line = group.id.line;
       if (!lineHasCode(group.cells, line)) return; // skip blank source lines (nothing to tag)
+      // A declaration's header window covers every line its signature could be
+      // on; keep the one it IS on and drop the annotations above it.
+      let contribs = entry.contribs;
+      if (contribs.some((c) => c.header)) {
+        contribs = contribs.filter(
+          (c) => !c.header || headerLine(plan, byKey, c.header, headerPass) === line,
+        );
+        if (!contribs.length) return;
+      }
       // Stop a multi-line range before an over-shot trailing declaration (the
       // next method/class), but keep any range that OPENS on this line.
-      let contribs = entry.contribs;
       if (contribs.some((c) => c.trailing) && startsDeclaration(group.cells, line)) {
         contribs = contribs.filter((c) => !c.trailing);
         if (!contribs.length) return;

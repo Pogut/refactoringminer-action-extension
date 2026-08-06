@@ -223,11 +223,26 @@ window.RMX = window.RMX || {};
     );
 
     const byKey = new Map();
+    // Declaration header windows, keyed the same way their contributions are
+    // marked: one entry per declaration, shared by every refactoring reported on
+    // it, since which line holds the signature doesn't depend on who is asking.
+    const headerGroups = new Map();
     const descByIndex = {};
     refactorings.forEach((r, index) => {
       const summary = summarize(r);
       descByIndex[String(index)] = summary;
       effectiveRanges(r, digests).forEach((range) => {
+        const header = range.header
+          ? RMX.github.cellKey(range.digest, range.side, range.startLine)
+          : null;
+        if (header && !headerGroups.has(header)) {
+          headerGroups.set(header, {
+            digest: range.digest,
+            side: range.side,
+            startLine: range.startLine,
+            endLine: range.endLine,
+          });
+        }
         for (let line = range.startLine; line <= range.endLine; line++) {
           const key = RMX.github.cellKey(range.digest, range.side, line);
           let entry = byKey.get(key);
@@ -235,13 +250,17 @@ window.RMX = window.RMX || {};
             entry = { filePath: range.filePath, contribs: [] };
             byKey.set(key, entry);
           }
-          // `trailing` marks the closing line of a multi-line range, which the
-          // overlay trims when it lands on the NEXT declaration (the inclusive
-          // ranges RefactoringMiner emits overshoot in indent-based languages).
+          // `header` marks a line that MIGHT be the declaration's signature —
+          // the overlay keeps exactly one of them (see headerLine) and drops the
+          // annotations above it. `trailing` marks the closing line of a
+          // multi-line range, which the overlay trims when it lands on the NEXT
+          // declaration (the inclusive ranges RefactoringMiner emits overshoot
+          // in indent-based languages); a header window has no such closing line.
           entry.contribs.push({
             index: String(index),
             summary,
-            trailing: line === range.endLine && line !== range.startLine,
+            header,
+            trailing: !header && line === range.endLine && line !== range.startLine,
           });
         }
       });
@@ -249,6 +268,7 @@ window.RMX = window.RMX || {};
 
     return {
       byKey,
+      headerGroups,
       descByIndex,
       // Every line a selection has to make visible before it can blink whole:
       // the overlay walks these through GitHub's reveal controls (see selectTargets).
@@ -272,10 +292,15 @@ window.RMX = window.RMX || {};
     handleDeepLink();
   }
 
+  // How far below a declaration's first line its signature can be, i.e. how many
+  // annotation/decorator (and javadoc, and blank) lines the overlay is willing to
+  // step over before giving up and tagging that first line after all.
+  const HEADER_SCAN_LINES = 8;
+
   // The line ranges one refactoring actually paints on, both sides, as
-  // { digest, side, startLine, endLine, filePath }. Single source of truth for
-  // the two things that have to agree about a refactoring's extent: what gets
-  // tagged, and what a selection must unfold before it CAN be tagged.
+  // { digest, side, startLine, endLine, filePath, header }. Single source of
+  // truth for the two things that have to agree about a refactoring's extent:
+  // what gets tagged, and what a selection must unfold before it CAN be tagged.
   //
   // Which lines a location contributes, applied identically to left and right so
   // related parts stay consistent:
@@ -298,13 +323,23 @@ window.RMX = window.RMX || {};
       locs.forEach((cr) => {
         let startLine = cr.startLine;
         let endLine = cr.endLine;
+        let header = false;
         if (isContainer(cr) && !isNewDeclaration(cr)) {
           if (hasFiner) return;
-          endLine = startLine; // declaration-only refactoring → header line only
+          // Declaration-only refactoring → header line only. WHICH line that is
+          // can't be decided here: RefactoringMiner's startLine is the first
+          // line of the declaration, so on an annotated member it lands on
+          // `@Override` — tagging that lights up an annotation on both sides and
+          // says nothing about the method that was renamed, while the signature
+          // just below it stays dark. Plan the window the signature can be in
+          // and let the overlay pick the line once the source text is on the
+          // page (see headerLine in overlay.js).
+          endLine = Math.min(endLine, startLine + HEADER_SCAN_LINES);
+          header = true;
         }
         const digest = digests[cr.filePath];
         if (!digest) return;
-        ranges.push({ digest, side, startLine, endLine, filePath: cr.filePath });
+        ranges.push({ digest, side, startLine, endLine, filePath: cr.filePath, header });
       });
     });
     return ranges;
@@ -317,6 +352,10 @@ window.RMX = window.RMX || {};
   // lines GitHub folded away because IT reads them as unchanged context, and the
   // files it collapsed entirely. Interior lines need no entry of their own: an
   // unfold opens the block around a line, not the single line.
+  //
+  // For a declaration header that means both ends of the search window, so the
+  // signature line is on the page for headerLine to find even when GitHub folded
+  // the annotations above it away as unchanged context.
   function selectTargets(refactorings, digests) {
     const targets = {};
     refactorings.forEach((r, index) => {
