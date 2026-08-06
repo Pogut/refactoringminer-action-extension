@@ -7,13 +7,22 @@
 // src/overlay.js; keep these defaults in sync with overlay.js HL_DEFAULTS /
 // HL_LEGACY / BLINK_PERIODS.
 const DEFAULTS = {
-  baseurl: 'https://rminer.encs.concordia.ca:8000/RefactoringMiner',
+  baseurl: 'https://rminer.gveloso.com/RefactoringMiner',
   token: '',
   timeout: 60,
   autoTrigger: false,
   blinkSpeed: 1,
   theme: 'light',
 };
+
+// Hosts that no longer serve RefactoringMiner: a stored value pointing at one is
+// shown (and re-saved) as the current default. Keep in sync with src/rm.js.
+const RETIRED_BASEURLS = ['rminer.encs.concordia.ca:8000'];
+
+function liveBaseurl(saved) {
+  if (!saved) return DEFAULTS.baseurl;
+  return RETIRED_BASEURLS.some((h) => saved.includes(h)) ? DEFAULTS.baseurl : saved;
+}
 
 // Defaults only: one pair per GitHub theme, picked automatically by whichever
 // theme GitHub is in. The user overrides them with the single left/right pair
@@ -214,7 +223,7 @@ function loadSync() {
     ['baseurl', 'token', 'timeout', 'autoTrigger', 'blinkSpeed', 'theme', 'hlLeft', 'hlRight'],
     (r) => {
       r = r || {};
-      $('baseurl').value = r.baseurl || DEFAULTS.baseurl;
+      $('baseurl').value = liveBaseurl(r.baseurl);
       $('token').value = r.token || DEFAULTS.token;
       $('timeout').value = r.timeout || DEFAULTS.timeout;
       $('triggerAuto').checked = r.autoTrigger === true;

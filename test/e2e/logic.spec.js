@@ -63,7 +63,7 @@ test('rm.fetchCommit calls the configured service with gitURL, commitId, timeout
     await RMX.rm.fetchCommit('https://github.com/o/r.git', 'abc123');
     return captured;
   });
-  expect(url).toContain('rminer.encs.concordia.ca:8000/RefactoringMiner'); // default server
+  expect(url).toContain('rminer.gveloso.com/RefactoringMiner'); // default server
   expect(url).toContain('gitURL=' + encodeURIComponent('https://github.com/o/r.git'));
   expect(url).toContain('commitId=abc123');
   expect(url).toContain('timeout=60');
