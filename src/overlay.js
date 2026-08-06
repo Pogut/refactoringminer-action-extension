@@ -527,6 +527,17 @@ window.RMX.overlay = (function () {
   // click into a long burst of unfold requests.
   const MAX_REVEALS_PER_FILE = 12;
 
+  // The location a selection should land on: the first target of the first
+  // index. content.js emits the right ("after") side first, which is where a
+  // reader wants to be taken.
+  function primaryTarget(indices) {
+    for (let k = 0; k < indices.length; k++) {
+      const t = targetsFor(indices[k])[0];
+      if (t) return t;
+    }
+    return null;
+  }
+
   // Reveal each selected refactoring's hidden lines. Grouped by file and walked
   // in order within one — unfolding for a line usually mounts its neighbours
   // too, so later targets in that file resolve without another click.
@@ -543,7 +554,20 @@ window.RMX.overlay = (function () {
         (byFile[t.digest] = byFile[t.digest] || []).push(t);
       });
     });
-    for (const digest of Object.keys(byFile)) {
+    // The primary file goes LAST. On a big diff, opening a file navigates to it,
+    // and the virtualizer then unmounts whatever is now far away — including a
+    // file this same call just opened. Measured on a 1,000-file commit: a
+    // refactoring spanning two "Load diff" files loaded the first one's 1,208
+    // rows, then opening the second threw every one of them back out, so the
+    // repaint below tagged nothing and the click looked dead. Revealing the file
+    // we're about to scroll to last means it is the one still standing.
+    const primary = primaryTarget(indices);
+    const order = Object.keys(byFile);
+    if (primary && order.indexOf(primary.digest) !== -1) {
+      order.splice(order.indexOf(primary.digest), 1);
+      order.push(primary.digest);
+    }
+    for (const digest of order) {
       const targets = byFile[digest].slice(0, MAX_REVEALS_PER_FILE);
       for (const t of targets) await RMX.github.revealLine(t.digest, t.side, t.line, t.filePath);
     }
@@ -1131,11 +1155,26 @@ window.RMX.overlay = (function () {
     travel(cell);
   }
 
+  // Re-open the refactoring's landing spot and re-tag it. The safety net for a
+  // selection whose reveals were all undone before they could be painted: on a
+  // virtualized diff the page moves while later targets are being opened, and
+  // rows that existed a moment ago are gone by the time the repaint runs. One
+  // more reveal of just the primary location, with nothing after it to scroll
+  // the page away again, is what makes "open the file AND highlight it" hold.
+  async function revealPrimary(index) {
+    const t = primaryTarget([String(index)]);
+    if (!t) return null;
+    await RMX.github.revealLine(t.digest, t.side, t.line, t.filePath);
+    if (repaint) await repaint();
+    applySelection();
+    return mountedCells(index)[0] || null;
+  }
+
   // Focus one refactoring by feed index: reveal its file, blink it, and bring a
   // mounted line into view. Shared by the report rows, navigator, and minimap.
   async function focus(index) {
     await select([String(index)]);
-    const cell = mountedCells(index)[0];
+    const cell = mountedCells(index)[0] || (await revealPrimary(index));
     if (cell) scrollToCell(cell);
   }
 

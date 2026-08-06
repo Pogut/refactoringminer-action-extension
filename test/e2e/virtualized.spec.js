@@ -287,8 +287,46 @@ test('selecting a refactoring walks its files one at a time', async ({ page }) =
   }, { d: DIGEST, other: OTHER });
 
   expect(order).not.toContain('OVERLAP');
-  // Grouped by file, and each file finished before the next one starts.
-  expect(order).toEqual(['firstR30', 'firstL11', 'secondR7']);
+  // Grouped by file, each file finished before the next one starts — and the
+  // PRIMARY file (the one holding targets[0], where the selection will land)
+  // goes last, so no later file's reveal can navigate the page and get the
+  // primary's freshly mounted rows virtualized away before they're painted.
+  expect(order).toEqual(['secondR7', 'firstR30', 'firstL11']);
+});
+
+test('the file the selection lands on is revealed last, and survives to be tagged', async ({ page }) => {
+  // The reported case: a refactoring spanning two large files opened the first,
+  // then opening the second navigated away and the virtualizer threw the first
+  // one's rows straight back out — so the single repaint at the end of select()
+  // tagged nothing, and the click "just opened a file" with no highlight.
+  await page.addScriptTag({ path: path.join(SRC, 'overlay.js') });
+  const OTHER = 'b'.repeat(64);
+  const out = await page.evaluate(async ({ d, other }) => {
+    const mounted = new Set();
+    const opened = [];
+    // Opening a file evicts every other one, exactly as the virtualizer does.
+    RMX.github = {
+      lineCells: () => [],
+      cellKey: (dg, s, l) => dg + '|' + s + '|' + l,
+      revealLine: async (dg) => {
+        opened.push(dg === d ? 'primary' : 'other');
+        mounted.clear();
+        mounted.add(dg);
+        return [];
+      },
+    };
+    RMX.overlay.setTargets({
+      0: [
+        { digest: d, side: 'R', line: 30 },   // targets[0] ⇒ the primary file
+        { digest: other, side: 'L', line: 7 },
+      ],
+    });
+    await RMX.overlay.select(['0']);
+    return { opened, stillMounted: Array.from(mounted)[0] === d ? 'primary' : 'other' };
+  }, { d: DIGEST, other: OTHER });
+
+  expect(out.opened[out.opened.length - 1]).toBe('primary');
+  expect(out.stillMounted).toBe('primary');
 });
 
 test('a user input cancels a travel in flight', async ({ page }) => {
