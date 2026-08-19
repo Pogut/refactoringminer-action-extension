@@ -189,6 +189,28 @@ window.RMX.overlay = (function () {
     if (changed && selectedIndices.length) resyncPulse();
   }
 
+  // How much of the report panel the reader wants on screen, and with it how much
+  // of each refactoring's RefactoringMiner record is shown. One setting drives
+  // both, because they're the same question: the panel is only as big as the
+  // detail it has to carry.
+  //
+  //   compact  — the pinned bottom-left card. Type + element summary per row;
+  //              the description opens on demand. The original panel.
+  //   expanded — the same card, elongated along the bottom, with each
+  //              refactoring's full description on the row itself.
+  //   detailed — a full-width bottom dock: description plus every code element
+  //              RefactoringMiner reported for the refactoring, and a checkbox
+  //              per refactoring type to filter the list down to one kind.
+  //
+  // Stored as `panelView` by the options page. Keep in sync with options.js.
+  const PANEL_VIEWS = ['compact', 'expanded', 'detailed'];
+  const PANEL_VIEW_DEFAULT = 'compact';
+  let panelView = PANEL_VIEW_DEFAULT;
+
+  function normView(v) {
+    return PANEL_VIEWS.indexOf(v) === -1 ? PANEL_VIEW_DEFAULT : v;
+  }
+
   // Pull the stored blink colours and speed (falling back to defaults) and mirror
   // them onto :root, then keep them in sync so edits in the options page recolour
   // or re-time any open diff live. The onChanged listener is installed once per page.
@@ -200,16 +222,17 @@ window.RMX.overlay = (function () {
     const store =
       typeof chrome !== 'undefined' && chrome.storage && chrome.storage.sync;
     if (!store) return applyBlinkSpeed(BLINK_SPEED_DEFAULT);
-    store.get(HL_KEYS.concat('blinkSpeed'), (r) => {
+    store.get(HL_KEYS.concat(['blinkSpeed', 'panelView']), (r) => {
       hlStored = r || {};
       applyColors();
       applyBlinkSpeed(hlStored.blinkSpeed);
+      setPanelView(hlStored.panelView);
     });
     if (chrome.storage.onChanged && !window.__rmxColorWatch) {
       window.__rmxColorWatch = true;
       chrome.storage.onChanged.addListener((changes, area) => {
         if (area !== 'sync') return;
-        if (changes.blinkSpeed || HL_KEYS.some((k) => changes[k])) loadPrefs();
+        if (changes.blinkSpeed || changes.panelView || HL_KEYS.some((k) => changes[k])) loadPrefs();
       });
     }
   }
@@ -266,7 +289,7 @@ window.RMX.overlay = (function () {
          refactoring's off-screen lines. Fixed size — they can't stack up. */
       .rmx-edge{position:fixed;left:0;right:14px;z-index:2147483599;display:flex;justify-content:center;pointer-events:none;}
       #rmx-edge-top-wrap{top:48px;}
-      #rmx-edge-bot-wrap{bottom:16px;}
+      #rmx-edge-bot-wrap{bottom:calc(16px + var(--rmx-dock-h,0px));}
       .rmx-edge-chip{display:none;pointer-events:auto;align-items:center;gap:6px;
         padding:4px 10px;border-radius:999px;background:var(--bgColor-default,#fff);color:var(--fgColor-default,#1f2328);
         border:1px solid var(--borderColor-default,#d0d7de);box-shadow:0 4px 14px rgba(31,35,40,.18);
@@ -281,7 +304,10 @@ window.RMX.overlay = (function () {
 
       /* Minimap: a slim right-edge rail with one tick per refactoring and a
          viewport thumb — the always-on overview of where the changes are. */
-      #rmx-minimap{position:fixed;top:44px;right:0;bottom:12px;width:12px;z-index:2147483598;display:none;
+      /* --rmx-dock-h is the height the detailed panel occupies along the bottom
+         (0 in every other view), so the rail and the bottom edge chip sit above
+         the dock instead of underneath it. */
+      #rmx-minimap{position:fixed;top:44px;right:0;bottom:calc(12px + var(--rmx-dock-h,0px));width:12px;z-index:2147483598;display:none;
         background:var(--bgColor-muted,#f6f8fa);border-left:1px solid var(--borderColor-muted,#d8dee4);
         transition:width .12s;}
       #rmx-minimap.rmx-show{display:block;}
@@ -349,6 +375,119 @@ window.RMX.overlay = (function () {
         border:2px solid var(--borderColor-default,#d0d7de);border-top-color:var(--fgColor-accent,#0969da);
         animation:rmx-spin .8s linear infinite;}
       @keyframes rmx-spin{to{transform:rotate(360deg);}}
+
+      /* --- the three detail levels ---------------------------------------
+         Every row is built with all three levels' content in it; these rules
+         decide what is on show and how much room the panel takes to show it.
+         The base rules above ARE the compact level, so it needs no overrides. */
+
+      /* Content that only the richer levels reveal, hidden by default. */
+      #rmx-report .rmx-rp-full{display:none;}
+      #rmx-report .rmx-rp-files{display:none;}
+      #rmx-report .rmx-rp-locs{display:none;}
+      #rmx-report .rmx-rp-num{display:none;}
+      #rmx-report .rmx-rp-filter{display:none;}
+
+      /* The refactoring's whole RefactoringMiner sentence, on the row itself.
+         Clamped to three lines while the row is shut so a long Extract And Move
+         description can't push the rest of the list off the panel; opening the
+         row lifts the clamp. */
+      /* No display property here: that stays with the level rules below, so this
+         rule can style the block without un-hiding it in the compact level. */
+      #rmx-report .rmx-rp-full{margin-top:3px;color:var(--fgColor-muted,#656d76);line-height:1.5;
+        overflow:hidden;overflow-wrap:anywhere;-webkit-box-orient:vertical;-webkit-line-clamp:3;}
+      /* File chips: where the refactoring landed, which the compact row has no
+         room for and which is the first thing you want on a multi-file PR. */
+      #rmx-report .rmx-rp-files{margin-top:4px;flex-wrap:wrap;gap:4px;}
+      #rmx-report .rmx-rp-file{padding:1px 6px;border-radius:999px;max-width:100%;
+        background:var(--bgColor-neutral-muted,rgba(140,149,159,.15));color:var(--fgColor-muted,#656d76);
+        font:10.5px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;
+        overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+
+      /* Elongated: same pinned card, stretched along the bottom edge, with each
+         row carrying its full description instead of hiding it behind a caret. */
+      #rmx-report.rmx-v-expanded{width:min(760px,58vw);max-width:58vw;}
+      #rmx-report.rmx-v-expanded .rmx-rp-body{max-height:34vh;}
+      #rmx-report.rmx-v-expanded .rmx-rp-row{padding:8px 12px;}
+      #rmx-report.rmx-v-expanded .rmx-rp-full{display:-webkit-box;}
+      #rmx-report.rmx-v-expanded .rmx-rp-item.rmx-open .rmx-rp-full{display:block;}
+      #rmx-report.rmx-v-expanded .rmx-rp-files{display:flex;}
+      /* The element summary is the compact level's stand-in for the description;
+         with the real sentence on the row it would just say it again. */
+      #rmx-report.rmx-v-expanded .rmx-rp-sum{display:none !important;}
+
+      /* Detailed: a dock across the whole bottom of the page — the level that
+         trades the diff's bottom third for the complete record. Rows become
+         cards in a grid so the width is actually used rather than leaving one
+         narrow column against a wide empty strip. */
+      #rmx-report.rmx-v-detailed{left:0;right:0;bottom:0;width:auto;max-width:none;
+        height:var(--rmx-dock-h,34vh);display:flex;flex-direction:column;
+        border-radius:0;border-left:0;border-right:0;border-bottom:0;
+        box-shadow:0 -6px 22px rgba(31,35,40,.22);}
+      #rmx-report.rmx-v-detailed.rmx-collapsed{height:auto;}
+      /* grid-auto-rows must be min-content: the dock has a definite height, and
+         with auto rows the cards get squeezed into equal shares of it (each one
+         clipped to a single line) instead of taking the height they need and
+         letting the dock scroll. */
+      #rmx-report.rmx-v-detailed .rmx-rp-body{flex:1;max-height:none;min-height:0;
+        display:grid;grid-template-columns:repeat(auto-fill,minmax(420px,1fr));
+        grid-auto-rows:min-content;align-content:start;gap:8px;padding:10px;
+        background:var(--bgColor-muted,#f6f8fa);}
+      #rmx-report.rmx-v-detailed .rmx-rp-item{border:1px solid var(--borderColor-muted,#d8dee4);
+        border-radius:8px;background:var(--bgColor-default,#fff);overflow:hidden;}
+      #rmx-report.rmx-v-detailed .rmx-rp-item:last-child{border:1px solid var(--borderColor-muted,#d8dee4);}
+      #rmx-report.rmx-v-detailed .rmx-rp-msg{grid-column:1/-1;background:var(--bgColor-default,#fff);}
+      #rmx-report.rmx-v-detailed .rmx-rp-full{display:block;-webkit-line-clamp:unset;}
+      #rmx-report.rmx-v-detailed .rmx-rp-files{display:flex;}
+      #rmx-report.rmx-v-detailed .rmx-rp-locs{display:block;}
+      #rmx-report.rmx-v-detailed .rmx-rp-num{display:inline;color:var(--fgColor-muted,#656d76);
+        font-variant-numeric:tabular-nums;font-weight:400;margin-right:5px;}
+      #rmx-report.rmx-v-detailed .rmx-rp-sum{display:none !important;}
+      #rmx-report.rmx-v-detailed .rmx-rp-filter{display:flex;}
+      /* The dock spans the page, so its own header does too — but the title and
+         the collapse caret belong at the two ends, not floating mid-width. */
+      #rmx-report.rmx-v-detailed .rmx-rp-head{padding:8px 14px;}
+
+      /* Per-location table: one line per code element RefactoringMiner named,
+         with the role it plays ("original attribute declaration") — the part of
+         the JSON no other level shows. Clicking one blinks that side. */
+      #rmx-report .rmx-rp-locs{margin:0 11px 8px;border-top:1px solid var(--borderColor-muted,#d8dee4);padding-top:6px;}
+      #rmx-report .rmx-rp-loc{display:flex;align-items:baseline;gap:7px;padding:3px 0;cursor:pointer;border-radius:5px;}
+      #rmx-report .rmx-rp-loc:hover{background:var(--bgColor-muted,#f6f8fa);}
+      #rmx-report .rmx-rp-loc-side{flex:0 0 auto;width:15px;height:15px;border-radius:4px;
+        display:flex;align-items:center;justify-content:center;
+        font:9.5px/1 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-weight:700;
+        /* The badge takes the side accent, which is dark in GitHub's light theme
+           and bright in its dark one — so the glyph takes the canvas colour and
+           stays legible on both instead of being pinned to white. */
+        color:var(--bgColor-default,#fff);}
+      #rmx-report .rmx-rp-loc-side.rmx-rp-L{background:var(--rmx-left-d,#9a6700);}
+      #rmx-report .rmx-rp-loc-side.rmx-rp-R{background:var(--rmx-right-d,#0969da);}
+      #rmx-report .rmx-rp-loc-body{flex:1;min-width:0;}
+      #rmx-report .rmx-rp-loc-el{font:11.5px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;
+        color:var(--fgColor-default,#1f2328);overflow-wrap:anywhere;}
+      #rmx-report .rmx-rp-loc-meta{color:var(--fgColor-muted,#656d76);font-size:11px;line-height:1.45;overflow-wrap:anywhere;}
+      #rmx-report .rmx-rp-loc-kind{font-variant:small-caps;letter-spacing:.02em;}
+
+      /* Type filter: one checkbox per refactoring type present, plus an "all"
+         master, so 26 refactorings of 16 kinds can be narrowed to the one kind
+         being reviewed. Sits under the header, above the list. */
+      #rmx-report .rmx-rp-filter{flex-wrap:wrap;gap:5px;padding:8px 14px;
+        border-bottom:1px solid var(--borderColor-muted,#d8dee4);background:var(--bgColor-muted,#f6f8fa);
+        max-height:22vh;overflow-y:auto;}
+      #rmx-report .rmx-rp-chk{display:inline-flex;align-items:center;gap:5px;cursor:pointer;user-select:none;
+        padding:2px 8px 2px 6px;border-radius:999px;border:1px solid var(--borderColor-default,#d0d7de);
+        background:var(--bgColor-default,#fff);font-size:11.5px;line-height:1.6;}
+      #rmx-report .rmx-rp-chk:hover{border-color:var(--fgColor-muted,#656d76);}
+      #rmx-report .rmx-rp-chk input{margin:0;cursor:pointer;}
+      #rmx-report .rmx-rp-chk-n{color:var(--fgColor-muted,#656d76);font-variant-numeric:tabular-nums;}
+      #rmx-report .rmx-rp-chk-all{font-weight:600;}
+
+      /* Collapsing wins over every level. The base collapse rules match on the
+         same specificity as the level rules above and lose on source order, so
+         they are restated here with the level in the selector. */
+      #rmx-report.rmx-v-detailed.rmx-collapsed .rmx-rp-body,
+      #rmx-report.rmx-v-detailed.rmx-collapsed .rmx-rp-filter{display:none;}
     `;
     document.head.appendChild(s);
   }
@@ -1277,6 +1416,31 @@ window.RMX.overlay = (function () {
     if (cell) scrollToCell(cell);
   }
 
+  // Focus one *location* of a refactoring: same blink, but land on the side (and,
+  // where it's one of the lines we actually tag, the line) the caller names
+  // rather than on the refactoring's default landing spot. Used by the detailed
+  // panel's per-location rows, where the whole point is that you picked which end
+  // of a Move you wanted to look at.
+  //
+  // The line may not be one we can land on: content.js trims RefactoringMiner's
+  // ranges before tagging them (an enclosing declaration contributes its header
+  // line, not its body), so fall back to any line of that side, then to the
+  // refactoring as a whole.
+  async function focusAt(index, side, line) {
+    await select([String(index)]);
+    const wanted = side === 'L' ? 'L' : 'R';
+    const targets = targetsFor(index).filter((t) => t.side === wanted);
+    const t = targets.find((x) => x.line === line) || targets[0];
+    if (!t) return focus(index);
+    await RMX.github.revealLine(t.digest, t.side, t.line, t.filePath);
+    if (repaint) await repaint();
+    applySelection();
+    const onSide = mountedCells(index, wanted);
+    const cell = onSide.find((c) => lineNum(c) === t.line) || onSide[0];
+    if (cell) scrollToCell(cell);
+    else await focus(index);
+  }
+
   // Populate the navigator + minimap from the report rows (feed order). Called by
   // showReport once a page's refactorings are known.
   function setNav(rows) {
@@ -1448,11 +1612,18 @@ window.RMX.overlay = (function () {
     return true;
   }
 
-  // --- refactorings report panel (bottom-left) ----------------------------
+  // --- refactorings report panel ------------------------------------------
   // A collapsible list of every refactoring the current view carries — a stand-in
   // for the action's PR comment, and the only listing available on commit pages.
   // Clicking a row selects (blinks) that refactoring and scrolls to it. Shown in
   // both PR and commit views.
+  //
+  // It renders at one of three detail levels (see PANEL_VIEWS): the pinned
+  // bottom-left card, the same card elongated with full descriptions, or a
+  // full-width bottom dock that also lists every code element and offers a
+  // per-type filter. The level only changes what the panel shows — never what
+  // was analysed or what is tagged in the diff — so switching is a re-render of
+  // the rows already in hand.
   let reportEl = null;
 
   function ensureReport() {
@@ -1460,21 +1631,63 @@ window.RMX.overlay = (function () {
     ensureStyle();
     reportEl = document.createElement('div');
     reportEl.id = 'rmx-report';
+    reportEl.className = 'rmx-v-' + panelView;
     const head = document.createElement('div');
     head.className = 'rmx-rp-head';
     head.innerHTML = '<span class="rmx-rp-title">Refactorings</span><span class="rmx-rp-caret">▾</span>';
-    head.addEventListener('click', () => reportEl.classList.toggle('rmx-collapsed'));
+    head.addEventListener('click', () => {
+      reportEl.classList.toggle('rmx-collapsed');
+      applyDockHeight(); // a collapsed dock stops reserving the bottom strip
+    });
+    const filter = document.createElement('div');
+    filter.className = 'rmx-rp-filter';
     const body = document.createElement('div');
     body.className = 'rmx-rp-body';
     reportEl.appendChild(head);
+    reportEl.appendChild(filter);
     reportEl.appendChild(body);
     document.body.appendChild(reportEl);
+    applyDockHeight();
     return reportEl;
   }
 
-  function reportTitle(n) {
-    ensureReport().querySelector('.rmx-rp-title').textContent =
-      typeof n === 'number' ? `Refactorings (${n})` : 'Refactorings';
+  // Only the detailed dock reserves space along the bottom edge; the minimap and
+  // the bottom edge chip read this so they clear it. A collapsed dock is just its
+  // header, which is short enough to sit under them.
+  const DOCK_HEIGHT = '34vh';
+  function applyDockHeight() {
+    const docked =
+      panelView === 'detailed' && reportEl && !reportEl.classList.contains('rmx-collapsed');
+    document.documentElement.style.setProperty('--rmx-dock-h', docked ? DOCK_HEIGHT : '0px');
+  }
+
+  // Adopt a detail level. Re-renders from the rows already held, so a change in
+  // the options page re-draws an open diff without re-analysing it.
+  function setPanelView(view) {
+    const next = normView(view);
+    if (next === panelView && reportEl) return;
+    const wasDetailed = panelView === 'detailed';
+    panelView = next;
+    // The type filter is part of the detailed level and its checkboxes go with
+    // it, so leaving that level clears it — otherwise the reader lands in a
+    // smaller panel showing a fraction of the refactorings with no visible
+    // reason and no control to undo it.
+    if (wasDetailed && next !== 'detailed') hiddenTypes = new Set();
+    if (!reportEl) return;
+    PANEL_VIEWS.forEach((v) => reportEl.classList.toggle('rmx-v-' + v, v === next));
+    applyDockHeight();
+    if (lastRows) showReport(lastRows);
+  }
+
+  // `n` is how many rows are on show, `total` how many the page carries. They
+  // differ only when the detailed level's type filter is hiding some, and saying
+  // so is what stops a filtered list from reading as a shorter analysis.
+  function reportTitle(n, total) {
+    const label =
+      typeof n !== 'number' ? 'Refactorings'
+        : typeof total === 'number' && total !== n ? `Refactorings (${n} of ${total})`
+          : `Refactorings (${n})`;
+    ensureReport().querySelector('.rmx-rp-title').textContent = label;
   }
   function reportBody() {
     const body = ensureReport().querySelector('.rmx-rp-body');
@@ -1491,6 +1704,7 @@ window.RMX.overlay = (function () {
     spin.className = 'rmx-rp-spinner';
     msg.appendChild(spin);
     msg.appendChild(document.createTextNode(label || 'Analysing commit…'));
+    reportFilter().textContent = '';
     reportBody().appendChild(msg);
   }
 
@@ -1499,7 +1713,12 @@ window.RMX.overlay = (function () {
     const msg = document.createElement('div');
     msg.className = 'rmx-rp-msg rmx-rp-err';
     msg.textContent = message || 'Could not load refactorings.';
+    reportFilter().textContent = '';
     reportBody().appendChild(msg);
+  }
+
+  function reportFilter() {
+    return ensureReport().querySelector('.rmx-rp-filter');
   }
 
   // Report rows are expandable: the row body reveals/blinks the refactoring, and
@@ -1507,6 +1726,11 @@ window.RMX.overlay = (function () {
   // formatted into one clause per line.
   let rpItems = {};      // feed index (string) -> item element, for current-row sync
   let rpOpenItem = null; // single-open accordion
+  let lastRows = null;   // the rows showReport last drew, so a level change can redraw
+  // Types the reader has switched OFF in the detailed level's filter. Held as the
+  // hidden set rather than the shown one so a fresh page (or a type that only
+  // appears after a re-analysis) starts visible.
+  let hiddenTypes = new Set();
 
   // Connective phrases RefactoringMiner uses to join a description's clauses.
   // Splitting on them turns its run-on sentence into one relation per line
@@ -1572,6 +1796,83 @@ window.RMX.overlay = (function () {
     return frag;
   }
 
+  // The files a refactoring touches, as chips. Null when the row carries no
+  // location data (an older caller, or a refactoring with no locations at all).
+  function fileChips(row) {
+    const paths = row.files || [];
+    if (!paths.length) return null;
+    const wrap = document.createElement('div');
+    wrap.className = 'rmx-rp-files';
+    paths.forEach((p) => {
+      const chip = document.createElement('span');
+      chip.className = 'rmx-rp-file';
+      // The basename is what identifies the file at a glance; the full path is
+      // there on hover for the repos where two directories hold the same name.
+      chip.textContent = p.split('/').pop() || p;
+      chip.title = p;
+      wrap.appendChild(chip);
+    });
+    return wrap;
+  }
+
+  // Every code element RefactoringMiner attached to the refactoring, one line
+  // each: the side it's on, its own role in the refactoring ("original attribute
+  // declaration"), the element itself, and where it lives. Clicking a line takes
+  // you to that side specifically, rather than to the refactoring's default
+  // landing spot — the point of listing them separately.
+  function buildLocations(row) {
+    const locs = row.locations || [];
+    if (!locs.length) return null;
+    const wrap = document.createElement('div');
+    wrap.className = 'rmx-rp-locs';
+    locs.forEach((l) => {
+      const line = document.createElement('div');
+      line.className = 'rmx-rp-loc';
+
+      const side = document.createElement('span');
+      side.className = 'rmx-rp-loc-side rmx-rp-' + (l.side === 'L' ? 'L' : 'R');
+      side.textContent = l.side === 'L' ? 'L' : 'R';
+
+      const bodyEl = document.createElement('div');
+      bodyEl.className = 'rmx-rp-loc-body';
+      if (l.codeElement) {
+        const el = document.createElement('div');
+        el.className = 'rmx-rp-loc-el';
+        el.textContent = l.codeElement;
+        bodyEl.appendChild(el);
+      }
+      const meta = document.createElement('div');
+      meta.className = 'rmx-rp-loc-meta';
+      if (l.role) meta.appendChild(document.createTextNode(l.role + ' · '));
+      const kind = document.createElement('span');
+      kind.className = 'rmx-rp-loc-kind';
+      kind.textContent = (l.kind || '').toLowerCase().replace(/_/g, ' ');
+      if (kind.textContent) {
+        meta.appendChild(kind);
+        meta.appendChild(document.createTextNode(' · '));
+      }
+      meta.appendChild(document.createTextNode(locWhere(l)));
+      bodyEl.appendChild(meta);
+
+      line.appendChild(side);
+      line.appendChild(bodyEl);
+      line.title = 'Go to ' + locWhere(l);
+      line.addEventListener('click', (e) => {
+        e.stopPropagation(); // the row's own click would jump to the other side
+        focusAt(row.index, l.side, l.startLine);
+      });
+      wrap.appendChild(line);
+    });
+    return wrap;
+  }
+
+  function locWhere(l) {
+    const file = (l.filePath || '').split('/').pop() || l.filePath || '';
+    if (!l.startLine) return file;
+    const lines = l.endLine && l.endLine !== l.startLine ? `${l.startLine}–${l.endLine}` : l.startLine;
+    return `${file}:${lines}`;
+  }
+
   function toggleDetail(item, force) {
     const open = force !== undefined ? force : !item.classList.contains('rmx-open');
     if (rpOpenItem && rpOpenItem !== item) {
@@ -1597,10 +1898,64 @@ window.RMX.overlay = (function () {
     });
   }
 
-  // `rows`: [{ index, type, summary, detail }].
+  // Build the detailed level's type filter: an "all" master plus one checkbox per
+  // refactoring type present, each carrying how many of that type there are.
+  // Filtering is a view concern — it hides rows (and the navigator/minimap entries
+  // that go with them) so you can step through one kind of refactoring at a time.
+  // Nothing is un-analysed and nothing in the diff is un-tagged by it, so a
+  // filtered-out line still lights up if you click it.
+  function buildFilter(rows) {
+    const bar = reportFilter();
+    bar.textContent = '';
+    if (panelView !== 'detailed' || !rows.length) return;
+
+    const counts = new Map();
+    rows.forEach((r) => counts.set(r.type, (counts.get(r.type) || 0) + 1));
+    // Types that vanished with a re-analysis shouldn't stay latched off.
+    hiddenTypes.forEach((t) => { if (!counts.has(t)) hiddenTypes.delete(t); });
+
+    const chip = (label, count, checked, onToggle, extra) => {
+      const wrap = document.createElement('label');
+      wrap.className = 'rmx-rp-chk' + (extra ? ' ' + extra : '');
+      const box = document.createElement('input');
+      box.type = 'checkbox';
+      box.checked = checked;
+      box.addEventListener('change', () => onToggle(box.checked));
+      const text = document.createElement('span');
+      text.textContent = label;
+      const n = document.createElement('span');
+      n.className = 'rmx-rp-chk-n';
+      n.textContent = count;
+      wrap.appendChild(box);
+      wrap.appendChild(text);
+      wrap.appendChild(n);
+      bar.appendChild(wrap);
+      return box;
+    };
+
+    chip('All types', rows.length, hiddenTypes.size === 0, (on) => {
+      hiddenTypes = on ? new Set() : new Set(counts.keys());
+      showReport(rows);
+    }, 'rmx-rp-chk-all');
+
+    Array.from(counts.keys()).forEach((type) => {
+      chip(type, counts.get(type), !hiddenTypes.has(type), (on) => {
+        if (on) hiddenTypes.delete(type);
+        else hiddenTypes.add(type);
+        showReport(rows);
+      });
+    });
+  }
+
+  // `rows`: [{ index, type, summary, detail, description, files, locations }].
+  // The last four are only drawn by the richer levels (see PANEL_VIEWS); a row
+  // without them still renders, so an older caller degrades to the compact list.
   function showReport(rows) {
-    reportTitle(rows.length);
-    setNav(rows); // feed the navigator + minimap the same list (feed order)
+    lastRows = rows;
+    const shown = rows.filter((r) => !hiddenTypes.has(r.type));
+    reportTitle(shown.length, rows.length);
+    setNav(shown); // navigator + minimap follow the filter, in feed order
+    buildFilter(rows);
     rpItems = {};
     rpOpenItem = null;
     const body = reportBody();
@@ -1611,7 +1966,15 @@ window.RMX.overlay = (function () {
       body.appendChild(msg);
       return;
     }
-    rows.forEach((row) => {
+    if (!shown.length) {
+      const msg = document.createElement('div');
+      msg.className = 'rmx-rp-msg';
+      msg.textContent = 'Every refactoring type is filtered out.';
+      body.appendChild(msg);
+      return;
+    }
+    rows = shown;
+    rows.forEach((row, ordinal) => {
       const item = document.createElement('div');
       item.className = 'rmx-rp-item';
 
@@ -1623,12 +1986,27 @@ window.RMX.overlay = (function () {
       main.title = row.summary;
       const type = document.createElement('div');
       type.className = 'rmx-rp-type';
-      type.textContent = row.type;
+      // The dock numbers its cards, so a refactoring can be referred to by
+      // position while the list is filtered down.
+      const num = document.createElement('span');
+      num.className = 'rmx-rp-num';
+      num.textContent = ordinal + 1 + '.';
+      type.appendChild(num);
+      type.appendChild(document.createTextNode(row.type));
       const sum = document.createElement('div');
       sum.className = 'rmx-rp-sum';
       sum.textContent = row.summary;
       main.appendChild(type);
       main.appendChild(sum);
+      // The richer levels put RefactoringMiner's whole sentence on the row. Built
+      // for every level and revealed by CSS, so switching level never rebuilds
+      // the DOM from data the panel might not have.
+      const full = document.createElement('div');
+      full.className = 'rmx-rp-full';
+      full.textContent = row.description || row.detail || '';
+      if (full.textContent) main.appendChild(full);
+      const files = fileChips(row);
+      if (files) main.appendChild(files);
       // reveal → blink → centre (shared with the navigator and minimap), and
       // open this row so its summary + explanation appear on the same click.
       main.addEventListener('click', () => { focus(row.index); toggleDetail(item, true); });
@@ -1651,6 +2029,8 @@ window.RMX.overlay = (function () {
 
       item.appendChild(head);
       item.appendChild(detail);
+      const locs = buildLocations(row);
+      if (locs) item.appendChild(locs);
       body.appendChild(item);
       rpItems[String(row.index)] = item;
     });
@@ -1665,12 +2045,17 @@ window.RMX.overlay = (function () {
     }
     rpItems = {};
     rpOpenItem = null;
+    lastRows = null;
+    // The filter describes one page's refactorings, so it doesn't survive to the
+    // next one — a type hidden on this PR shouldn't silently hide rows on another.
+    hiddenTypes = new Set();
+    document.documentElement.style.setProperty('--rmx-dock-h', '0px');
     teardownFocusUI();
   }
 
   return {
     ensureStyle, clearAll, setPlan, paintAll, installTooltip,
     select, applySelection, clearSelection, scrollToRefactoring, setTargets, setRepaint,
-    showReport, reportLoading, reportError, hideReport,
+    showReport, reportLoading, reportError, hideReport, setPanelView,
   };
 })();

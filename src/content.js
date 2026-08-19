@@ -410,22 +410,72 @@ window.RMX = window.RMX || {};
     return s.length > 60 ? s.slice(0, 57) + '…' : s;
   }
 
-  // Report rows: the type (shown bold), a type-free element summary, and the
-  // refactoring's full RefactoringMiner description for the expandable detail
-  // card. `index` links a row back to its tagged cells so a click selects/blinks it.
+  // Report rows. One row carries everything any of the panel's three detail
+  // levels needs, so switching level is a re-render of the same data rather than
+  // a re-analysis (see RMX.overlay.setPanelView):
+  //   • `summary`     — type-free element summary, the compact level's one-liner
+  //   • `detail`      — the full RefactoringMiner sentence, split into clauses
+  //                     for the expandable card (every level)
+  //   • `description` — that same sentence verbatim, shown inline on the row
+  //                     from the expanded level up
+  //   • `files`       — the distinct paths the refactoring touches
+  //   • `locations`   — every left/right code element RefactoringMiner reported,
+  //                     with its own per-location description and type. This is
+  //                     the part the compact panel never surfaces; the detailed
+  //                     level lists it in full.
+  // `index` links a row back to its tagged cells so a click selects/blinks it.
   function reportRows(refactorings) {
-    return refactorings.map((r, index) => ({
-      index,
-      type: r.type,
-      summary: elementSummary(r),
-      detail: r.description || '',
-    }));
+    return refactorings.map((r, index) => {
+      const locations = locationRows(r);
+      return {
+        index,
+        type: r.type,
+        summary: elementSummary(r),
+        detail: r.description || '',
+        description: r.description || '',
+        files: distinctFiles(locations),
+        locations,
+      };
+    });
   }
   function elementSummary(r) {
     const left = firstCodeElement(r.leftSideLocations);
     const right = firstCodeElement(r.rightSideLocations);
     if (left && right && left !== right) return `${shorten(left)} → ${shorten(right)}`;
     return shorten(right || left || r.description || '');
+  }
+
+  // RefactoringMiner's raw locations, flattened to one list in the order a reader
+  // wants them: the "before" side first, then "after". `side` is the L/R the diff
+  // itself uses, so a location row can be matched back to a tagged cell.
+  function locationRows(r) {
+    const out = [];
+    [['L', r.leftSideLocations], ['R', r.rightSideLocations]].forEach(([side, list]) => {
+      (list || []).forEach((l) => {
+        out.push({
+          side,
+          filePath: l.filePath || '',
+          startLine: l.startLine,
+          endLine: l.endLine,
+          codeElement: l.codeElement || '',
+          // RefactoringMiner's own words for what this location IS within the
+          // refactoring ("original attribute declaration", "extracted method
+          // declaration"), which is the single most useful field the compact
+          // panel throws away.
+          role: l.description || '',
+          kind: l.codeElementType || '',
+        });
+      });
+    });
+    return out;
+  }
+
+  function distinctFiles(locations) {
+    const seen = [];
+    locations.forEach((l) => {
+      if (l.filePath && seen.indexOf(l.filePath) === -1) seen.push(l.filePath);
+    });
+    return seen;
   }
 
   // When the user follows one of the action's PR-comment links, GitHub lands us

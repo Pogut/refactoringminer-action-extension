@@ -330,6 +330,39 @@
       .switch input:checked + .switch-track::after { transform: translateX(20px); }
       .switch input:focus-visible + .switch-track { box-shadow: 0 0 0 3px var(--ring); }
 
+      /* Panel level picker: three selectable cards, each with a little wireframe
+         of the diff page showing how much of it that level's panel covers. */
+      .levels { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+      .level {
+        display: block; cursor: pointer; margin: 0;
+        border: 1px solid var(--border); border-radius: 10px;
+        padding: 12px; background: var(--field); transition: border-color 0.14s, box-shadow 0.14s;
+      }
+      .level:hover { border-color: var(--muted); }
+      .level input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+      .level:has(input:checked) { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+      .level:has(input:focus-visible) { box-shadow: 0 0 0 3px var(--ring); }
+      /* The card's parts are spans (a <label> may not contain block-level
+         interactive markup cleanly), so each is made a block explicitly. */
+      .level-name { display: block; font-weight: 600; font-size: 13px; }
+      .level-note { display: block; color: var(--muted); font-size: 11.5px; font-weight: 400; line-height: 1.45; margin-top: 3px; }
+      /* Wireframe: a page with the panel's footprint filled in. */
+      .level-fig {
+        display: block;
+        position: relative; height: 68px; border-radius: 6px; margin-bottom: 10px;
+        background: var(--sunken); border: 1px solid var(--border-muted); overflow: hidden;
+      }
+      .level-fig i { position: absolute; display: block; background: var(--accent); opacity: 0.85; border-radius: 3px; }
+      .level-fig .pane { left: 6px; right: 6px; top: 6px; height: 4px; opacity: 0.16; border-radius: 2px; }
+      .level-fig .pane.l2 { top: 14px; right: 26px; }
+      .level-fig .pane.l3 { top: 22px; right: 40px; }
+      .level-fig .pane.l4 { top: 30px; right: 18px; }
+      .lv-compact  .panel { left: 6px; bottom: 6px; width: 30%; height: 26px; }
+      .lv-expanded .panel { left: 6px; bottom: 6px; width: 58%; height: 34px; }
+      .lv-detailed .panel { left: 6px; right: 6px; bottom: 6px; height: 40px; }
+
+      @media (max-width: 620px) { .levels { grid-template-columns: 1fr; } }
+
       @media (prefers-reduced-motion: reduce) {
         .pv-left, .pv-right { animation: none; }
       }
@@ -373,6 +406,66 @@
             <span class="switch-track" aria-hidden="true"></span>
           </span>
         </label>
+      </section>
+
+      <!-- Refactorings panel: how much of the page it takes, and with it how much
+           of each refactoring's RefactoringMiner record it shows -->
+      <section class="card">
+        <h2>Refactorings panel</h2>
+        <p class="desc">
+          How much of the diff page the refactorings list occupies — and with it
+          how much of each refactoring RefactoringMiner reported it puts on
+          screen. Every level lists the same refactorings and highlights the same
+          lines; they differ only in how much they explain without being asked.
+        </p>
+
+        <div class="levels" role="radiogroup" aria-label="Panel size and detail">
+          <label class="level lv-compact">
+            <input type="radio" name="panelView" value="compact" />
+            <span class="level-fig" aria-hidden="true">
+              <i class="pane"></i><i class="pane l2"></i><i class="pane l3"></i><i class="pane l4"></i>
+              <i class="panel"></i>
+            </span>
+            <span class="level-name">Compact</span>
+            <span class="level-note">
+              A small card in the corner. Each row names the refactoring and the
+              element it touched; the description opens when you click a row.
+            </span>
+          </label>
+
+          <label class="level lv-expanded">
+            <input type="radio" name="panelView" value="expanded" />
+            <span class="level-fig" aria-hidden="true">
+              <i class="pane"></i><i class="pane l2"></i><i class="pane l3"></i><i class="pane l4"></i>
+              <i class="panel"></i>
+            </span>
+            <span class="level-name">Expanded</span>
+            <span class="level-note">
+              The same card, stretched along the bottom. Every row carries its
+              full description and the files it touched, with nothing to open.
+            </span>
+          </label>
+
+          <label class="level lv-detailed">
+            <input type="radio" name="panelView" value="detailed" />
+            <span class="level-fig" aria-hidden="true">
+              <i class="pane"></i><i class="pane l2"></i><i class="pane l3"></i><i class="pane l4"></i>
+              <i class="panel"></i>
+            </span>
+            <span class="level-name">Detailed</span>
+            <span class="level-note">
+              A dock across the whole bottom of the page. Adds every code element
+              RefactoringMiner named — with its role and location — and a
+              checkbox per refactoring type to show just one kind at a time.
+            </span>
+          </label>
+        </div>
+
+        <p class="desc" style="margin: 16px 0 0">
+          The detailed dock covers the bottom of the diff. Click its header to
+          collapse it out of the way and click again to bring it back — the
+          setting stays where you left it.
+        </p>
       </section>
 
       <!-- Highlight colours: applies in every mode -->

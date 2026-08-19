@@ -28,11 +28,27 @@ and an optional GitHub token for private repos are set in the options page. The
 extension waits for a click on its toolbar icon by default; the options page can
 instead make it activate automatically on supported diffs.
 
-Either way, a collapsible **Refactorings** panel (bottom-left) lists every
-refactoring; clicking a row blinks it on the diff — handy when you don't have the
-action posting a PR comment, or don't want to leave the diff to read it. The
-options page sets how fast that blink pulses, from a constant (never blinking)
-highlight up to a rapid flash.
+Either way, a collapsible **Refactorings** panel lists every refactoring; clicking
+a row blinks it on the diff — handy when you don't have the action posting a PR
+comment, or don't want to leave the diff to read it. The options page sets how
+fast that blink pulses, from a constant (never blinking) highlight up to a rapid
+flash.
+
+The same page picks how much of the diff the panel takes, and with it how much of
+each refactoring's RefactoringMiner record it shows. All three list the same
+refactorings and highlight the same lines:
+
+| Level | Footprint | Shows |
+| --- | --- | --- |
+| **Compact** (default) | small card, bottom-left | type + the element it touched; the description opens on click |
+| **Expanded** | the card elongated along the bottom | the full description and the files touched, on every row |
+| **Detailed** | a dock across the whole bottom of the page | the above, plus every code element RefactoringMiner named (its role, kind, and `file:line`, each clickable), and a checkbox per refactoring type to show one kind at a time |
+
+The detailed dock is the [Refactoring-Aware-Commit-Review](../RefactoringAwareCommitReview)
+full-width panel brought back as an option. Its type filter hides rows (and the
+navigator/minimap entries that go with them) — nothing is un-analysed by it, so a
+filtered-out line still blinks if you click it in the diff. Clicking the dock's
+header collapses it out of the way.
 
 ## How it works
 
@@ -86,13 +102,13 @@ Feed shape (RefactoringMiner's classic `-json` output):
 |------|------|
 | `src/config.js` | URL parsing + feed-path / git-URL construction (mirrors the action) |
 | `src/github.js` | `filePath → diff-<pathDigest>`; locate a line cell across the diff UIs |
-| `src/overlay.js` | view-agnostic renderer: tag cells / blink selection / pins / tooltip / report panel |
+| `src/overlay.js` | view-agnostic renderer: tag cells / blink selection / pins / tooltip / report panel at its three detail levels |
 | `src/messaging.js` | content → service-worker feed-fetch bridge |
 | `src/service-worker.js` | cross-origin feed fetch + per-URL cache |
 | `src/rm.js` | standalone data source: hosted RefactoringMiner service client — one call per page, `commitId` = sha (single commit) or PR number (whole PR) |
 | `src/views.js` | view adapters (`files` = whole PR, `commit` = single commit) |
 | `src/content.js` | orchestrator: per-page feed→service source selection, stale-navigation guard, Turbo-navigation re-render |
-| `options.html` / `options.js` | activation mode, highlight colours, blink speed, page theme, and standalone-service settings |
+| `options.html` / `options.js` | activation mode, panel level, highlight colours, blink speed, page theme, and standalone-service settings |
 
 ## Dev
 

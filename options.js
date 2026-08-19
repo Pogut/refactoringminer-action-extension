@@ -13,7 +13,17 @@ const DEFAULTS = {
   autoTrigger: false,
   blinkSpeed: 1,
   theme: 'light',
+  panelView: 'compact',
 };
+
+// How much of the diff page the refactorings panel takes, and with it how much of
+// each refactoring's record it shows. Read by src/overlay.js — keep in sync with
+// PANEL_VIEWS there.
+const PANEL_VIEWS = ['compact', 'expanded', 'detailed'];
+
+function normView(v) {
+  return PANEL_VIEWS.indexOf(v) === -1 ? DEFAULTS.panelView : v;
+}
 
 // Hosts that no longer serve RefactoringMiner: a stored value pointing at one is
 // shown (and re-saved) as the current default. Keep in sync with src/rm.js.
@@ -131,6 +141,18 @@ function resolveFill(stored, side) {
   return HL_DEFAULTS[ghMode][side];
 }
 
+// The panel level is a plain radio group; these two just read and write it, and
+// are kept apart from the rest so the group's name stays in one place.
+function setPanelView(view) {
+  const hit = document.querySelector(`input[name="panelView"][value="${view}"]`);
+  if (hit) hit.checked = true;
+}
+
+function panelView() {
+  const hit = document.querySelector('input[name="panelView"]:checked');
+  return normView(hit && hit.value);
+}
+
 // Clamp an arbitrary stored value to a valid slider index.
 function normSpeed(v) {
   const n = parseInt(v, 10);
@@ -220,13 +242,14 @@ function load() {
 
 function loadSync() {
   chrome.storage.sync.get(
-    ['baseurl', 'token', 'timeout', 'autoTrigger', 'blinkSpeed', 'theme', 'hlLeft', 'hlRight'],
+    ['baseurl', 'token', 'timeout', 'autoTrigger', 'blinkSpeed', 'theme', 'hlLeft', 'hlRight', 'panelView'],
     (r) => {
       r = r || {};
       $('baseurl').value = liveBaseurl(r.baseurl);
       $('token').value = r.token || DEFAULTS.token;
       $('timeout').value = r.timeout || DEFAULTS.timeout;
       $('triggerAuto').checked = r.autoTrigger === true;
+      setPanelView(normView(r.panelView));
       HL_SIDES.forEach((s) => bindColor(s, resolveFill(r, s)));
       $('blinkSpeed').value = normSpeed(r.blinkSpeed);
       setTheme(r.theme, false);
@@ -255,7 +278,7 @@ function save() {
   const timeout = Math.min(1000, Math.max(10, parseInt($('timeout').value, 10) || DEFAULTS.timeout));
   const autoTrigger = $('triggerAuto').checked;
   const blinkSpeed = normSpeed($('blinkSpeed').value);
-  const write = { baseurl, token, timeout, autoTrigger, blinkSpeed };
+  const write = { baseurl, token, timeout, autoTrigger, blinkSpeed, panelView: panelView() };
 
   // A colour still sitting on the current default isn't a choice, so it is
   // cleared rather than written. Storing it would pin the colour to whichever
