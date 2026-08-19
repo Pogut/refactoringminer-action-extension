@@ -272,7 +272,19 @@ function setTheme(theme, persist) {
   if (persist) chrome.storage.sync.set({ theme: t });
 }
 
-function save() {
+// --- saving ---------------------------------------------------------------
+// Every control on this page writes itself the moment it changes: the settings
+// are independent one-click choices, and a single Save button at the foot of the
+// page meant changing the panel level at the top ended in a scroll to commit it.
+//
+// One writer for the whole form rather than a patch per control. It reads the
+// current state of every field, so which control fired doesn't matter and the
+// colour/timeout rules below can't drift out of step with a partial write.
+
+// `normalise` writes the clamped timeout back into its field. Only the field's
+// own change event (i.e. blur/Enter) does that — clamping while the digits are
+// still being typed would rewrite "1" to "10" under the cursor.
+function save(normalise) {
   const baseurl = $('baseurl').value.trim() || DEFAULTS.baseurl;
   const token = $('token').value.trim();
   const timeout = Math.min(1000, Math.max(10, parseInt($('timeout').value, 10) || DEFAULTS.timeout));
@@ -292,35 +304,99 @@ function save() {
     else write[id] = value;
   });
 
+  if (normalise) $('timeout').value = timeout;
+
+  // storage.sync is rate-limited (120 writes/minute), and auto-saving turns every
+  // keystroke and slider step into a candidate write. Skipping a write that would
+  // store exactly what is already there keeps a debounce flush from spending the
+  // budget on nothing.
+  const sig = JSON.stringify([write, clear]);
+  if (sig === lastWritten) return;
+  lastWritten = sig;
+
   chrome.storage.sync.set(write, () => {
     if (clear.length) chrome.storage.sync.remove(clear);
-    $('timeout').value = timeout;
-    const status = $('status');
-    status.textContent = 'Saved.';
-    setTimeout(() => (status.textContent = ''), 1500);
+    flashSaved();
   });
+}
+
+let lastWritten = null;
+let saveTimer = null;
+
+// Controls that fire continuously — a dragged slider, a held-down key — go
+// through here so one gesture is one write.
+function scheduleSave() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => save(false), 400);
+}
+
+// Commit anything still pending right now: a field that is mid-debounce when the
+// page is closed or hidden would otherwise lose its last edit.
+function flushSave() {
+  clearTimeout(saveTimer);
+  save(false);
+}
+
+// The "Saved" confirmation is a floating pill rather than a line at the foot of
+// the page, so it is visible wherever the control that triggered it was.
+let savedTimer = null;
+function flashSaved() {
+  const status = $('status');
+  status.textContent = 'Saved';
+  status.classList.add('show');
+  clearTimeout(savedTimer);
+  savedTimer = setTimeout(() => status.classList.remove('show'), 1400);
 }
 
 // Back to the defaults for the theme GitHub is in. Clearing the stored pair (as
 // well as resetting the pickers) is what puts the colours back under GitHub's
 // control, so they follow along again if the user later switches its theme.
 function resetColors() {
-  chrome.storage.sync.remove(['hlLeft', 'hlRight']);
   HL_SIDES.forEach((side) => {
     const id = side === 'left' ? 'hlLeft' : 'hlRight';
     $(id).value = HL_DEFAULTS[ghMode][side];
     $(id + 'Hex').value = HL_DEFAULTS[ghMode][side];
   });
   updatePreview();
+  // The pickers now sit on the defaults, so save() clears the stored pair for us.
+  save(false);
 }
 
 document.addEventListener('DOMContentLoaded', () => {
   applyTheme(document.documentElement.dataset.theme); // sync the button's label/state
   load();
-  $('save').addEventListener('click', save);
   $('reset').addEventListener('click', resetColors);
-  $('blinkSpeed').addEventListener('input', updateSpeed);
   $('themeToggle').addEventListener('click', () => {
     setTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark', true);
+  });
+
+  // Discrete choices commit immediately; typed and dragged ones debounce.
+  $('triggerAuto').addEventListener('change', () => save(false));
+  document.querySelectorAll('input[name="panelView"]').forEach((radio) => {
+    radio.addEventListener('change', () => save(false));
+  });
+  $('blinkSpeed').addEventListener('input', () => {
+    updateSpeed();
+    scheduleSave();
+  });
+  // The colour pickers already repaint the preview on input (see bindColor); the
+  // save rides along on the same events rather than a second listener each.
+  HL_SIDES.forEach((side) => {
+    const id = side === 'left' ? 'hlLeft' : 'hlRight';
+    $(id).addEventListener('input', scheduleSave);
+    $(id + 'Hex').addEventListener('change', () => save(false));
+  });
+  ['baseurl', 'token', 'timeout'].forEach((id) => {
+    $(id).addEventListener('input', scheduleSave);
+    $(id).addEventListener('change', () => {
+      clearTimeout(saveTimer);
+      save(true); // blur/Enter: also normalise the timeout field
+    });
+  });
+
+  // Closing the tab, or switching away from it, is not a cancel.
+  window.addEventListener('beforeunload', flushSave);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') flushSave();
   });
 });
