@@ -70,6 +70,81 @@ window.RMX.overlay = (function () {
     return '#' + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
   }
 
+  // --- segment colour -------------------------------------------------------
+  // Clicking a code element in a description highlights just that element's
+  // characters, inside a line whose whole background is already the side's fill.
+  // So the segment takes the fill's OPPOSITE: its complementary hue (180° away),
+  // pushed hard in the opposite lightness direction as well. In GitHub's light
+  // theme the fills are pale and the code is dark, so the segment goes deep and
+  // its text goes white; in the dark theme it is the other way round. Between
+  // the hue flip and the lightness flip there is no mistaking the element for
+  // the line it sits in.
+  function hexToHsl(hex) {
+    const m = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(hex || '');
+    if (!m) return null;
+    let h = m[1];
+    if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+    const n = parseInt(h, 16);
+    const r = ((n >> 16) & 255) / 255;
+    const g = ((n >> 8) & 255) / 255;
+    const b = (n & 255) / 255;
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    const l = (max + min) / 2;
+    if (max === min) return { h: 0, s: 0, l };
+    const d = max - min;
+    const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    let hue;
+    if (max === r) hue = ((g - b) / d + (g < b ? 6 : 0)) / 6;
+    else if (max === g) hue = ((b - r) / d + 2) / 6;
+    else hue = ((r - g) / d + 4) / 6;
+    return { h: hue * 360, s, l };
+  }
+
+  function hslToHex(h, s, l) {
+    const hh = (((h % 360) + 360) % 360) / 360;
+    const f = (p, q, t) => {
+      if (t < 0) t += 1;
+      if (t > 1) t -= 1;
+      if (t < 1 / 6) return p + (q - p) * 6 * t;
+      if (t < 1 / 2) return q;
+      if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+      return p;
+    };
+    let r, g, b;
+    if (s === 0) {
+      r = g = b = l;
+    } else {
+      const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+      const p = 2 * l - q;
+      r = f(p, q, hh + 1 / 3);
+      g = f(p, q, hh);
+      b = f(p, q, hh - 1 / 3);
+    }
+    const to = (v) => Math.round(Math.max(0, Math.min(1, v)) * 255);
+    return '#' + ((1 << 24) + (to(r) << 16) + (to(g) << 8) + to(b)).toString(16).slice(1);
+  }
+
+  // The segment fill + its text colour, opposite the given line fill.
+  function segmentFor(fill, mode) {
+    const hsl = hexToHsl(fill);
+    // A colour we can't read (or a grey, which has no opposite hue) still needs a
+    // segment that stands out, so fall back to the theme's strongest contrast.
+    if (!hsl || hsl.s < 0.08) {
+      return mode === 'dark'
+        ? { bg: '#e6edf3', fg: '#0d1117' }
+        : { bg: '#1f2328', fg: '#ffffff' };
+    }
+    const sat = Math.max(0.55, Math.min(0.85, hsl.s + 0.35));
+    // Lightness mirrors across the midpoint and is then driven to the end the
+    // fill is not at, so the segment can never sit at the fill's own brightness.
+    const light = mode === 'dark' ? 0.72 : 0.34;
+    return {
+      bg: hslToHex(hsl.h + 180, sat, light),
+      fg: mode === 'dark' ? '#0d1117' : '#ffffff',
+    };
+  }
+
   // Outline/stripe shade for a fill. Defaults keep their hand-picked accent; a
   // custom colour is pushed away from the page background so the outline reads
   // against both the fill and the canvas around it.
@@ -162,6 +237,12 @@ window.RMX.overlay = (function () {
     // mode, the bright accent in GitHub dark mode.
     root.setProperty('--rmx-left-tip', mode === 'dark' ? leftA : left);
     root.setProperty('--rmx-right-tip', mode === 'dark' ? rightA : right);
+    const segL = segmentFor(left, mode);
+    const segR = segmentFor(right, mode);
+    root.setProperty('--rmx-left-seg', segL.bg);
+    root.setProperty('--rmx-left-seg-fg', segL.fg);
+    root.setProperty('--rmx-right-seg', segR.bg);
+    root.setProperty('--rmx-right-seg-fg', segR.fg);
   }
 
   // Re-pick the palette when GitHub's theme changes under us: its own switcher
@@ -252,6 +333,15 @@ window.RMX.overlay = (function () {
         font:12px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;opacity:0;transition:opacity .08s;}
       .${FLASH}{animation:rmx-flash 1.1s ease-out 2;}
       @keyframes rmx-flash{0%,100%{filter:none;}50%{filter:brightness(1.45);}}
+
+      /* The clicked code element, painted over the characters themselves rather
+         than the row. Its fill is the complement of the side's line fill (see
+         segmentFor), and it carries its own text colour because it is deliberately
+         far enough from the canvas that GitHub's syntax colours would not survive
+         on it. Highlights sit above the line's background and below its text, so
+         the two never fight. */
+      ::highlight(${SEG_L}){background-color:var(--rmx-left-seg,#0b4f8a);color:var(--rmx-left-seg-fg,#fff);}
+      ::highlight(${SEG_R}){background-color:var(--rmx-right-seg,#8a4a0b);color:var(--rmx-right-seg-fg,#fff);}
 
       /* Peek popover body (extends .rmx-tip): a live glance at the counterpart. */
       .rmx-tip-title{font-weight:600;}
@@ -369,6 +459,16 @@ window.RMX.overlay = (function () {
       #rmx-report .rmx-rp-descline{line-height:1.45;overflow-wrap:anywhere;}
       #rmx-report .rmx-rp-rel{color:var(--fgColor-muted,#656d76);}
       #rmx-report .rmx-rp-codeel{font:11.5px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--fgColor-default,#1f2328);}
+      /* A code element RefactoringMiner linked to its own line. Monospace like
+         any other code element, but accented and underlined so it reads as the
+         thing you can click — clicking reveals that line rather than navigating. */
+      #rmx-report .rmx-rp-link{font:11.5px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;
+        color:var(--fgColor-accent,#0969da);text-decoration:underline;
+        text-decoration-color:var(--borderColor-accent-muted,rgba(9,105,218,.4));
+        text-underline-offset:2px;cursor:pointer;overflow-wrap:anywhere;border-radius:3px;}
+      #rmx-report .rmx-rp-link:hover{text-decoration-color:currentColor;
+        background:var(--bgColor-accent-muted,rgba(9,105,218,.1));}
+      #rmx-report .rmx-rp-link:focus-visible{outline:2px solid var(--fgColor-accent,#0969da);outline-offset:1px;}
       #rmx-report .rmx-rp-msg{padding:10px 11px;color:var(--fgColor-muted,#656d76);display:flex;align-items:center;gap:8px;}
       #rmx-report .rmx-rp-err{color:var(--fgColor-danger,#cf222e);}
       #rmx-report .rmx-rp-spinner{width:12px;height:12px;flex:0 0 auto;border-radius:50%;
@@ -504,6 +604,7 @@ window.RMX.overlay = (function () {
     document.querySelectorAll('.' + CLASS).forEach(clearCell);
     cellsByIndex = new Map();
     selCells = [];
+    clearSegment();
     cachedHost = null; // the diff (and its scroll container) is being rebuilt
   }
 
@@ -850,9 +951,179 @@ window.RMX.overlay = (function () {
       });
     });
     selCells = Array.from(seen);
+    // Re-resolved here rather than painted once, so the element survives the
+    // virtualized diff unmounting and recycling its row while you scroll.
+    applySegment();
     // With no selection, a repaint only needs the viewport-relative refresh (a
     // tick that just became measurable); a live selection re-syncs everything.
     schedulePins(selectedIndices.length > 0);
+  }
+
+  // --- code-element segment -------------------------------------------------
+  // A click on a code element in a description highlights that element's exact
+  // characters, not the whole diff row: the row already carries the selection
+  // fill, and painting the two the same way would say nothing about which part
+  // of the line the description was pointing at.
+  //
+  // Painted with the CSS Custom Highlight API rather than by wrapping the
+  // characters in a span. GitHub renders a line as a run of syntax-coloured
+  // elements and an element rarely lines up with them, so a wrapper would mean
+  // splitting GitHub's own nodes — inside a diff that recycles those nodes as it
+  // scrolls. A Highlight paints over whatever is there, crosses element
+  // boundaries by itself, and can recolour the text (which is what keeps the
+  // code readable on a deep segment fill).
+  const SEG_L = 'rmx-seg-l';
+  const SEG_R = 'rmx-seg-r';
+  // The element the selection is pointing at, kept so a repaint can re-resolve
+  // it: the virtualized diff unmounts and recycles rows, which leaves a stored
+  // Range pointing at nodes that now show a different line.
+  let segment = null;
+
+  function highlightsSupported() {
+    return typeof CSS !== 'undefined' && CSS.highlights && typeof Highlight === 'function';
+  }
+
+  function clearSegment() {
+    segment = null;
+    if (!highlightsSupported()) return;
+    CSS.highlights.delete(SEG_L);
+    CSS.highlights.delete(SEG_R);
+  }
+
+  // The cell of a line that holds the source text, as opposed to its numbering
+  // twin. Same rule codeOf uses: the widest run of text that isn't the number.
+  function codeCell(cells, line) {
+    let best = null;
+    let bestLen = 0;
+    (cells || []).forEach((c) => {
+      if (!c || !c.isConnected) return;
+      const t = (c.textContent || '').trim();
+      if (!t || t === String(line)) return;
+      if (t.length > bestLen) {
+        bestLen = t.length;
+        best = c;
+      }
+    });
+    return best;
+  }
+
+  // How many characters of a cell's text sit before the source line proper.
+  // GitHub's diffs disagree: some render the +/-/space marker into the cell text
+  // ahead of the indentation, others keep it out of the text entirely — and a
+  // space marker in front of an indented line is indistinguishable from the
+  // indentation itself. So the guess (the same rule the peek popover uses) is
+  // checked against the columns and overruled when the other offset lines up
+  // better: the element's first character must be non-blank and must follow a
+  // blank, and a single-line element's last character must be non-blank too.
+  // Getting this wrong slides the highlight by one character.
+  function markerWidth(text, loc) {
+    const guess = /^[+\- ](?=\s)/.test(text) ? 1 : 0;
+    const blank = (c) => c === undefined || /\s/.test(c);
+    const score = (off) => {
+      let s = 0;
+      const a = off + Math.max(1, loc.startColumn || 1) - 1;
+      if (text[a] && /\S/.test(text[a])) s++;
+      if (a > 0 && blank(text[a - 1])) s++;
+      if (loc.startLine === loc.endLine && loc.endColumn > loc.startColumn) {
+        const b = off + loc.endColumn - 2;
+        if (text[b] && /\S/.test(text[b])) s++;
+      }
+      return s;
+    };
+    const alt = guess === 1 ? 0 : 1;
+    return score(guess) >= score(alt) ? guess : alt;
+  }
+
+  // Character offsets within a cell's text for the part of `loc` that falls on
+  // `line`, or null when the element covers none of it. Columns are 1-based over
+  // the SOURCE line, so the marker width above is added back on.
+  //
+  // Only a single-line element has a meaningful end column: RefactoringMiner's
+  // multi-line ranges are declaration ranges whose end overshoots (the same
+  // overshoot content.js trims when planning the paint), so a multi-line element
+  // is highlighted from its start column to the end of that line — which is the
+  // signature, or the `if (…)` clause, and is what the description names.
+  function segmentOffsets(text, loc, line) {
+    const marker = markerWidth(text, loc);
+    const len = text.length;
+    const from = (col) => Math.max(0, Math.min(len, marker + Math.max(1, col || 1) - 1));
+    const single = loc.startLine === loc.endLine;
+    let start;
+    let end;
+    if (line === loc.startLine) {
+      start = from(loc.startColumn);
+      end = single && loc.endColumn > loc.startColumn ? from(loc.endColumn) : len;
+    } else if (line === loc.endLine) {
+      start = marker;
+      end = from(loc.endColumn);
+    } else if (line > loc.startLine && line < loc.endLine) {
+      start = marker;
+      end = len;
+    } else {
+      return null;
+    }
+    // Trailing whitespace in the cell would paint a bar off the end of the code.
+    while (end > start && /\s/.test(text[end - 1])) end--;
+    while (start < end && /\s/.test(text[start])) start++;
+    return end > start ? { start, end } : null;
+  }
+
+  // A DOM Range over [start, end) characters of an element's rendered text,
+  // walking its text nodes so the range can span GitHub's syntax elements.
+  function rangeOverText(root, start, end) {
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    let seen = 0;
+    let sNode = null;
+    let sOff = 0;
+    let eNode = null;
+    let eOff = 0;
+    let n;
+    while ((n = walker.nextNode())) {
+      const len = n.nodeValue.length;
+      if (!sNode && seen + len > start) {
+        sNode = n;
+        sOff = start - seen;
+      }
+      if (sNode && seen + len >= end) {
+        eNode = n;
+        eOff = end - seen;
+        break;
+      }
+      seen += len;
+    }
+    if (!sNode || !eNode) return null;
+    const range = document.createRange();
+    try {
+      range.setStart(sNode, sOff);
+      range.setEnd(eNode, eOff);
+    } catch (_) {
+      return null; // offsets slid out from under us mid-recycle
+    }
+    return range;
+  }
+
+  // Paint (or repaint) the stored element. Safe to call on every repaint: it
+  // re-resolves the cell and range from scratch, and quietly drops the highlight
+  // while the line is scrolled out of the virtualized diff.
+  function applySegment() {
+    if (!segment || !highlightsSupported()) return;
+    const name = segment.side === 'L' ? SEG_L : SEG_R;
+    const other = segment.side === 'L' ? SEG_R : SEG_L;
+    CSS.highlights.delete(other);
+    const cells = RMX.github.lineCells(segment.digest, segment.side, segment.line);
+    const cell = codeCell(cells, segment.line);
+    if (!cell) return void CSS.highlights.delete(name);
+    const offsets = segmentOffsets(cell.textContent || '', segment.loc, segment.line);
+    const range = offsets && rangeOverText(cell, offsets.start, offsets.end);
+    if (!range) return void CSS.highlights.delete(name);
+    CSS.highlights.set(name, new Highlight(range));
+  }
+
+  // Remember which element to paint, then paint it.
+  function setSegment(digest, side, line, loc) {
+    if (!loc || !highlightsSupported()) return clearSegment();
+    segment = { digest, side: side === 'L' ? 'L' : 'R', line, loc };
+    applySegment();
   }
 
   function removeSelectionClasses() {
@@ -909,6 +1180,10 @@ window.RMX.overlay = (function () {
   }
 
   async function select(indices) {
+    // Any element highlight belongs to the previous click, not this selection.
+    // Cleared here rather than in each caller so a cell click, a deep link and
+    // the navigator all drop it; focusTarget sets the new one afterwards.
+    clearSegment();
     // Load/expand a collapsed file and unfold every hidden line of this
     // refactoring first, then re-tag what that mounted, so the blink below
     // covers the whole refactoring rather than just the parts GitHub had shown.
@@ -950,6 +1225,7 @@ window.RMX.overlay = (function () {
     inAttentionPhase = false;
     selectedIndices = [];
     blinkOn = false;
+    clearSegment();
     removeSelectionClasses();
     stackCollapsed.top = false;
     stackCollapsed.bottom = false;
@@ -1426,19 +1702,82 @@ window.RMX.overlay = (function () {
   // ranges before tagging them (an enclosing declaration contributes its header
   // line, not its body), so fall back to any line of that side, then to the
   // refactoring as a whole.
-  async function focusAt(index, side, line) {
+  async function focusAt(index, side, line, loc) {
+    return focusTarget(index, null, side, line, loc);
+  }
+
+  // Follow one of RefactoringMiner's markup links: its fragment is
+  // `#diff-<sha256(path)><L|R><line>`, the same key the diff gives its line
+  // cells, so the href alone says exactly which line to land on. `label` is the
+  // link's own text, which is the code element's name — it tells two locations
+  // reported on the same line apart.
+  async function focusAnchor(index, href, label) {
+    const m = /diff-([0-9a-f]{64})([LR])(\d+)/.exec(href || '');
+    if (!m) return focus(index);
+    const side = m[2];
+    const line = parseInt(m[3], 10);
+    return focusTarget(index, m[1], side, line, locationAt(index, side, line, label));
+  }
+
+  // Which reported location a markup link names, so its columns can bound the
+  // highlight. Matched on the line the link points at; where a line carries more
+  // than one location (a method declaration and the conditional inside it can
+  // both start there) the link's text picks between them.
+  function locationAt(index, side, line, label) {
+    const locs = (locsByIndex[String(index)] || []).filter(
+      (l) => l.side === side && (l.startLine === line || (l.startLine < line && l.endLine >= line)),
+    );
+    if (!locs.length) return null;
+    const named = label && locs.find((l) => l.codeElement === label);
+    // Prefer an exact start on this line over a range merely passing through it.
+    return named || locs.find((l) => l.startLine === line) || locs[0];
+  }
+
+  // Land on one line of a refactoring. `digest` narrows to a file when the
+  // caller knows one (a markup link does; a location row leaves it null and the
+  // side alone picks).
+  //
+  // The named line may not be one the diff tagged — content.js trims
+  // RefactoringMiner's ranges before painting, so an enclosing declaration
+  // contributes only its header line — hence the reveal falls back to the raw
+  // digest+line, and the scroll uses the cells revealLine itself resolved rather
+  // than looking for a tagged one.
+  // `loc` is the reported location the caller is pointing at, when it knows one:
+  // its columns bound the element highlight painted on the landing line.
+  async function focusTarget(index, digest, side, line, loc) {
     await select([String(index)]);
     const wanted = side === 'L' ? 'L' : 'R';
-    const targets = targetsFor(index).filter((t) => t.side === wanted);
-    const t = targets.find((x) => x.line === line) || targets[0];
+    let pool = targetsFor(index).filter((t) => t.side === wanted);
+    if (digest) {
+      const sameFile = pool.filter((t) => t.digest === digest);
+      if (sameFile.length) pool = sameFile;
+    }
+    const t =
+      pool.find((x) => x.line === line) ||
+      (digest ? { digest, side: wanted, line, filePath: filePathFor(index, digest) } : pool[0]);
     if (!t) return focus(index);
-    await RMX.github.revealLine(t.digest, t.side, t.line, t.filePath);
+
+    const revealed = await RMX.github.revealLine(t.digest, t.side, t.line, t.filePath);
     if (repaint) await repaint();
+    // Set before applySelection so the line fill and the element land together.
+    setSegment(t.digest, t.side, line, loc);
     applySelection();
     const onSide = mountedCells(index, wanted);
-    const cell = onSide.find((c) => lineNum(c) === t.line) || onSide[0];
+    const cell =
+      (revealed && revealed[0]) ||
+      onSide.find((c) => lineNum(c) === t.line) ||
+      onSide[0];
     if (cell) scrollToCell(cell);
     else await focus(index);
+  }
+
+  // The path a digest stands for, if any of this refactoring's targets names it
+  // (a digest is sha256 of the path, so either side's target will do). revealLine
+  // only needs it for a file collapsed behind "Viewed", which renders no rows to
+  // identify itself by.
+  function filePathFor(index, digest) {
+    const hit = targetsFor(index).find((t) => t.digest === digest && t.filePath);
+    return hit ? hit.filePath : '';
   }
 
   // Populate the navigator + minimap from the report rows (feed order). Called by
@@ -1726,6 +2065,9 @@ window.RMX.overlay = (function () {
   // formatted into one clause per line.
   let rpItems = {};      // feed index (string) -> item element, for current-row sync
   let rpOpenItem = null; // single-open accordion
+  // feed index (string) -> the refactoring's reported locations, so a click on a
+  // code element can find the columns that bound it (see locationAt).
+  let locsByIndex = {};
   let lastRows = null;   // the rows showReport last drew, so a level change can redraw
   // Types the reader has switched OFF in the detailed level's filter. Held as the
   // hidden set rather than the shown one so a fresh page (or a type that only
@@ -1761,9 +2103,152 @@ window.RMX.overlay = (function () {
     });
   }
 
+  // --- RefactoringMiner markup ----------------------------------------------
+  // Alongside the plain description, RefactoringMiner hands us the same sentence
+  // as markdown with every code element linked to the exact line it sits on:
+  //
+  //   **Rename Attribute** [_full_name](…#diff-<digest>L3) to
+  //   [_display_name](…#diff-<digest>R6) in class `customer_profile.CustomerProfile`
+  //
+  // That is strictly better than picking the elements out of the prose: the
+  // element boundaries are marked, and each one carries its own line. So when a
+  // row has markup the panel renders from it, and clicking an element reveals
+  // and blinks THAT line rather than the refactoring's default landing spot.
+  // Rows without it (an older feed) keep the prose path below.
+
+  // `**bold**`, `[text](url)`, `` `code` `` — the only three markdown forms
+  // RefactoringMiner emits. Everything between matches is literal text.
+  const MD_TOKEN = /\*\*([^*]+)\*\*|\[([^\]]*)\]\(([^)]*)\)|`([^`]+)`/g;
+
+  function markupTokens(markup) {
+    const src = (markup || '').replace(/\s+/g, ' ').trim();
+    const out = [];
+    if (!src) return out;
+    let at = 0;
+    let m;
+    MD_TOKEN.lastIndex = 0;
+    while ((m = MD_TOKEN.exec(src))) {
+      if (m.index > at) out.push({ kind: 'text', text: src.slice(at, m.index) });
+      if (m[1] !== undefined) out.push({ kind: 'bold', text: m[1] });
+      else if (m[2] !== undefined) out.push({ kind: 'link', text: m[2], href: m[3] });
+      else out.push({ kind: 'code', text: m[4] });
+      at = m.index + m[0].length;
+    }
+    if (at < src.length) out.push({ kind: 'text', text: src.slice(at) });
+    return out;
+  }
+
+  // One linked code element. A plain left-click is ours — reveal the line in
+  // place, which is the whole point and something a navigation cannot do on a
+  // virtualized or folded diff. Modified clicks (new tab, new window, download)
+  // are left to the browser, which is why this stays a real <a href>.
+  function markupLink(token, index) {
+    const a = document.createElement('a');
+    a.className = 'rmx-rp-link';
+    a.textContent = token.text;
+    a.href = token.href || '';
+    a.title = 'Go to this code element';
+    a.addEventListener('click', (e) => {
+      // Stopped for every click, modified or not: the row's own handler would
+      // otherwise jump to the refactoring's default landing spot behind a click
+      // that asked for one specific line — or for a new tab.
+      e.stopPropagation();
+      if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      e.preventDefault();
+      focusAnchor(index, a.getAttribute('href'), token.text);
+    });
+    return a;
+  }
+
+  function markupNode(token, index) {
+    if (token.kind === 'link') return markupLink(token, index);
+    if (token.kind === 'bold') {
+      const b = document.createElement('b');
+      b.textContent = token.text;
+      return b;
+    }
+    if (token.kind === 'code') {
+      const c = document.createElement('span');
+      c.className = 'rmx-rp-codeel';
+      c.textContent = token.text;
+      return c;
+    }
+    return document.createTextNode(token.text);
+  }
+
+  // The sentence as one flowing line, for the row itself.
+  function renderMarkupInline(tokens, index) {
+    const frag = document.createDocumentFragment();
+    tokens.forEach((t) => frag.appendChild(markupNode(t, index)));
+    return frag;
+  }
+
+  // The same tokens broken one relation per line for the explanation card, the
+  // way describeClauses breaks the prose — except the split happens between
+  // tokens, so a linked element is never cut in half. Only the literal text
+  // carries the connectives, so only text tokens are ever split.
+  const CONNECTOR_RE = new RegExp(
+    '\\s+(?=(?:' + DESC_CONNECTORS.map((c) => c.replace(/ /g, '\\s+')).join('|') + ')\\s)',
+    'i',
+  );
+
+  function markupLines(tokens, type) {
+    const lines = [];
+    let line = [];
+    const push = () => {
+      // Trim the empty edges a split leaves behind before keeping the line.
+      while (line.length && line[0].kind === 'text' && !line[0].text.trim()) line.shift();
+      if (line.length) lines.push(line);
+      line = [];
+    };
+    tokens.forEach((t, i) => {
+      // The row already shows the type in bold; repeating it opens every card
+      // with a line that says nothing new.
+      if (i === 0 && t.kind === 'bold' && type && t.text.trim() === String(type).trim()) return;
+      if (t.kind !== 'text') return void line.push(t);
+      const parts = t.text.split(CONNECTOR_RE);
+      parts.forEach((part, k) => {
+        if (k > 0) push(); // a connective starts a new relation
+        if (part) line.push({ kind: 'text', text: part });
+      });
+    });
+    push();
+    return lines;
+  }
+
+  function renderMarkupCard(row) {
+    const tokens = markupTokens(row.markup);
+    const lines = markupLines(tokens, row.type);
+    const frag = document.createDocumentFragment();
+    if (!lines.length) return frag;
+    const list = document.createElement('div');
+    list.className = 'rmx-rp-desclist';
+    lines.forEach((tks) => {
+      const line = document.createElement('div');
+      line.className = 'rmx-rp-descline';
+      tks.forEach((t, i) => {
+        const node = markupNode(t, row.index);
+        // The leading connective ("in class", "extracted from") is the label of
+        // the relation, so it is greyed the way the prose path greys it.
+        if (i === 0 && t.kind === 'text') {
+          const rel = document.createElement('span');
+          rel.className = 'rmx-rp-rel';
+          rel.textContent = t.text;
+          line.appendChild(rel);
+          return;
+        }
+        line.appendChild(node);
+      });
+      list.appendChild(line);
+    });
+    frag.appendChild(list);
+    return frag;
+  }
+
   // The explanation card body: RefactoringMiner's description for the refactoring,
   // formatted one clause per line (or shown verbatim when it doesn't split).
   function buildDetail(row) {
+    if (row.markup) return renderMarkupCard(row);
     const frag = document.createDocumentFragment();
     const desc = (row.detail || '').replace(/\s+/g, ' ').trim();
     if (!desc) return frag;
@@ -1859,7 +2344,9 @@ window.RMX.overlay = (function () {
       line.title = 'Go to ' + locWhere(l);
       line.addEventListener('click', (e) => {
         e.stopPropagation(); // the row's own click would jump to the other side
-        focusAt(row.index, l.side, l.startLine);
+        // The location carries its own columns, so this lights up the element
+        // itself on arrival, the same as clicking it in the description.
+        focusAt(row.index, l.side, l.startLine, l);
       });
       wrap.appendChild(line);
     });
@@ -1952,6 +2439,10 @@ window.RMX.overlay = (function () {
   // without them still renders, so an older caller degrades to the compact list.
   function showReport(rows) {
     lastRows = rows;
+    // Keyed off the unfiltered list: a hidden row's line can still be reached
+    // from the diff, and its element should still resolve.
+    locsByIndex = {};
+    rows.forEach((r) => { locsByIndex[String(r.index)] = r.locations || []; });
     const shown = rows.filter((r) => !hiddenTypes.has(r.type));
     reportTitle(shown.length, rows.length);
     setNav(shown); // navigator + minimap follow the filter, in feed order
@@ -2003,7 +2494,8 @@ window.RMX.overlay = (function () {
       // the DOM from data the panel might not have.
       const full = document.createElement('div');
       full.className = 'rmx-rp-full';
-      full.textContent = row.description || row.detail || '';
+      if (row.markup) full.appendChild(renderMarkupInline(markupTokens(row.markup), row.index));
+      else full.textContent = row.description || row.detail || '';
       if (full.textContent) main.appendChild(full);
       const files = fileChips(row);
       if (files) main.appendChild(files);
@@ -2046,6 +2538,7 @@ window.RMX.overlay = (function () {
     rpItems = {};
     rpOpenItem = null;
     lastRows = null;
+    locsByIndex = {};
     // The filter describes one page's refactorings, so it doesn't survive to the
     // next one — a type hidden on this PR shouldn't silently hide rows on another.
     hiddenTypes = new Set();

@@ -418,6 +418,9 @@ window.RMX = window.RMX || {};
   //                     for the expandable card (every level)
   //   • `description` — that same sentence verbatim, shown inline on the row
   //                     from the expanded level up
+  //   • `markup`      — the same sentence as RefactoringMiner's markdown, with
+  //                     every code element carrying a link to the exact line it
+  //                     sits on. Retargeted onto this page (see retargetMarkup).
   //   • `files`       — the distinct paths the refactoring touches
   //   • `locations`   — every left/right code element RefactoringMiner reported,
   //                     with its own per-location description and type. This is
@@ -433,9 +436,46 @@ window.RMX = window.RMX || {};
         summary: elementSummary(r),
         detail: r.description || '',
         description: r.description || '',
+        markup: retargetMarkup(r.markup),
         files: distinctFiles(locations),
         locations,
       };
+    });
+  }
+
+  // Point every link in RefactoringMiner's markup at the page it is being shown
+  // on, keeping only the query and the `#diff-<digest><L|R><line>` fragment —
+  // which is the part that identifies the line, and the only part the panel
+  // actually uses.
+  //
+  // The rewrite is needed because the service is called with a single
+  // `commitId`, and an integer means "pull request" while a sha means "commit" —
+  // it cannot tell a standalone commit from a commit that happens to sit inside
+  // a PR, so a sha request always emits regular-commit links:
+  //     …/<owner>/<repo>/commit/<sha>?diff=split#diff-<digest>R591
+  // On a commit-within-a-PR page those point off the page the reader is on.
+  // Rebasing onto the current path rather than swapping `/commit/` for
+  // `/pull/<n>/changes/` also keeps the classic URLs right: GitHub serves the
+  // same diffs at /pull/<n>/files and /pull/<n>/commits/<sha>, and a link should
+  // land back where the reader already is.
+  //
+  // Clicking a link never navigates anyway — the panel intercepts it and reveals
+  // the line in place (RMX.overlay) — but the href is what a middle-click, a
+  // "copy link address", or a failed intercept falls back to, so it has to be
+  // a URL that works.
+  function retargetMarkup(markup) {
+    const text = markup || '';
+    if (!text) return '';
+    const base = window.location.origin + window.location.pathname;
+    return text.replace(/\]\((https?:\/\/[^)\s]+)\)/g, (whole, url) => {
+      let u;
+      try {
+        u = new URL(url);
+      } catch (_) {
+        return whole; // not a URL we can reason about — leave the markup as it came
+      }
+      if (u.hostname !== 'github.com') return whole;
+      return '](' + base + u.search + u.hash + ')';
     });
   }
   function elementSummary(r) {
@@ -457,6 +497,11 @@ window.RMX = window.RMX || {};
           filePath: l.filePath || '',
           startLine: l.startLine,
           endLine: l.endLine,
+          // 1-based columns of the code element within its start/end lines. This
+          // is what lets a click highlight the element itself rather than the
+          // whole diff row (see RMX.overlay segment highlighting).
+          startColumn: l.startColumn,
+          endColumn: l.endColumn,
           codeElement: l.codeElement || '',
           // RefactoringMiner's own words for what this location IS within the
           // refactoring ("original attribute declaration", "extracted method

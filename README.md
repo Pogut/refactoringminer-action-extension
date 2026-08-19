@@ -50,6 +50,43 @@ navigator/minimap entries that go with them) — nothing is un-analysed by it, s
 filtered-out line still blinks if you click it in the diff. Clicking the dock's
 header collapses it out of the way.
 
+### Clickable code elements
+
+RefactoringMiner sends each refactoring's description twice: as plain prose, and
+as `markup` — the same sentence in markdown with every code element linked to the
+line it sits on. Wherever the panel shows a description it renders the markup, so
+each element is clickable and takes you to **that** line rather than to the
+refactoring's default landing spot. A feed without `markup` falls back to the
+prose, unlinked.
+
+Arriving there, the element itself is highlighted — not the whole diff row. The
+row already carries the selection fill, so the element is painted in the
+**complement of that fill**: the opposite hue, and the opposite end of the
+lightness scale, with its own text colour so the code stays readable on it. Amber
+lines get a blue element, azure lines an orange one, flipped in GitHub's dark
+theme. Its extent comes from the `startColumn`/`endColumn` RefactoringMiner
+reports; a multi-line element is lit from its start column to the end of that
+line (its signature, or its `if (…)` clause), because RefactoringMiner's
+multi-line ranges are declaration ranges whose end overshoots. The location rows
+in the detailed dock light up their element the same way.
+
+This is painted with the CSS Custom Highlight API rather than by wrapping the
+characters in a span: GitHub renders a line as a run of syntax-coloured elements
+that an element rarely lines up with, and the diff recycles those nodes as it
+scrolls. Where the API is unavailable the whole-line highlight still works, only
+without the element on top.
+
+Clicking never navigates: the panel intercepts the click and reveals the line in
+place, which is what lets it unfold a collapsed hunk, expand a file behind
+"Viewed", or mount a virtualized row first — none of which a plain jump to an
+anchor can do. The links stay real `<a href>`s so ⌘/Ctrl-click still opens a new
+tab, and those hrefs are **retargeted onto the page you are on**. That matters
+because the service takes a single `commitId` and cannot tell a standalone commit
+from a commit inside a PR, so a sha request always emits `/commit/<sha>` links —
+which point off a `/pull/<n>/changes/<sha>` page. Rebasing onto the current path
+(rather than swapping `/commit/` for `/pull/<n>/changes/`) also keeps the classic
+`/pull/<n>/files` and `/pull/<n>/commits/<sha>` URLs right.
+
 ## How it works
 
 ```
