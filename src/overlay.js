@@ -440,8 +440,10 @@ window.RMX.overlay = (function () {
       #rmx-report .rmx-rp-row{display:flex;align-items:flex-start;gap:6px;padding:6px 11px;}
       #rmx-report .rmx-rp-main{flex:1;min-width:0;cursor:pointer;}
       #rmx-report .rmx-rp-type{font-weight:600;}
-      /* Collapsed rows show only the type; the summary joins the detail card the
-         moment the row is opened (by a title click or the explain caret). */
+      /* Compact only: a shut row shows just the type, and the summary joins the
+         detail card the moment the row is opened (by a title click or the
+         explain caret). The richer levels print the real description on the row
+         instead, build no disclosure, and hide the summary outright. */
       #rmx-report .rmx-rp-sum{display:none;color:var(--fgColor-muted,#656d76);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
       #rmx-report .rmx-rp-item.rmx-open .rmx-rp-sum{display:block;margin-top:1px;white-space:normal;overflow:visible;overflow-wrap:anywhere;}
       #rmx-report .rmx-rp-info{flex:0 0 auto;margin-top:1px;width:20px;height:20px;padding:0;cursor:pointer;
@@ -489,13 +491,13 @@ window.RMX.overlay = (function () {
       #rmx-report .rmx-rp-filter{display:none;}
 
       /* The refactoring's whole RefactoringMiner sentence, on the row itself.
-         Clamped to three lines while the row is shut so a long Extract And Move
-         description can't push the rest of the list off the panel; opening the
-         row lifts the clamp. */
+         Unclamped: the levels that show it have no disclosure to open, so a
+         truncated description would have nowhere to finish. A long one makes its
+         row taller and the list scrolls. */
       /* No display property here: that stays with the level rules below, so this
          rule can style the block without un-hiding it in the compact level. */
       #rmx-report .rmx-rp-full{margin-top:3px;color:var(--fgColor-muted,#656d76);line-height:1.5;
-        overflow:hidden;overflow-wrap:anywhere;-webkit-box-orient:vertical;-webkit-line-clamp:3;}
+        overflow-wrap:anywhere;}
       /* File chips: where the refactoring landed, which the compact row has no
          room for and which is the first thing you want on a multi-file PR. */
       #rmx-report .rmx-rp-files{margin-top:4px;flex-wrap:wrap;gap:4px;}
@@ -509,8 +511,7 @@ window.RMX.overlay = (function () {
       #rmx-report.rmx-v-expanded{width:min(760px,58vw);max-width:58vw;}
       #rmx-report.rmx-v-expanded .rmx-rp-body{max-height:34vh;}
       #rmx-report.rmx-v-expanded .rmx-rp-row{padding:8px 12px;}
-      #rmx-report.rmx-v-expanded .rmx-rp-full{display:-webkit-box;}
-      #rmx-report.rmx-v-expanded .rmx-rp-item.rmx-open .rmx-rp-full{display:block;}
+      #rmx-report.rmx-v-expanded .rmx-rp-full{display:block;}
       #rmx-report.rmx-v-expanded .rmx-rp-files{display:flex;}
       /* The element summary is the compact level's stand-in for the description;
          with the real sentence on the row it would just say it again. */
@@ -537,7 +538,7 @@ window.RMX.overlay = (function () {
         border-radius:8px;background:var(--bgColor-default,#fff);overflow:hidden;}
       #rmx-report.rmx-v-detailed .rmx-rp-item:last-child{border:1px solid var(--borderColor-muted,#d8dee4);}
       #rmx-report.rmx-v-detailed .rmx-rp-msg{grid-column:1/-1;background:var(--bgColor-default,#fff);}
-      #rmx-report.rmx-v-detailed .rmx-rp-full{display:block;-webkit-line-clamp:unset;}
+      #rmx-report.rmx-v-detailed .rmx-rp-full{display:block;}
       #rmx-report.rmx-v-detailed .rmx-rp-files{display:flex;}
       #rmx-report.rmx-v-detailed .rmx-rp-locs{display:block;}
       #rmx-report.rmx-v-detailed .rmx-rp-num{display:inline;color:var(--fgColor-muted,#656d76);
@@ -2499,28 +2500,36 @@ window.RMX.overlay = (function () {
       if (full.textContent) main.appendChild(full);
       const files = fileChips(row);
       if (files) main.appendChild(files);
-      // reveal → blink → centre (shared with the navigator and minimap), and
-      // open this row so its summary + explanation appear on the same click.
-      main.addEventListener('click', () => { focus(row.index); toggleDetail(item, true); });
-
-      const info = document.createElement('button');
-      info.className = 'rmx-rp-info';
-      info.type = 'button';
-      info.title = 'Show explanation';
-      info.setAttribute('aria-label', 'Show explanation');
-      info.setAttribute('aria-expanded', 'false');
-      info.innerHTML = '<span class="rmx-rp-info-caret">▾</span>';
-      info.addEventListener('click', (e) => { e.stopPropagation(); toggleDetail(item); });
-
       head.appendChild(main);
-      head.appendChild(info);
-
-      const detail = document.createElement('div');
-      detail.className = 'rmx-rp-detail';
-      detail.appendChild(buildDetail(row));
-
       item.appendChild(head);
-      item.appendChild(detail);
+
+      // The disclosure belongs to the compact level alone. It exists to reach a
+      // description the narrow row has no room for, and the richer levels print
+      // that description on the row itself — a caret there would only open a
+      // second copy of what is already on screen. Built per level rather than
+      // hidden by CSS because a level change re-renders from lastRows anyway.
+      if (panelView === 'compact') {
+        // reveal → blink → centre (shared with the navigator and minimap), and
+        // open this row so its summary + explanation appear on the same click.
+        main.addEventListener('click', () => { focus(row.index); toggleDetail(item, true); });
+
+        const info = document.createElement('button');
+        info.className = 'rmx-rp-info';
+        info.type = 'button';
+        info.title = 'Show explanation';
+        info.setAttribute('aria-label', 'Show explanation');
+        info.setAttribute('aria-expanded', 'false');
+        info.innerHTML = '<span class="rmx-rp-info-caret">▾</span>';
+        info.addEventListener('click', (e) => { e.stopPropagation(); toggleDetail(item); });
+        head.appendChild(info);
+
+        const detail = document.createElement('div');
+        detail.className = 'rmx-rp-detail';
+        detail.appendChild(buildDetail(row));
+        item.appendChild(detail);
+      } else {
+        main.addEventListener('click', () => focus(row.index));
+      }
       const locs = buildLocations(row);
       if (locs) item.appendChild(locs);
       body.appendChild(item);
