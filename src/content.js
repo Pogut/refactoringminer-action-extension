@@ -3,7 +3,23 @@ window.RMX = window.RMX || {};
 // Orchestrator: figure out the page, pick a view adapter, fetch the feed the
 // action published, and paint the overlays. Re-paints on GitHub's soft (Turbo)
 // navigations and as the virtualized diff mounts more rows on scroll.
+//
+// Injected two ways, both narrowed to the diff URLs in the manifest:
+//   • declaratively, when a diff URL is loaded as a DOCUMENT, and
+//   • on demand by the service worker, when GitHub pushState-navigates INTO one
+//     from a page this script doesn't cover (the repo page, the pull list, a
+//     notification). No document loads on those, so nothing would be injected
+//     otherwise — see ensureInjected in service-worker.js.
+// `window.__rmxLoaded` below is what the second path checks to avoid injecting
+// over a copy that is already running.
 (function () {
+  // Both injection paths can land on the same page — the service worker checks
+  // this flag before injecting, but a declarative injection racing an on-demand
+  // one would otherwise start a second copy: two URL pollers, two sets of
+  // listeners, two analyses of the same page. Bail rather than double up.
+  if (window.__rmxLoaded) return;
+  window.__rmxLoaded = true;
+
   const RMX = window.RMX;
   let currentRefactorings = null;
   let autoTrigger = false;
@@ -640,15 +656,24 @@ window.RMX = window.RMX || {};
     return true;
   }
 
+  // Watch for the diff mounting more rows (virtualization, unfolds) so they get
+  // tagged too. Re-attached whenever the body it was watching is no longer the
+  // page's: a Turbo visit swaps the whole <body> element out, which leaves the
+  // observer bound to a detached node — still "set", so the old `if (observer)
+  // return;` guard meant it was never rebound and rows mounted after such a
+  // navigation silently stopped being tagged.
+  let observedBody = null;
   function observe() {
-    if (observer) return;
+    if (observer && observedBody === document.body) return;
+    if (observer) observer.disconnect();
     observer = new MutationObserver((mutations) => {
       if (!currentRefactorings) return;
       for (let i = 0; i < mutations.length; i++) {
         if (relevantMutation(mutations[i])) return schedulePaint();
       }
     });
-    observer.observe(document.body, {
+    observedBody = document.body;
+    observer.observe(observedBody, {
       childList: true,
       subtree: true,
       attributes: true,

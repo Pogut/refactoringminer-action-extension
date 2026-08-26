@@ -877,14 +877,19 @@ window.RMX.overlay = (function () {
       const reached = new Set();
       // RefactoringMiner's words for what the reached-by locations ARE
       // ("extracted method invocation"), which is all the hover on such a line
-      // has to show — see peekHtml.
+      // has to show — see peekHtml. Kept as "<index> <description>" rather than
+      // a bare list: the hover is scoped to whichever refactoring is active, and
+      // one line can be reached by two of them with different wording (the left
+      // side says "the original variable" where the right says "the renamed"),
+      // so the text has to stay attached to the refactoring it came from.
       const roles = [];
       contribs.forEach((c) => {
         if (indices.indexOf(c.index) === -1) indices.push(c.index);
         if (descs.indexOf(c.summary) === -1) descs.push(c.summary);
         if (!c.accent) return;
         reached.add(c.index);
-        if (c.role && roles.indexOf(c.role) === -1) roles.push(c.role);
+        const role = c.role && c.index + ' ' + c.role;
+        if (role && roles.indexOf(role) === -1) roles.push(role);
       });
       // Separate pass so the rule doesn't depend on the order the contributions
       // happen to arrive in: any plain contribution clears the flag, whether it
@@ -1827,14 +1832,27 @@ window.RMX.overlay = (function () {
     await RMX.github.revealLine(t.digest, t.side, t.line, t.filePath);
     if (repaint) await repaint();
     applySelection();
-    return mountedCells(index)[0] || null;
+    return landingCell(index);
+  }
+
+  // The mounted line to LAND on for a refactoring. mountedCells is in document
+  // order, so its head is whichever of the refactoring's lines sits highest on
+  // the page — and for an Extract that is routinely the call site left behind
+  // above the extracted method, so "go to this refactoring" used to open on the
+  // invocation rather than on the change. Skip the lines this refactoring only
+  // reaches; fall back to them only if it has nothing else mounted, since some
+  // line is better than none.
+  function landingCell(index) {
+    const cells = mountedCells(index);
+    const key = String(index);
+    return cells.find((c) => reachedIndicesOf(c).indexOf(key) === -1) || cells[0] || null;
   }
 
   // Focus one refactoring by feed index: reveal its file, blink it, and bring a
   // mounted line into view. Shared by the report rows, navigator, and minimap.
   async function focus(index) {
     await select([String(index)]);
-    const cell = mountedCells(index)[0] || (await revealPrimary(index));
+    const cell = landingCell(index) || (await revealPrimary(index));
     if (cell) scrollToCell(cell);
   }
 
@@ -1977,7 +1995,15 @@ window.RMX.overlay = (function () {
   // a call site has no other side to glance at, and the line can't be clicked, so
   // a "click to jump" hint would be a lie. This tooltip is all such a line does.
   function reachedHtml(cell, indices) {
-    const roles = (cell.getAttribute('data-rmx-role') || '').split('\n').filter(Boolean);
+    // Only the descriptions belonging to the refactorings this peek is about —
+    // see the encoding in paintAll.
+    const roles = [];
+    (cell.getAttribute('data-rmx-role') || '').split('\n').filter(Boolean).forEach((entry) => {
+      const cut = entry.indexOf(' ');
+      if (cut === -1 || indices.indexOf(entry.slice(0, cut)) === -1) return;
+      const text = entry.slice(cut + 1);
+      if (roles.indexOf(text) === -1) roles.push(text);
+    });
     const html = roles
       .map((r) => '<div class="rmx-tip-title">' + escapeHtml(sentence(r)) + '</div>')
       .join('') ||
@@ -2008,12 +2034,23 @@ window.RMX.overlay = (function () {
       return '<div class="rmx-tip-title">' +
         escapeHtml(cell.getAttribute('data-rmx-desc') || '') + '</div>';
     }
-    if (cell.hasAttribute('data-rmx-inert')) return reachedHtml(cell, cellIndices);
     // A line can belong to several refactorings. When one is currently selected
     // (blinking / stepped to in the navigator) and this line is part of it, scope
     // the peek to just that refactoring; otherwise show every one the line joins.
     const active = cellIndices.filter((i) => selectedIndices.indexOf(i) !== -1);
     const indices = active.length ? active : cellIndices;
+    // The reached-by form wins when every refactoring THIS PEEK IS ABOUT merely
+    // reaches the line — which is the same scoping the colour uses, so the hover
+    // and the fill always agree. It matters on a line that is a reference for one
+    // refactoring and changed code for another sitting just below it: with the
+    // first selected the line is accent-filled and reads as a reference; with the
+    // second selected it is that refactoring's own line and gets the full peek.
+    // With nothing selected the scope is every index on the line, so this reduces
+    // to the paint-time inert case.
+    const reached = reachedIndicesOf(cell);
+    if (reached.length && indices.every((i) => reached.indexOf(i) !== -1)) {
+      return reachedHtml(cell, indices);
+    }
     // One title row per shown refactoring, using its own summary (data-rmx-desc
     // dedups them into one blob, so use the per-index map instead).
     let html = indices
@@ -2130,7 +2167,7 @@ window.RMX.overlay = (function () {
 
   // Scroll to and flash a refactoring by its feed index (for ?rm= deep links).
   function scrollToRefactoring(index) {
-    const cell = mountedCells(index)[0];
+    const cell = landingCell(index);
     if (!cell) return false;
     scrollToCell(cell);
     cell.classList.add(FLASH);
@@ -2250,8 +2287,12 @@ window.RMX.overlay = (function () {
   // Report rows are expandable: the row body reveals/blinks the refactoring, and
   // an inline disclosure opens a card with RefactoringMiner's description for it,
   // formatted into one clause per line.
-  let rpItems = {};      // feed index (string) -> item element, for current-row sync
-  let rpOpenItem = null; // single-open accordion
+  let rpItems = {};    // feed index (string) -> item element, for current-row sync
+  // The compact level's open explanation cards. Usually one — opening a row
+  // closes the last — but a click in the DIFF selects every refactoring reported
+  // on that line, and all of them open together, since the reason you clicked a
+  // line carrying three is to find out what the three are.
+  let rpOpenItems = [];
   // feed index (string) -> the refactoring's reported locations, so a click on a
   // code element can find the columns that bound it (see locationAt).
   let locsByIndex = {};
@@ -2547,15 +2588,28 @@ window.RMX.overlay = (function () {
     return `${file}:${lines}`;
   }
 
+  // Open exactly these cards and close every other one. The single primitive the
+  // three ways of opening a card share, so "one at a time" and "these three at
+  // once" are the same operation with a different list rather than two accordions
+  // that can disagree about what is open.
+  function setOpenDetails(items) {
+    const wanted = items.filter(Boolean);
+    rpOpenItems.forEach((el) => { if (wanted.indexOf(el) === -1) markOpen(el, false); });
+    wanted.forEach((el) => markOpen(el, true));
+    rpOpenItems = wanted;
+  }
+
+  function markOpen(item, open) {
+    item.classList.toggle('rmx-open', open);
+    // Only the compact level builds the disclosure button (see the row builder),
+    // so the richer levels have no aria state to keep in step.
+    const info = item.querySelector('.rmx-rp-info');
+    if (info) info.setAttribute('aria-expanded', String(open));
+  }
+
   function toggleDetail(item, force) {
     const open = force !== undefined ? force : !item.classList.contains('rmx-open');
-    if (rpOpenItem && rpOpenItem !== item) {
-      rpOpenItem.classList.remove('rmx-open');
-      rpOpenItem.querySelector('.rmx-rp-info').setAttribute('aria-expanded', 'false');
-    }
-    item.classList.toggle('rmx-open', open);
-    item.querySelector('.rmx-rp-info').setAttribute('aria-expanded', String(open));
-    rpOpenItem = open ? item : null;
+    setOpenDetails(open ? [item] : []);
   }
 
   // Mark the report row of the current selection, so stepping in the navigator or
@@ -2570,6 +2624,35 @@ window.RMX.overlay = (function () {
     Object.keys(rpItems).forEach((idx) => {
       rpItems[idx].classList.toggle('rmx-rp-cur', selectedIndices.indexOf(idx) !== -1);
     });
+    // Selecting from the diff opens the matching explanation card(s), the same as
+    // clicking the row would — a click on a highlighted line is a question about
+    // what that refactoring IS, and the answer lives behind the caret. In feed
+    // order rather than selection order, so two rows always open the way the list
+    // reads. The richer levels print the description on the row already and build
+    // no card, so there is nothing to open there.
+    if (panelView !== 'compact') return;
+    const open = Object.keys(rpItems)
+      .filter((idx) => selectedIndices.indexOf(idx) !== -1)
+      .sort((a, b) => Number(a) - Number(b))
+      .map((idx) => rpItems[idx]);
+    setOpenDetails(open);
+    if (open.length) revealReportItem(open[0]);
+  }
+
+  // Scroll the panel's own list — never the page — so a card that just opened is
+  // visible. scrollIntoView would take the document with it, dragging the reader
+  // away from the diff line they just clicked, which is the one thing this must
+  // not do.
+  function revealReportItem(item) {
+    const body = item.parentElement;
+    if (!body || body.scrollHeight <= body.clientHeight) return;
+    const top = item.offsetTop - body.offsetTop;
+    const bottom = top + item.offsetHeight;
+    if (top < body.scrollTop) body.scrollTop = top;
+    else if (bottom > body.scrollTop + body.clientHeight) {
+      // Prefer showing the card's start when it is taller than the list.
+      body.scrollTop = Math.min(top, bottom - body.clientHeight);
+    }
   }
 
   // Build the detailed level's type filter: an "all" master plus one checkbox per
@@ -2635,7 +2718,7 @@ window.RMX.overlay = (function () {
     setNav(shown); // navigator + minimap follow the filter, in feed order
     buildFilter(rows);
     rpItems = {};
-    rpOpenItem = null;
+    rpOpenItems = [];
     const body = reportBody();
     if (!rows.length) {
       const msg = document.createElement('div');
@@ -2731,7 +2814,7 @@ window.RMX.overlay = (function () {
       reportEl = null;
     }
     rpItems = {};
-    rpOpenItem = null;
+    rpOpenItems = [];
     lastRows = null;
     locsByIndex = {};
     // The filter describes one page's refactorings, so it doesn't survive to the

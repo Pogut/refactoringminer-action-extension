@@ -169,6 +169,19 @@ const OVERLAY_HARNESS = () => {
     cells.get('d|R|' + line).dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
     return window.__rmxTip.innerHTML;
   };
+  // Record which line every scrollIntoView lands on, so "where did it take me"
+  // is assertable without a real viewport.
+  window.scrolledTo = [];
+  Element.prototype.scrollIntoView = function () {
+    if (this.dataset && this.dataset.id) window.scrolledTo.push(JSON.parse(this.dataset.id).line);
+  };
+  // A report row in the shape content.js emits.
+  window.rowOf = (index, type) => ({
+    index, type, summary: 's' + index, detail: 'd' + index, description: 'd' + index,
+    markup: '', files: ['A.java'], locations: [],
+  });
+  window.openRows = () => Array.from(document.querySelectorAll('.rmx-rp-item.rmx-open'))
+    .map((el) => el.querySelector('.rmx-rp-type').textContent);
 };
 
 test.describe('reached-by (invocation / reference) lines', () => {
@@ -285,6 +298,105 @@ test.describe('reached-by (invocation / reference) lines', () => {
     expect(html.reached).not.toContain('rmx-tip-code');
     // The ordinary line keeps the full peek.
     expect(html.changed).not.toContain('rmx-tip-owner');
+  });
+
+  test('going to a refactoring lands on the change, not on its call site', async ({ page }) => {
+    const out = await page.evaluate(() => {
+      // The call site sits ABOVE the extracted method, which is the ordinary
+      // shape of an Extract — and mountedCells is in document order, so the
+      // naive "first mounted line" is the invocation.
+      [8, 60, 61].forEach((l) => window.mount('R', l));
+      RMX.overlay.setPlan(window.planOf([
+        [8, 0, true, 'extracted method invocation'],
+        [60, 0, false],
+        [61, 0, false],
+      ]));
+      RMX.overlay.paintAll();
+      window.scrolledTo = [];
+      RMX.overlay.scrollToRefactoring(0);
+      return window.scrolledTo;
+    });
+    expect(out).toEqual([60]); // the extracted method, not line 8
+  });
+
+  test('a refactoring with nothing but reached-by lines still lands somewhere', async ({ page }) => {
+    const out = await page.evaluate(() => {
+      window.mount('R', 8);
+      RMX.overlay.setPlan(window.planOf([[8, 0, true, 'extracted method invocation']]));
+      RMX.overlay.paintAll();
+      window.scrolledTo = [];
+      const ok = RMX.overlay.scrollToRefactoring(0);
+      return { ok, scrolledTo: window.scrolledTo };
+    });
+    expect(out).toEqual({ ok: true, scrolledTo: [8] });
+  });
+
+  test('the tooltip follows the ACTIVE refactoring, not the other owner of the line', async ({ page }) => {
+    const out = await page.evaluate(async () => {
+      // Line 21 is a reference for refactoring 0 and changed code for 1 — the
+      // two-refactorings-on-one-line case.
+      [20, 21, 30].forEach((l) => window.mount('R', l));
+      RMX.overlay.setPlan(window.planOf([
+        [20, 0, false],
+        [21, 0, true, 'statement referencing the renamed variable'],
+        [21, 1, false],
+        [30, 1, false],
+      ]));
+      RMX.overlay.paintAll();
+      RMX.overlay.installTooltip();
+      const seen = {};
+      const hover = () => {
+        // Force a re-read: the tooltip caches the cell it last described.
+        document.body.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+        return window.hoverHtml(21);
+      };
+      seen.noSelection = hover();
+      await RMX.overlay.select(['0']);
+      seen.refA = hover();
+      await RMX.overlay.select(['1']);
+      seen.refB = hover();
+      return seen;
+    });
+    // Refactoring 0 active → the line is its reference, and says so.
+    expect(out.refA).toContain('Statement referencing the renamed variable');
+    expect(out.refA).not.toContain('rmx-tip-code');
+    // Refactoring 1 active → the line is 1's own changed code, so the full peek.
+    expect(out.refB).not.toContain('Statement referencing the renamed variable');
+    // Nothing selected → the peek is about both, and 1 changed it, so full peek.
+    expect(out.noSelection).not.toContain('Statement referencing the renamed variable');
+  });
+
+  test('clicking a line in the diff auto-expands its panel card — all of them', async ({ page }) => {
+    const out = await page.evaluate(async () => {
+      [70, 71].forEach((l) => window.mount('R', l));
+      RMX.overlay.setPlan(window.planOf([
+        [70, 0, false],
+        [70, 1, false],  // one line, two refactorings
+        [71, 2, false],
+      ]));
+      RMX.overlay.paintAll();
+      RMX.overlay.installTooltip();
+      RMX.overlay.setPanelView('compact');
+      RMX.overlay.showReport([
+        window.rowOf(0, 'Rename Variable'),
+        window.rowOf(1, 'Change Variable Type'),
+        window.rowOf(2, 'Extract Method'),
+      ]);
+      const settle = () => new Promise((r) => requestAnimationFrame(() => setTimeout(r, 20)));
+      const seen = { initial: window.openRows() };
+      window.clickLine(70);
+      await settle();
+      seen.twoOnOneLine = window.openRows();
+      window.clickLine(71);
+      await settle();
+      seen.thenOne = window.openRows();
+      return seen;
+    });
+    expect(out.initial).toEqual([]);
+    // Both refactorings reported on line 70 open, in feed order.
+    expect(out.twoOnOneLine).toEqual(['1.Rename Variable', '2.Change Variable Type']);
+    // Selecting elsewhere closes them and opens only the new one.
+    expect(out.thenOne).toEqual(['3.Extract Method']);
   });
 
   test('the accent palette is published as CSS variables', async ({ page }) => {
