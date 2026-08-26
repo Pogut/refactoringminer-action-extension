@@ -261,6 +261,16 @@ window.RMX = window.RMX || {};
             summary,
             header,
             trailing: !header && line === range.endLine && line !== range.startLine,
+            // `accent` marks a line that is only REACHED BY the refactoring —
+            // a call site, a statement that mentions the renamed variable —
+            // rather than part of the change itself (see isAccentLocation).
+            // `role` carries RefactoringMiner's own words for what the location
+            // is ("extracted method invocation"), which is the whole content of
+            // the hover on such a line: it can't be clicked, so the tooltip is
+            // the only thing it has to offer. Only set where it's used, so the
+            // plan doesn't carry a string per line for the common case.
+            accent: !!range.accent,
+            role: range.accent ? range.role || '' : '',
           });
         }
       });
@@ -298,7 +308,7 @@ window.RMX = window.RMX || {};
   const HEADER_SCAN_LINES = 8;
 
   // The line ranges one refactoring actually paints on, both sides, as
-  // { digest, side, startLine, endLine, filePath, header }. Single source of
+  // { digest, side, startLine, endLine, filePath, header, accent, role }. Single source of
   // truth for the two things that have to agree about a refactoring's extent:
   // what gets tagged, and what a selection must unfold before it CAN be tagged.
   //
@@ -339,7 +349,13 @@ window.RMX = window.RMX || {};
         }
         const digest = digests[cr.filePath];
         if (!digest) return;
-        ranges.push({ digest, side, startLine, endLine, filePath: cr.filePath, header });
+        const accent = isAccentLocation(cr);
+        ranges.push({
+          digest, side, startLine, endLine, filePath: cr.filePath, header,
+          accent,
+          // The location's own description, kept only where the overlay shows it.
+          role: accent ? cr.description || '' : '',
+        });
       });
     });
     return ranges;
@@ -364,12 +380,27 @@ window.RMX = window.RMX || {};
       effectiveRanges(r, digests).forEach((range) => {
         [range.startLine, range.endLine].forEach((line) => {
           const key = range.digest + range.side + line;
-          if (seen[key]) return;
-          seen[key] = true;
+          const hit = seen[key];
+          // One line can be covered by two ranges of the same refactoring — a
+          // call site sitting inside the code that was extracted. Being part of
+          // the change wins, so a second, non-accent range clears the flag on
+          // the entry the first one made rather than adding a duplicate.
+          if (hit) {
+            if (!range.accent) hit.accent = false;
+            return;
+          }
           // filePath rides along so a file collapsed behind "Viewed" can still
           // be identified: with none of its rows rendered, the path is the only
           // handle GitHub's markup reliably offers.
-          list.push({ digest: range.digest, side: range.side, line, filePath: range.filePath });
+          const entry = {
+            digest: range.digest, side: range.side, line, filePath: range.filePath,
+            // Reached-by lines are still revealed and still light up — they're
+            // how the refactoring's reach is visible — but a jump prefers a line
+            // that IS the change (see primaryTarget in overlay.js).
+            accent: !!range.accent,
+          };
+          seen[key] = entry;
+          list.push(entry);
         });
       });
       if (list.length) targets[index] = list;
@@ -393,6 +424,27 @@ window.RMX = window.RMX || {};
   function isNewDeclaration(loc) {
     const d = (loc.description || '').toLowerCase();
     return d.indexOf('added') !== -1 || d.indexOf('extracted') !== -1;
+  }
+
+  // A location the refactoring only REACHES: the call sites an Extract or Inline
+  // leaves behind, and the statements that merely mention a variable that was
+  // renamed or retyped. RefactoringMiner names them in the location's own
+  // `description` — "extracted method invocation", "inlined method invocation",
+  // "statement referencing the renamed variable" (and the original / changed-type
+  // variants) — and that description is the ONLY thing that separates them from
+  // the changed code: their codeElementType and line ranges look identical.
+  //
+  // They earn their own accent colour rather than the side's fill, because they
+  // answer a different question — not "what changed" but "what else this touches"
+  // — and for the same reason they don't count toward the off-screen line totals
+  // the edge chips report (see overlay.js: the accent class, and refreshEdges).
+  //
+  // Substring matching rather than the five literals: RefactoringMiner phrases
+  // these per refactoring type, and a new one worded the same way should be
+  // picked up without a change here.
+  function isAccentLocation(loc) {
+    const d = (loc.description || '').toLowerCase();
+    return d.indexOf('invocation') !== -1 || d.indexOf('referencing') !== -1;
   }
 
   // Concise one-liner, e.g. "Rename Attribute: _full_name → _display_name".

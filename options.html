@@ -157,7 +157,13 @@
         padding: 14px;
         background: var(--sunken);
       }
+      /* The accent isn't one of the pair — it cuts across both sides — so it gets
+         its own full-width row under them rather than sitting beside them as a
+         third "side". (At three across, 220px each, it wrapped there anyway; this
+         makes it the intent rather than a consequence of the basis.) */
+      .swatch-accent { flex-basis: 100%; }
       .swatch .side { font-weight: 600; font-size: 12px; margin-bottom: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+      .swatch .side-note { text-transform: none; letter-spacing: 0; font-weight: 400; }
       .swatch .pair { display: flex; align-items: center; gap: 10px; }
       .swatch input[type="color"] {
         width: 46px; height: 38px; padding: 3px;
@@ -266,13 +272,31 @@
         box-shadow: inset 3px 0 0 var(--pv-right-d);
         animation: pv-blink-r var(--pv-period, 5s) ease-in-out infinite;
       }
+      .pv-accent {
+        box-shadow: inset 3px 0 0 var(--pv-accent-d);
+        animation: pv-blink-a var(--pv-period, 5s) ease-in-out infinite;
+      }
       .pv-left .pv-stripe { background: var(--pv-left-d); }
       .pv-right .pv-stripe { background: var(--pv-right-d); }
+      .pv-accent .pv-stripe { background: var(--pv-accent-d); }
       @keyframes pv-blink-l { 0%, 100% { background: var(--pv-base); } 50% { background: var(--pv-left); } }
       @keyframes pv-blink-r { 0%, 100% { background: var(--pv-base); } 50% { background: var(--pv-right); } }
+      @keyframes pv-blink-a { 0%, 100% { background: var(--pv-base); } 50% { background: var(--pv-accent); } }
       /* Speed step 0: the highlight is constant, so the preview holds the fill. */
       .preview.pv-constant .pv-left { animation: none; background: var(--pv-left); }
       .preview.pv-constant .pv-right { animation: none; background: var(--pv-right); }
+      .preview.pv-constant .pv-accent { animation: none; background: var(--pv-accent); }
+
+      /* The accent row belongs to the same refactoring as the two above it, not
+         to a side of its own, so it sits UNDER the pair rather than beside them —
+         the layout says "this is the reach of that change". */
+      .pv-reach { border-top: 1px solid rgba(128, 128, 128, 0.3); }
+      .pv-reach .pv-line { flex: 1; }
+      .pv-note {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        font-size: 11px; color: var(--muted); flex: 0 0 auto; margin-left: auto;
+        white-space: nowrap;
+      }
 
       /* GitHub's real canvas + default code colour, so the preview shows the
          contrast the fill will actually have to survive. Fixed on purpose: these
@@ -370,7 +394,7 @@
       @media (max-width: 620px) { .levels { grid-template-columns: 1fr; } }
 
       @media (prefers-reduced-motion: reduce) {
-        .pv-left, .pv-right { animation: none; }
+        .pv-left, .pv-right, .pv-accent { animation: none; }
       }
     </style>
   </head>
@@ -483,6 +507,13 @@
           different colours so their counterparts are easy to pair up. The outline
           and off-screen line markers use a matching accent, derived automatically.
         </p>
+        <p class="desc">
+          A refactoring also touches lines it did not change: the call sites an
+          Extract or Inline leaves behind, and the statements that mention a
+          variable that was renamed or retyped. Those blink in the third colour,
+          and they are left out of the off-screen line counts on the ↑ and ↓ pills
+          — those count only the lines the refactoring actually changed.
+        </p>
         <p class="desc" id="ghModeNote"></p>
 
         <div class="swatches">
@@ -500,6 +531,13 @@
               <input id="hlRightHex" class="hex" type="text" spellcheck="false" aria-label="Right side hex colour" />
             </div>
           </div>
+          <div class="swatch swatch-accent">
+            <div class="side">Invocations &amp; references <span class="side-note">· both sides, not counted</span></div>
+            <div class="pair">
+              <input id="hlAccent" type="color" aria-label="Invocation and reference colour" />
+              <input id="hlAccentHex" class="hex" type="text" spellcheck="false" aria-label="Invocation and reference hex colour" />
+            </div>
+          </div>
         </div>
 
         <div class="preview" aria-hidden="true">
@@ -507,6 +545,9 @@
           <div class="pv-body">
             <div class="pv-line pv-left"><span class="pv-stripe"></span><span class="pv-tag">−</span><span class="pv-code">extractHelper()</span></div>
             <div class="pv-line pv-right"><span class="pv-stripe"></span><span class="pv-tag">+</span><span class="pv-code">buildHelper()</span></div>
+          </div>
+          <div class="pv-body pv-reach">
+            <div class="pv-line pv-accent"><span class="pv-stripe"></span><span class="pv-tag">&nbsp;</span><span class="pv-code">buildHelper();</span><span class="pv-note">call site · not counted</span></div>
           </div>
         </div>
 

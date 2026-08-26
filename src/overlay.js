@@ -11,6 +11,14 @@ window.RMX.overlay = (function () {
   const FLASH = 'rmx-flash';
   const SEL = 'rmx-sel'; // neon "selected refactoring" highlight, both sides
   const ON = 'rmx-on'; // blink "on" phase — the darker-yellow fill is visible
+  // A selected line the refactoring only REACHES rather than changes — a call
+  // site left behind by an Extract, a statement that mentions a renamed
+  // variable. content.js classifies these from RefactoringMiner's own location
+  // description (see isAccentLocation); this class is how the line then takes
+  // the accent fill instead of its side's, and how the edge chips know to leave
+  // it out of their totals. Set per selection, not per paint: which indices are
+  // lit decides whether a line is reached-by or changed (see applySelection).
+  const ACC = 'rmx-acc';
 
   // Blink colours are user-configurable (options page → chrome.storage.sync) and
   // come as two pairs: one for when GitHub itself is in light mode, one for dark.
@@ -26,17 +34,31 @@ window.RMX.overlay = (function () {
   // each pair the two fills are matched in luminance to within 0.002, so neither
   // side visually dominates.
   //
-  // `left`/`right` are the fills; `leftA`/`rightA` are the hand-picked
-  // outline+stripe accents used while a side stays at its default. A custom
-  // colour derives its accent from the fill instead (see accentFor) — away from
-  // the page background, so it stays visible in either GitHub mode.
+  // `accent` is the THIRD fill, for the lines a refactoring only reaches (see
+  // ACC above). It is not a side, so it does not join the left/right pairing:
+  // its hue sits at ~283°, in the wide gap between amber and azure and clear of
+  // the reds GitHub's removed-line background occupies, and it is matched to the
+  // SAME luminance as the pair it sits among (within 0.002 of their mean) so a
+  // call site never looks louder than the change that produced it.
+  //
+  // `left`/`right`/`accent` are the fills; `leftA`/`rightA`/`accentA` are the
+  // hand-picked outline+stripe accents used while a colour stays at its default.
+  // A custom colour derives its accent from the fill instead (see accentFor) —
+  // away from the page background, so it stays visible in either GitHub mode.
   //
   // Contrast against GitHub's syntax palette, worst token (its comment grey):
-  // 3.6:1 for all four fills; against default code text, 12.5:1 light / 9.3:1 dark.
+  // 3.6:1 for all six fills; against default code text, 12.5:1 light / 9.3:1 dark
+  // (the accent fills: 12.4:1 and 9.3:1).
   // Keep in sync with the table mirrored in options.js.
   const HL_DEFAULTS = {
-    light: { left: '#ffe1a8', leftA: '#9a6700', right: '#d1e7fd', rightA: '#0969da' },
-    dark: { left: '#4b3a0f', leftA: '#d4a72c', right: '#143d69', rightA: '#58a6ff' },
+    light: {
+      left: '#ffe1a8', leftA: '#9a6700', right: '#d1e7fd', rightA: '#0969da',
+      accent: '#f5dbff', accentA: '#a626d4',
+    },
+    dark: {
+      left: '#4b3a0f', leftA: '#d4a72c', right: '#143d69', rightA: '#58a6ff',
+      accent: '#532c66', accentA: '#cf8ef0',
+    },
   };
 
   // The pair that used to be the default for both themes. The old options page
@@ -147,10 +169,11 @@ window.RMX.overlay = (function () {
 
   // Outline/stripe shade for a fill. Defaults keep their hand-picked accent; a
   // custom colour is pushed away from the page background so the outline reads
-  // against both the fill and the canvas around it.
-  function accentFor(fill, mode, side) {
+  // against both the fill and the canvas around it. `slot` is 'left', 'right',
+  // or 'accent'.
+  function accentFor(fill, mode, slot) {
     const d = HL_DEFAULTS[mode];
-    if (String(fill).toLowerCase() === d[side]) return side === 'left' ? d.leftA : d.rightA;
+    if (String(fill).toLowerCase() === d[slot]) return d[slot + 'A'];
     return shift(fill, mode === 'dark' ? 0.5 : -0.4);
   }
 
@@ -202,11 +225,13 @@ window.RMX.overlay = (function () {
 
   // The user's own colour if they picked one, else the default for whichever
   // theme GitHub is in. A chosen colour is a deliberate override and applies in
-  // both themes; only the untouched default follows GitHub.
-  function fillFor(mode, side) {
-    const chosen = hlStored[side === 'left' ? 'hlLeft' : 'hlRight'];
-    if (chosen && chosen.toLowerCase() !== HL_LEGACY[side]) return chosen;
-    return HL_DEFAULTS[mode][side];
+  // both themes; only the untouched default follows GitHub. `slot` is 'left',
+  // 'right', or 'accent' — the accent has no legacy value to discount, since it
+  // never existed before the old options page stopped writing colours out.
+  function fillFor(mode, slot) {
+    const chosen = hlStored[HL_KEY_BY_SLOT[slot]];
+    if (chosen && chosen.toLowerCase() !== HL_LEGACY[slot]) return chosen;
+    return HL_DEFAULTS[mode][slot];
   }
 
   // Record which theme GitHub turned out to be in, so the options page can show
@@ -225,24 +250,32 @@ window.RMX.overlay = (function () {
     recordMode(mode);
     const left = fillFor(mode, 'left');
     const right = fillFor(mode, 'right');
+    const accent = fillFor(mode, 'accent');
     const leftA = accentFor(left, mode, 'left');
     const rightA = accentFor(right, mode, 'right');
+    const accentA = accentFor(accent, mode, 'accent');
     const root = document.documentElement.style;
     root.setProperty('--rmx-left', left);
     root.setProperty('--rmx-left-d', leftA);
     root.setProperty('--rmx-right', right);
     root.setProperty('--rmx-right-d', rightA);
+    root.setProperty('--rmx-accent', accent);
+    root.setProperty('--rmx-accent-d', accentA);
     // The peek popover is always dark, so whichever of the two is the lighter
     // one in this mode is what shows up on it: the pale fill in GitHub light
     // mode, the bright accent in GitHub dark mode.
     root.setProperty('--rmx-left-tip', mode === 'dark' ? leftA : left);
     root.setProperty('--rmx-right-tip', mode === 'dark' ? rightA : right);
+    root.setProperty('--rmx-accent-tip', mode === 'dark' ? accentA : accent);
     const segL = segmentFor(left, mode);
     const segR = segmentFor(right, mode);
+    const segA = segmentFor(accent, mode);
     root.setProperty('--rmx-left-seg', segL.bg);
     root.setProperty('--rmx-left-seg-fg', segL.fg);
     root.setProperty('--rmx-right-seg', segR.bg);
     root.setProperty('--rmx-right-seg-fg', segR.fg);
+    root.setProperty('--rmx-accent-seg', segA.bg);
+    root.setProperty('--rmx-accent-seg-fg', segA.fg);
   }
 
   // Re-pick the palette when GitHub's theme changes under us: its own switcher
@@ -295,7 +328,8 @@ window.RMX.overlay = (function () {
   // Pull the stored blink colours and speed (falling back to defaults) and mirror
   // them onto :root, then keep them in sync so edits in the options page recolour
   // or re-time any open diff live. The onChanged listener is installed once per page.
-  const HL_KEYS = ['hlLeft', 'hlRight'];
+  const HL_KEY_BY_SLOT = { left: 'hlLeft', right: 'hlRight', accent: 'hlAccent' };
+  const HL_KEYS = ['hlLeft', 'hlRight', 'hlAccent'];
 
   function loadPrefs() {
     watchGithubTheme();
@@ -328,6 +362,13 @@ window.RMX.overlay = (function () {
       .${CLASS}.${SEL}[data-rmx-side="L"].${ON}{background:var(--rmx-left,#ffe1a8) !important;}
       .${CLASS}.${SEL}[data-rmx-side="R"]{box-shadow:inset 3px 0 0 var(--rmx-right-d,#0969da),0 0 0 2px var(--rmx-right-d,#0969da) !important;transition:background-color var(--rmx-blink-fade,2s) ease-in-out;}
       .${CLASS}.${SEL}[data-rmx-side="R"].${ON}{background:var(--rmx-right,#d1e7fd) !important;}
+      /* A line the selection only REACHES takes the accent instead of its side's
+         colour — same outline and blink, one hue that says "this is where the
+         change is felt, not where it is". The attribute selector is here only to
+         out-specify the two side rules above, which it must win against on every
+         cell it applies to; it matches whatever side the line is on. */
+      .${CLASS}.${SEL}.${ACC}[data-rmx-side]{box-shadow:inset 3px 0 0 var(--rmx-accent-d,#a626d4),0 0 0 2px var(--rmx-accent-d,#a626d4) !important;}
+      .${CLASS}.${SEL}.${ACC}[data-rmx-side].${ON}{background:var(--rmx-accent,#f5dbff) !important;}
       .${TIP}{position:absolute;z-index:2147483647;max-width:460px;white-space:pre-wrap;
         background:#1f2328;color:#fff;padding:6px 9px;border-radius:6px;pointer-events:none;
         font:12px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;opacity:0;transition:opacity .08s;}
@@ -342,9 +383,15 @@ window.RMX.overlay = (function () {
          the two never fight. */
       ::highlight(${SEG_L}){background-color:var(--rmx-left-seg,#0b4f8a);color:var(--rmx-left-seg-fg,#fff);}
       ::highlight(${SEG_R}){background-color:var(--rmx-right-seg,#8a4a0b);color:var(--rmx-right-seg-fg,#fff);}
+      /* Same rule on an accent line: the complement is taken from the accent
+         fill, since that is the colour the element is actually sitting on. */
+      ::highlight(${SEG_A}){background-color:var(--rmx-accent-seg,#3d8a0b);color:var(--rmx-accent-seg-fg,#fff);}
 
       /* Peek popover body (extends .rmx-tip): a live glance at the counterpart. */
       .rmx-tip-title{font-weight:600;}
+      /* Which refactoring reaches a call site / reference — secondary to the
+         description above it, which is what the reader hovered to find out. */
+      .rmx-tip-owner{margin-top:3px;opacity:.75;}
       .rmx-tip-code{margin-top:6px;padding:6px 8px;border-radius:5px;background:rgba(255,255,255,.09);
         font:11px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;display:flex;flex-direction:column;gap:1px;}
       /* The peek popover is dark whatever mode GitHub is in, so it needs its own
@@ -594,11 +641,14 @@ window.RMX.overlay = (function () {
   }
 
   function clearCell(el) {
-    el.classList.remove(CLASS, FLASH, SEL, ON);
+    el.classList.remove(CLASS, FLASH, SEL, ON, ACC);
     el.removeAttribute('data-rmx-desc');
     el.removeAttribute('data-rmx-index');
     el.removeAttribute('data-rmx-side');
     el.removeAttribute('data-rmx-file');
+    el.removeAttribute('data-rmx-reached');
+    el.removeAttribute('data-rmx-role');
+    el.removeAttribute('data-rmx-inert');
   }
 
   function clearAll() {
@@ -759,6 +809,18 @@ window.RMX.overlay = (function () {
     if (list.indexOf(cell) === -1) list.push(cell);
   }
 
+  // Write an attribute, or remove it when the value is empty — the diff recycles
+  // its DOM nodes, so a cell that no longer earns the attribute has to lose it
+  // rather than keep the previous line's. Skips the write when it wouldn't change
+  // anything, since this runs per cell on every scroll repaint.
+  function setOrDrop(cell, name, value) {
+    if (!value) {
+      if (cell.hasAttribute(name)) cell.removeAttribute(name);
+    } else if (cell.getAttribute(name) !== value) {
+      cell.setAttribute(name, value);
+    }
+  }
+
   // Tag every mounted cell the plan covers, and untag every cell it no longer
   // does. The /changes diff virtualizes rows: React *recycles* a DOM node to
   // render a different line as you scroll, rewriting the text/anchor it manages
@@ -807,12 +869,38 @@ window.RMX.overlay = (function () {
       }
       const indices = [];
       const descs = [];
+      // Which of those indices only REACH this line. Per index, not per cell: one
+      // line can be a call site of refactoring A and changed code of B, and it has
+      // to answer differently depending on which of them is selected. A line that
+      // any non-accent contribution of an index covers is changed code for that
+      // index — being part of the change wins over being reached by it.
+      const reached = new Set();
+      // RefactoringMiner's words for what the reached-by locations ARE
+      // ("extracted method invocation"), which is all the hover on such a line
+      // has to show — see peekHtml.
+      const roles = [];
       contribs.forEach((c) => {
         if (indices.indexOf(c.index) === -1) indices.push(c.index);
         if (descs.indexOf(c.summary) === -1) descs.push(c.summary);
+        if (!c.accent) return;
+        reached.add(c.index);
+        if (c.role && roles.indexOf(c.role) === -1) roles.push(c.role);
       });
+      // Separate pass so the rule doesn't depend on the order the contributions
+      // happen to arrive in: any plain contribution clears the flag, whether it
+      // came before or after the accent one.
+      contribs.forEach((c) => { if (!c.accent) reached.delete(c.index); });
       const indexAttr = indices.join(' ');
       const descAttr = descs.join('\n');
+      const reachedAttr = indices.filter((i) => reached.has(i)).join(' ');
+      // A line NO selected refactoring can claim as its own changed code. Nothing
+      // useful can happen when it is clicked — there is no counterpart to pair it
+      // with and no change to centre on — so it is marked inert here, once, and
+      // the click handler and the hover both read the mark (see installTooltip).
+      // Derived rather than recomputed at click time because it is a property of
+      // the line, not of what happens to be selected.
+      const inert = reachedAttr === indexAttr;
+      const roleAttr = roles.join('\n');
       group.cells.forEach((cell) => {
         touched.add(cell);
         cell.classList.add(CLASS);
@@ -820,6 +908,11 @@ window.RMX.overlay = (function () {
         if (entry.filePath) cell.setAttribute('data-rmx-file', entry.filePath);
         if (cell.getAttribute('data-rmx-desc') !== descAttr) cell.setAttribute('data-rmx-desc', descAttr);
         if (cell.getAttribute('data-rmx-index') !== indexAttr) cell.setAttribute('data-rmx-index', indexAttr);
+        // Absent rather than empty on the ordinary line, so these attributes
+        // exist only where they have something to say.
+        setOrDrop(cell, 'data-rmx-reached', reachedAttr);
+        setOrDrop(cell, 'data-rmx-role', roleAttr);
+        setOrDrop(cell, 'data-rmx-inert', inert ? '1' : '');
         indices.forEach((i) => indexCell(nextByIndex, i, cell));
       });
       tagged++;
@@ -867,12 +960,13 @@ window.RMX.overlay = (function () {
   // click into a long burst of unfold requests.
   const MAX_REVEALS_PER_FILE = 12;
 
-  // The location a selection should land on: the first target of the first
-  // index. content.js emits the right ("after") side first, which is where a
-  // reader wants to be taken.
+  // The location a selection should land on: the first CHANGED target of the
+  // first index (see leadTarget — a call site is somewhere the refactoring is
+  // felt, not somewhere it happened, so it isn't where a reader wants to arrive).
+  // content.js emits the right ("after") side first, which is the side they want.
   function primaryTarget(indices) {
     for (let k = 0; k < indices.length; k++) {
-      const t = targetsFor(indices[k])[0];
+      const t = leadTarget(indices[k]);
       if (t) return t;
     }
     return null;
@@ -935,11 +1029,34 @@ window.RMX.overlay = (function () {
     return blinkPeriod ? Math.min(BLINK_FAST_MS, halfPeriod()) : BLINK_FAST_MS;
   }
 
+  // Is this lit line merely REACHED BY every refactoring lighting it, rather than
+  // changed by any of them? paintAll records the answer per index
+  // (data-rmx-reached); the selection decides it per cell, because a line reached
+  // by A can still be changed code in B, and with both selected it is the change
+  // that should show. So: accent only when every selected index that tagged this
+  // cell lists it as reached.
+  // The refactorings that only reach this line, as paintAll recorded them.
+  function reachedIndicesOf(el) {
+    const reached = el.getAttribute('data-rmx-reached');
+    return reached ? reached.split(' ') : [];
+  }
+
+  function isReachedOnly(el) {
+    const set = reachedIndicesOf(el);
+    if (!set.length) return false;
+    const mine = (el.getAttribute('data-rmx-index') || '').split(' ');
+    // Restricted to the indices actually lit: an unselected refactoring's claim
+    // on the line says nothing about how this selection should paint it.
+    const lit = mine.filter((i) => selectedIndices.indexOf(i) !== -1);
+    return lit.length > 0 && lit.every((i) => set.indexOf(i) !== -1);
+  }
+
   // Marks every cell of the selected refactoring(s) and sets its fill to the
   // current blink phase. Additive + idempotent, so scroll re-paints just sync
   // newly mounted cells to the current phase. SEL keeps the outline always;
-  // ON (the fill) is what blinks. During the attention phase transitions are
-  // suppressed so the fast blink is a crisp binary flash.
+  // ON (the fill) is what blinks, ACC swaps the colour it blinks in. During the
+  // attention phase transitions are suppressed so the fast blink is a crisp
+  // binary flash.
   function applySelection() {
     const seen = new Set();
     selectedIndices.forEach((i) => {
@@ -948,6 +1065,7 @@ window.RMX.overlay = (function () {
         seen.add(el);
         el.classList.add(SEL);
         el.classList.toggle(ON, blinkOn);
+        el.classList.toggle(ACC, isReachedOnly(el));
         el.style.transitionDuration = inAttentionPhase ? '0s' : '';
       });
     });
@@ -975,6 +1093,11 @@ window.RMX.overlay = (function () {
   // code readable on a deep segment fill).
   const SEG_L = 'rmx-seg-l';
   const SEG_R = 'rmx-seg-r';
+  const SEG_A = 'rmx-seg-a'; // on a reached-by line, whose fill is the accent
+  // At most one is ever registered — the others are cleared on every repaint, so
+  // a segment that moves between lines of different colours can't leave the old
+  // highlight behind.
+  const SEG_NAMES = [SEG_L, SEG_R, SEG_A];
   // The element the selection is pointing at, kept so a repaint can re-resolve
   // it: the virtualized diff unmounts and recycles rows, which leaves a stored
   // Range pointing at nodes that now show a different line.
@@ -987,8 +1110,7 @@ window.RMX.overlay = (function () {
   function clearSegment() {
     segment = null;
     if (!highlightsSupported()) return;
-    CSS.highlights.delete(SEG_L);
-    CSS.highlights.delete(SEG_R);
+    SEG_NAMES.forEach((n) => CSS.highlights.delete(n));
   }
 
   // The cell of a line that holds the source text, as opposed to its numbering
@@ -1108,11 +1230,17 @@ window.RMX.overlay = (function () {
   // while the line is scrolled out of the virtualized diff.
   function applySegment() {
     if (!segment || !highlightsSupported()) return;
-    const name = segment.side === 'L' ? SEG_L : SEG_R;
-    const other = segment.side === 'L' ? SEG_R : SEG_L;
-    CSS.highlights.delete(other);
     const cells = RMX.github.lineCells(segment.digest, segment.side, segment.line);
     const cell = codeCell(cells, segment.line);
+    // Which of the three complements to paint in is decided by the LINE, not by
+    // the segment: the element has to stand out from whatever fill it is sitting
+    // on, and on a reached-by line that fill is the accent. Resolved here on
+    // every repaint rather than stored, because the same line can change colour
+    // when the selection does (see isReachedOnly).
+    const name = cell && cell.classList.contains(ACC)
+      ? SEG_A
+      : (segment.side === 'L' ? SEG_L : SEG_R);
+    SEG_NAMES.forEach((n) => { if (n !== name) CSS.highlights.delete(n); });
     if (!cell) return void CSS.highlights.delete(name);
     const offsets = segmentOffsets(cell.textContent || '', segment.loc, segment.line);
     const range = offsets && rangeOverText(cell, offsets.start, offsets.end);
@@ -1129,7 +1257,7 @@ window.RMX.overlay = (function () {
 
   function removeSelectionClasses() {
     document.querySelectorAll('.' + SEL).forEach((el) => {
-      el.classList.remove(SEL, ON);
+      el.classList.remove(SEL, ON, ACC);
       el.style.transitionDuration = '';
     });
     selCells = [];
@@ -1251,10 +1379,20 @@ window.RMX.overlay = (function () {
   const stackCollapsed = { top: false, bottom: false }; // retained: clearSelection() still resets it
   let refreshRaf = null;
 
+  // The target a jump should land on: the first one that is part of the change
+  // itself, falling back to the list's head when a refactoring somehow reports
+  // nothing but reached-by lines. Everything that navigates to a refactoring
+  // rather than through it goes through here, so the minimap tick, the navigator
+  // swatch and the selection scroll all agree on where it "is".
+  function leadTarget(index) {
+    const list = targetsFor(index);
+    return list.find((t) => !t.accent) || list[0] || null;
+  }
+
   // Which side a refactoring mainly lives on, for its accent colour — the "after"
   // (right) side by default, since that's where extracted/renamed code lands.
   function refSide(index) {
-    const t = targetsFor(index)[0];
+    const t = leadTarget(index);
     return t && t.side === 'L' ? 'L' : 'R';
   }
   // Small solid marks (nav swatch, edge-chip dot) sit on canvas-coloured chrome,
@@ -1561,6 +1699,13 @@ window.RMX.overlay = (function () {
     const vh = window.innerHeight || document.documentElement.clientHeight;
     const above = [], below = [];
     distinctSelected().forEach((cell) => {
+      // Reached-by lines are deliberately not counted and not jumped to. The
+      // chips answer "how much of this refactoring is off screen, and take me
+      // there" — a call site is neither: counting it inflates the number past
+      // what the refactoring actually changed, and a jump aimed at one lands the
+      // reader somewhere the change isn't. They stay painted in the accent
+      // colour, so the reach is still visible once you're looking at it.
+      if (cell.classList.contains(ACC)) return;
       const r = cell.getBoundingClientRect();
       if (!r.height) return; // unmounted by virtualization
       if (r.bottom <= TOP_ZONE) above.push(cell);
@@ -1825,6 +1970,35 @@ window.RMX.overlay = (function () {
     }
   }
 
+  // The hover for a reached-by line. Deliberately the short form: what this line
+  // IS, in RefactoringMiner's own words ("extracted method invocation",
+  // "statement referencing the renamed variable"), and which refactoring it
+  // belongs to. None of the counterpart machinery the peek below runs applies —
+  // a call site has no other side to glance at, and the line can't be clicked, so
+  // a "click to jump" hint would be a lie. This tooltip is all such a line does.
+  function reachedHtml(cell, indices) {
+    const roles = (cell.getAttribute('data-rmx-role') || '').split('\n').filter(Boolean);
+    const html = roles
+      .map((r) => '<div class="rmx-tip-title">' + escapeHtml(sentence(r)) + '</div>')
+      .join('') ||
+      '<div class="rmx-tip-title">Referenced by this refactoring</div>';
+    // Which refactoring reaches it, under the description — the same summary the
+    // report row and the navigator use for it.
+    const owners = indices
+      .map((i) => descByIndex[i])
+      .filter(Boolean)
+      .map((d) => '<div class="rmx-tip-owner">' + escapeHtml(d) + '</div>')
+      .join('');
+    return html + owners;
+  }
+
+  // Capitalise the first letter. RefactoringMiner's location descriptions are
+  // mid-sentence fragments; as a tooltip's first line they read as a title.
+  function sentence(s) {
+    const t = String(s || '');
+    return t ? t.charAt(0).toUpperCase() + t.slice(1) : t;
+  }
+
   // Hover peek: the refactoring's summary, plus a live glance at its counterpart
   // on the other side — the actual code lines when they're mounted, or a jump
   // hint when they've scrolled off / sit in a collapsed file.
@@ -1834,6 +2008,7 @@ window.RMX.overlay = (function () {
       return '<div class="rmx-tip-title">' +
         escapeHtml(cell.getAttribute('data-rmx-desc') || '') + '</div>';
     }
+    if (cell.hasAttribute('data-rmx-inert')) return reachedHtml(cell, cellIndices);
     // A line can belong to several refactorings. When one is currently selected
     // (blinking / stepped to in the navigator) and this line is part of it, scope
     // the peek to just that refactoring; otherwise show every one the line joins.
@@ -1930,7 +2105,18 @@ window.RMX.overlay = (function () {
       }
       const idxAttr = cell.getAttribute('data-rmx-index');
       if (!idxAttr) return;
-      const indices = idxAttr.split(' ');
+      // A reached-by line is not clickable. It carries no counterpart to pair
+      // with — a call site has no "other side" — and taking the reader somewhere
+      // on the strength of one would move them away from the change they were
+      // looking at. It stays hoverable, which is the whole of what it offers.
+      // Returning (rather than falling through to clearSelection) means clicking
+      // one is a no-op, not a way to lose the selection you already had.
+      if (cell.hasAttribute('data-rmx-inert')) return;
+      // On a line that is a call site of one refactoring and changed code of
+      // another, the click acts only on the ones it genuinely belongs to.
+      const reached = reachedIndicesOf(cell);
+      const indices = idxAttr.split(' ').filter((i) => reached.indexOf(i) === -1);
+      if (!indices.length) return;
       // await so a counterpart in a collapsed file is revealed before we scroll.
       await select(indices);
       scrollToCounterpart(cell, indices);

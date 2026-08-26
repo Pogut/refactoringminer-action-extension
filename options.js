@@ -41,19 +41,34 @@ function liveBaseurl(saved) {
 // readable under: pale tints for dark-on-white, deep shades for
 // light-on-near-black. Left is amber and right is azure — near-complementary, so
 // the pair separates by hue rather than brightness, and clear of the red/green
-// GitHub already uses for removed/added lines. `leftA`/`rightA` are the
-// hand-picked outline accents. Mirror of HL_DEFAULTS in src/overlay.js.
+// GitHub already uses for removed/added lines. `accent` is the third fill, for
+// the lines a refactoring only reaches (its call sites and the statements that
+// mention a renamed variable) — a violet at ~283°, in the gap between the two
+// and away from GitHub's reds, matched to their luminance so it never shouts
+// over the change itself. `leftA`/`rightA`/`accentA` are the hand-picked outline
+// accents. Mirror of HL_DEFAULTS in src/overlay.js.
 const HL_DEFAULTS = {
-  light: { left: '#ffe1a8', leftA: '#9a6700', right: '#d1e7fd', rightA: '#0969da' },
-  dark: { left: '#4b3a0f', leftA: '#d4a72c', right: '#143d69', rightA: '#58a6ff' },
+  light: {
+    left: '#ffe1a8', leftA: '#9a6700', right: '#d1e7fd', rightA: '#0969da',
+    accent: '#f5dbff', accentA: '#a626d4',
+  },
+  dark: {
+    left: '#4b3a0f', leftA: '#d4a72c', right: '#143d69', rightA: '#58a6ff',
+    accent: '#532c66', accentA: '#cf8ef0',
+  },
 };
 
 // The pair that used to be the default for both themes, written out verbatim on
 // every save by the old options page — so a stored value equal to it means
-// "never actually chosen". Mirror of HL_LEGACY in src/overlay.js.
+// "never actually chosen". The accent has no entry: it postdates that page, so
+// any stored accent is a real choice. Mirror of HL_LEGACY in src/overlay.js.
 const HL_LEGACY = { left: '#ec4899', right: '#7c3aed' };
 
-const HL_SIDES = ['left', 'right'];
+// The three colour slots, in the order the page shows them. Named "slots" rather
+// than "sides" since the accent isn't one — it cuts across both.
+const HL_SLOTS = ['left', 'right', 'accent'];
+const HL_KEY_BY_SLOT = { left: 'hlLeft', right: 'hlRight', accent: 'hlAccent' };
+const hlKey = (slot) => HL_KEY_BY_SLOT[slot];
 
 // Which theme GitHub is in, so the page shows the defaults that actually apply.
 // src/overlay.js records it after measuring a real diff; until it has (nothing
@@ -127,18 +142,18 @@ function shift(hex, amt) {
   return '#' + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
 }
 
-function accentFor(fill, mode, side) {
+function accentFor(fill, mode, slot) {
   const d = HL_DEFAULTS[mode];
-  if (String(fill).toLowerCase() === d[side]) return side === 'left' ? d.leftA : d.rightA;
+  if (String(fill).toLowerCase() === d[slot]) return d[slot + 'A'];
   return shift(fill, mode === 'dark' ? 0.5 : -0.4);
 }
 
 // The user's own colour if they picked one, else the default for the theme
 // GitHub is in. Mirror of fillFor() in src/overlay.js.
-function resolveFill(stored, side) {
-  const chosen = normHex(stored[side === 'left' ? 'hlLeft' : 'hlRight']);
-  if (chosen && chosen !== HL_LEGACY[side]) return chosen;
-  return HL_DEFAULTS[ghMode][side];
+function resolveFill(stored, slot) {
+  const chosen = normHex(stored[hlKey(slot)]);
+  if (chosen && chosen !== HL_LEGACY[slot]) return chosen;
+  return HL_DEFAULTS[ghMode][slot];
 }
 
 // The panel level is a plain radio group; these two just read and write it, and
@@ -160,7 +175,7 @@ function normSpeed(v) {
   return n;
 }
 
-// Paint the preview with the two chosen fills and their derived accents. It is
+// Paint the preview with the three chosen fills and their derived accents. It is
 // rendered in GitHub's canvas/text colours for the detected theme, so it shows
 // the contrast the fill will actually have to survive.
 function updatePreview() {
@@ -168,11 +183,11 @@ function updatePreview() {
   preview.classList.toggle('pv-gh-dark', ghMode === 'dark');
   preview.classList.toggle('pv-gh-light', ghMode !== 'dark');
   $('pvCap').textContent = 'Live preview · GitHub ' + ghMode;
-  HL_SIDES.forEach((side) => {
-    const fill = $(side === 'left' ? 'hlLeft' : 'hlRight').value;
-    const v = side === 'left' ? '--pv-left' : '--pv-right';
+  HL_SLOTS.forEach((slot) => {
+    const fill = $(hlKey(slot)).value;
+    const v = '--pv-' + slot;
     preview.style.setProperty(v, fill);
-    preview.style.setProperty(v + '-d', accentFor(fill, ghMode, side));
+    preview.style.setProperty(v + '-d', accentFor(fill, ghMode, slot));
   });
 }
 
@@ -199,8 +214,8 @@ function updateSpeed() {
 
 // Keep a colour picker and its hex text field mirrored. `picker` is the source of
 // truth for what gets saved; the text field just offers a typeable alternative.
-function bindColor(side, initial) {
-  const id = side === 'left' ? 'hlLeft' : 'hlRight';
+function bindColor(slot, initial) {
+  const id = hlKey(slot);
   const picker = $(id);
   const hex = $(id + 'Hex');
   const set = (value) => {
@@ -242,7 +257,8 @@ function load() {
 
 function loadSync() {
   chrome.storage.sync.get(
-    ['baseurl', 'token', 'timeout', 'autoTrigger', 'blinkSpeed', 'theme', 'hlLeft', 'hlRight', 'panelView'],
+    ['baseurl', 'token', 'timeout', 'autoTrigger', 'blinkSpeed', 'theme', 'panelView']
+      .concat(HL_SLOTS.map(hlKey)),
     (r) => {
       r = r || {};
       $('baseurl').value = liveBaseurl(r.baseurl);
@@ -250,7 +266,7 @@ function loadSync() {
       $('timeout').value = r.timeout || DEFAULTS.timeout;
       $('triggerAuto').checked = r.autoTrigger === true;
       setPanelView(normView(r.panelView));
-      HL_SIDES.forEach((s) => bindColor(s, resolveFill(r, s)));
+      HL_SLOTS.forEach((s) => bindColor(s, resolveFill(r, s)));
       $('blinkSpeed').value = normSpeed(r.blinkSpeed);
       setTheme(r.theme, false);
       updatePreview();
@@ -297,10 +313,10 @@ function save(normalise) {
   // theme GitHub happened to be in at save time — someone who opened this page
   // only to change the timeout would silently lose the theme-following default.
   const clear = [];
-  HL_SIDES.forEach((side) => {
-    const id = side === 'left' ? 'hlLeft' : 'hlRight';
+  HL_SLOTS.forEach((slot) => {
+    const id = hlKey(slot);
     const value = $(id).value;
-    if (value.toLowerCase() === HL_DEFAULTS[ghMode][side]) clear.push(id);
+    if (value.toLowerCase() === HL_DEFAULTS[ghMode][slot]) clear.push(id);
     else write[id] = value;
   });
 
@@ -348,17 +364,17 @@ function flashSaved() {
   savedTimer = setTimeout(() => status.classList.remove('show'), 1400);
 }
 
-// Back to the defaults for the theme GitHub is in. Clearing the stored pair (as
-// well as resetting the pickers) is what puts the colours back under GitHub's
+// Back to the defaults for the theme GitHub is in. Clearing the stored colours
+// (as well as resetting the pickers) is what puts them back under GitHub's
 // control, so they follow along again if the user later switches its theme.
 function resetColors() {
-  HL_SIDES.forEach((side) => {
-    const id = side === 'left' ? 'hlLeft' : 'hlRight';
-    $(id).value = HL_DEFAULTS[ghMode][side];
-    $(id + 'Hex').value = HL_DEFAULTS[ghMode][side];
+  HL_SLOTS.forEach((slot) => {
+    const id = hlKey(slot);
+    $(id).value = HL_DEFAULTS[ghMode][slot];
+    $(id + 'Hex').value = HL_DEFAULTS[ghMode][slot];
   });
   updatePreview();
-  // The pickers now sit on the defaults, so save() clears the stored pair for us.
+  // The pickers now sit on the defaults, so save() clears the stored set for us.
   save(false);
 }
 
@@ -381,8 +397,8 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   // The colour pickers already repaint the preview on input (see bindColor); the
   // save rides along on the same events rather than a second listener each.
-  HL_SIDES.forEach((side) => {
-    const id = side === 'left' ? 'hlLeft' : 'hlRight';
+  HL_SLOTS.forEach((slot) => {
+    const id = hlKey(slot);
     $(id).addEventListener('input', scheduleSave);
     $(id + 'Hex').addEventListener('change', () => save(false));
   });
