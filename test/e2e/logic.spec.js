@@ -100,3 +100,317 @@ test('rm.fetchCommit passes an integer PR number through as commitId (whole-PR m
   });
   expect(url).toContain('commitId=7');
 });
+
+// --- reached-by lines (invocations / references) ----------------------------
+// RefactoringMiner reports two kinds of location for one refactoring: the code
+// that changed, and the code that merely REACHES it — the call sites an Extract
+// leaves behind, the statements that mention a renamed variable. The overlay
+// paints the second kind in the accent colour and leaves it out of the edge
+// chips' line counts. That decision is per SELECTION, not per paint (a line can
+// be a call site of one refactoring and changed code of another), which is what
+// these pin down.
+//
+// overlay.js reaches the DOM only through RMX.github, so a stub adapter and a
+// handful of divs are a whole diff as far as it's concerned.
+const OVERLAY_HARNESS = () => {
+  const cells = new Map(); // "digest|side|line" -> div
+  window.RMX.github = {
+    cellKey: (d, s, l) => d + '|' + s + '|' + l,
+    cellIdentity: (el) => (el.dataset.id ? JSON.parse(el.dataset.id) : null),
+    candidateCells: () => Array.from(cells.values()),
+    lineCells: (d, s, l) => [cells.get(d + '|' + s + '|' + l)].filter(Boolean),
+    revealLine: async () => true,
+    fileDigest: async (p) => p,
+  };
+  // One div per source line, carrying text so lineHasCode() accepts it.
+  window.mount = (side, line) => {
+    const el = document.createElement('div');
+    el.dataset.id = JSON.stringify({ digest: 'd', side, line });
+    el.textContent = 'code(' + line + ');';
+    document.body.appendChild(el);
+    cells.set('d|' + side + '|' + line, el);
+    return el;
+  };
+  // A paint plan in the shape content.js builds, from [line, index, accent, role]
+  // rows. `descByIndex` carries each refactoring's summary, as content.js does.
+  window.planOf = (rows) => {
+    const byKey = new Map();
+    const descByIndex = {};
+    rows.forEach(([line, index, accent, role]) => {
+      const key = 'd|R|' + line;
+      if (!byKey.has(key)) byKey.set(key, { filePath: 'A.java', contribs: [] });
+      byKey.get(key).contribs.push({
+        index: String(index), summary: 'S' + index, header: null, trailing: false,
+        accent, role: role || '',
+      });
+      descByIndex[String(index)] = 'Extract Method: a() → b' + index + '()';
+    });
+    return { byKey, headerGroups: new Map(), descByIndex, targets: {} };
+  };
+  window.stateOf = (line) => {
+    const el = cells.get('d|R|' + line);
+    return {
+      reached: el.getAttribute('data-rmx-reached'),
+      role: el.getAttribute('data-rmx-role'),
+      inert: el.hasAttribute('data-rmx-inert'),
+      acc: el.classList.contains('rmx-acc'),
+    };
+  };
+  // Click a line the way a reader does, through the delegated document handler.
+  window.clickLine = (line) => {
+    cells.get('d|R|' + line).dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  };
+  // Which lines are currently lit, by number — the observable effect of a
+  // selection, and enough to say WHICH refactoring got selected when each has a
+  // line of its own.
+  window.litLines = () => Array.from(document.querySelectorAll('.rmx-sel'))
+    .map((el) => JSON.parse(el.dataset.id).line).sort((a, b) => a - b);
+  window.hoverHtml = (line) => {
+    cells.get('d|R|' + line).dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+    return window.__rmxTip.innerHTML;
+  };
+  // Record which line every scrollIntoView lands on, so "where did it take me"
+  // is assertable without a real viewport.
+  window.scrolledTo = [];
+  Element.prototype.scrollIntoView = function () {
+    if (this.dataset && this.dataset.id) window.scrolledTo.push(JSON.parse(this.dataset.id).line);
+  };
+  // A report row in the shape content.js emits.
+  window.rowOf = (index, type) => ({
+    index, type, summary: 's' + index, detail: 'd' + index, description: 'd' + index,
+    markup: '', files: ['A.java'], locations: [],
+  });
+  window.openRows = () => Array.from(document.querySelectorAll('.rmx-rp-item.rmx-open'))
+    .map((el) => el.querySelector('.rmx-rp-type').textContent);
+};
+
+test.describe('reached-by (invocation / reference) lines', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.addScriptTag({ path: path.join(SRC, 'overlay.js') });
+    await page.evaluate(OVERLAY_HARNESS);
+  });
+
+  test('paintAll records reached-by per index, and a changed contribution clears it', async ({ page }) => {
+    const out = await page.evaluate(() => {
+      [10, 11, 12].forEach((l) => window.mount('R', l));
+      RMX.overlay.setPlan(window.planOf([
+        [10, 0, false],       // changed code of refactoring 0
+        [11, 0, true],        // a call site of refactoring 0
+        [12, 0, true],        // reached by 0 …
+        [12, 0, false],       // … and changed by it too — changed wins
+      ]));
+      RMX.overlay.paintAll();
+      return [10, 11, 12].map((l) => window.stateOf(l).reached);
+    });
+    expect(out).toEqual([null, '0', null]);
+  });
+
+  test('a line reached by one refactoring and changed by another follows the selection', async ({ page }) => {
+    const out = await page.evaluate(async () => {
+      window.mount('R', 20);
+      RMX.overlay.setPlan(window.planOf([
+        [20, 0, true],   // refactoring 0 only calls into this line
+        [20, 1, false],  // refactoring 1 changed it
+      ]));
+      RMX.overlay.paintAll();
+      const seen = {};
+      // select() reveals + blinks; applySelection is the part that colours.
+      await RMX.overlay.select(['0']);
+      seen.callerOnly = window.stateOf(20).acc;
+      await RMX.overlay.select(['1']);
+      seen.changerOnly = window.stateOf(20).acc;
+      await RMX.overlay.select(['0', '1']);
+      seen.both = window.stateOf(20).acc;
+      return seen;
+    });
+    // Lit for the caller alone → accent. Lit for the refactoring that changed
+    // it, alone or alongside the caller → the change is what should show.
+    expect(out).toEqual({ callerOnly: true, changerOnly: false, both: false });
+  });
+
+  test('a reached-by line is inert: clicking it selects nothing and keeps the selection', async ({ page }) => {
+    const out = await page.evaluate(async () => {
+      [30, 31].forEach((l) => window.mount('R', l));
+      RMX.overlay.setPlan(window.planOf([
+        [30, 0, false],                                  // changed code
+        [31, 0, true, 'extracted method invocation'],    // its call site
+      ]));
+      RMX.overlay.paintAll();
+      RMX.overlay.installTooltip();
+      const settle = () => new Promise((r) => setTimeout(r, 30));
+      const seen = { inert: [window.stateOf(30).inert, window.stateOf(31).inert] };
+      window.clickLine(31);
+      await settle();
+      seen.afterInertClick = window.litLines();
+      // A real line still selects, and an inert click afterwards must not undo it.
+      window.clickLine(30);
+      await settle();
+      seen.afterRealClick = window.litLines();
+      window.clickLine(31);
+      await settle();
+      seen.selectionSurvives = window.litLines();
+      return seen;
+    });
+    expect(out.inert).toEqual([false, true]);
+    expect(out.afterInertClick).toEqual([]);          // the click did nothing
+    // Selecting the refactoring lights BOTH its lines — the call site included,
+    // in the accent colour. Only the click on it is suppressed, not its painting.
+    expect(out.afterRealClick).toEqual([30, 31]);
+    expect(out.selectionSurvives).toEqual([30, 31]);  // inert click didn't clear it
+  });
+
+  test('a line reached by one refactoring but changed by another stays clickable', async ({ page }) => {
+    const lit = await page.evaluate(async () => {
+      [40, 41, 42].forEach((l) => window.mount('R', l));
+      RMX.overlay.setPlan(window.planOf([
+        [40, 0, true, 'extracted method invocation'],  // 0 only calls into line 40
+        [40, 1, false],                                // 1 changed line 40
+        [41, 0, false],                                // a line only 0 owns
+        [42, 1, false],                                // a line only 1 owns
+      ]));
+      RMX.overlay.paintAll();
+      RMX.overlay.installTooltip();
+      window.clickLine(40);
+      await new Promise((r) => setTimeout(r, 30));
+      return window.litLines();
+    });
+    // 42 lit and 41 dark ⇒ the click selected refactoring 1 (which changed the
+    // line) and not 0 (which merely reaches it).
+    expect(lit).toEqual([40, 42]);
+  });
+
+  test('a reached-by line hovers to its JSON description, without the counterpart peek', async ({ page }) => {
+    const html = await page.evaluate(() => {
+      [50, 51].forEach((l) => window.mount('R', l));
+      RMX.overlay.setPlan(window.planOf([
+        [50, 0, false],
+        [51, 0, true, 'statement referencing the renamed variable'],
+      ]));
+      RMX.overlay.paintAll();
+      RMX.overlay.installTooltip();
+      return { reached: window.hoverHtml(51), changed: window.hoverHtml(50) };
+    });
+    // The location's own words, sentence-cased, plus which refactoring reaches it.
+    expect(html.reached).toContain('Statement referencing the renamed variable');
+    expect(html.reached).toContain('Extract Method: a() → b0()');
+    // None of the pairing affordances — there is no counterpart and no click.
+    expect(html.reached).not.toContain('click to jump');
+    expect(html.reached).not.toContain('rmx-tip-code');
+    // The ordinary line keeps the full peek.
+    expect(html.changed).not.toContain('rmx-tip-owner');
+  });
+
+  test('going to a refactoring lands on the change, not on its call site', async ({ page }) => {
+    const out = await page.evaluate(() => {
+      // The call site sits ABOVE the extracted method, which is the ordinary
+      // shape of an Extract — and mountedCells is in document order, so the
+      // naive "first mounted line" is the invocation.
+      [8, 60, 61].forEach((l) => window.mount('R', l));
+      RMX.overlay.setPlan(window.planOf([
+        [8, 0, true, 'extracted method invocation'],
+        [60, 0, false],
+        [61, 0, false],
+      ]));
+      RMX.overlay.paintAll();
+      window.scrolledTo = [];
+      RMX.overlay.scrollToRefactoring(0);
+      return window.scrolledTo;
+    });
+    expect(out).toEqual([60]); // the extracted method, not line 8
+  });
+
+  test('a refactoring with nothing but reached-by lines still lands somewhere', async ({ page }) => {
+    const out = await page.evaluate(() => {
+      window.mount('R', 8);
+      RMX.overlay.setPlan(window.planOf([[8, 0, true, 'extracted method invocation']]));
+      RMX.overlay.paintAll();
+      window.scrolledTo = [];
+      const ok = RMX.overlay.scrollToRefactoring(0);
+      return { ok, scrolledTo: window.scrolledTo };
+    });
+    expect(out).toEqual({ ok: true, scrolledTo: [8] });
+  });
+
+  test('the tooltip follows the ACTIVE refactoring, not the other owner of the line', async ({ page }) => {
+    const out = await page.evaluate(async () => {
+      // Line 21 is a reference for refactoring 0 and changed code for 1 — the
+      // two-refactorings-on-one-line case.
+      [20, 21, 30].forEach((l) => window.mount('R', l));
+      RMX.overlay.setPlan(window.planOf([
+        [20, 0, false],
+        [21, 0, true, 'statement referencing the renamed variable'],
+        [21, 1, false],
+        [30, 1, false],
+      ]));
+      RMX.overlay.paintAll();
+      RMX.overlay.installTooltip();
+      const seen = {};
+      const hover = () => {
+        // Force a re-read: the tooltip caches the cell it last described.
+        document.body.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+        return window.hoverHtml(21);
+      };
+      seen.noSelection = hover();
+      await RMX.overlay.select(['0']);
+      seen.refA = hover();
+      await RMX.overlay.select(['1']);
+      seen.refB = hover();
+      return seen;
+    });
+    // Refactoring 0 active → the line is its reference, and says so.
+    expect(out.refA).toContain('Statement referencing the renamed variable');
+    expect(out.refA).not.toContain('rmx-tip-code');
+    // Refactoring 1 active → the line is 1's own changed code, so the full peek.
+    expect(out.refB).not.toContain('Statement referencing the renamed variable');
+    // Nothing selected → the peek is about both, and 1 changed it, so full peek.
+    expect(out.noSelection).not.toContain('Statement referencing the renamed variable');
+  });
+
+  test('clicking a line in the diff auto-expands its panel card — all of them', async ({ page }) => {
+    const out = await page.evaluate(async () => {
+      [70, 71].forEach((l) => window.mount('R', l));
+      RMX.overlay.setPlan(window.planOf([
+        [70, 0, false],
+        [70, 1, false],  // one line, two refactorings
+        [71, 2, false],
+      ]));
+      RMX.overlay.paintAll();
+      RMX.overlay.installTooltip();
+      RMX.overlay.setPanelView('compact');
+      RMX.overlay.showReport([
+        window.rowOf(0, 'Rename Variable'),
+        window.rowOf(1, 'Change Variable Type'),
+        window.rowOf(2, 'Extract Method'),
+      ]);
+      const settle = () => new Promise((r) => requestAnimationFrame(() => setTimeout(r, 20)));
+      const seen = { initial: window.openRows() };
+      window.clickLine(70);
+      await settle();
+      seen.twoOnOneLine = window.openRows();
+      window.clickLine(71);
+      await settle();
+      seen.thenOne = window.openRows();
+      return seen;
+    });
+    expect(out.initial).toEqual([]);
+    // Both refactorings reported on line 70 open, in feed order.
+    expect(out.twoOnOneLine).toEqual(['1.Rename Variable', '2.Change Variable Type']);
+    // Selecting elsewhere closes them and opens only the new one.
+    expect(out.thenOne).toEqual(['3.Extract Method']);
+  });
+
+  test('the accent palette is published as CSS variables', async ({ page }) => {
+    const vars = await page.evaluate(() => {
+      RMX.overlay.ensureStyle();
+      const s = document.documentElement.style;
+      return {
+        fill: s.getPropertyValue('--rmx-accent'),
+        outline: s.getPropertyValue('--rmx-accent-d'),
+        segment: s.getPropertyValue('--rmx-accent-seg'),
+      };
+    });
+    expect(vars.fill).toBe('#f5dbff');    // light default; GitHub's theme isn't dark here
+    expect(vars.outline).toBe('#a626d4');
+    expect(vars.segment).toBeTruthy();
+  });
+});

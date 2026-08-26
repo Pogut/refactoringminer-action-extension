@@ -13,7 +13,17 @@ const DEFAULTS = {
   autoTrigger: false,
   blinkSpeed: 1,
   theme: 'light',
+  panelView: 'compact',
 };
+
+// How much of the diff page the refactorings panel takes, and with it how much of
+// each refactoring's record it shows. Read by src/overlay.js — keep in sync with
+// PANEL_VIEWS there.
+const PANEL_VIEWS = ['compact', 'expanded', 'detailed'];
+
+function normView(v) {
+  return PANEL_VIEWS.indexOf(v) === -1 ? DEFAULTS.panelView : v;
+}
 
 // Hosts that no longer serve RefactoringMiner: a stored value pointing at one is
 // shown (and re-saved) as the current default. Keep in sync with src/rm.js.
@@ -31,19 +41,34 @@ function liveBaseurl(saved) {
 // readable under: pale tints for dark-on-white, deep shades for
 // light-on-near-black. Left is amber and right is azure — near-complementary, so
 // the pair separates by hue rather than brightness, and clear of the red/green
-// GitHub already uses for removed/added lines. `leftA`/`rightA` are the
-// hand-picked outline accents. Mirror of HL_DEFAULTS in src/overlay.js.
+// GitHub already uses for removed/added lines. `accent` is the third fill, for
+// the lines a refactoring only reaches (its call sites and the statements that
+// mention a renamed variable) — a violet at ~283°, in the gap between the two
+// and away from GitHub's reds, matched to their luminance so it never shouts
+// over the change itself. `leftA`/`rightA`/`accentA` are the hand-picked outline
+// accents. Mirror of HL_DEFAULTS in src/overlay.js.
 const HL_DEFAULTS = {
-  light: { left: '#ffe1a8', leftA: '#9a6700', right: '#d1e7fd', rightA: '#0969da' },
-  dark: { left: '#4b3a0f', leftA: '#d4a72c', right: '#143d69', rightA: '#58a6ff' },
+  light: {
+    left: '#ffe1a8', leftA: '#9a6700', right: '#d1e7fd', rightA: '#0969da',
+    accent: '#f5dbff', accentA: '#a626d4',
+  },
+  dark: {
+    left: '#4b3a0f', leftA: '#d4a72c', right: '#143d69', rightA: '#58a6ff',
+    accent: '#532c66', accentA: '#cf8ef0',
+  },
 };
 
 // The pair that used to be the default for both themes, written out verbatim on
 // every save by the old options page — so a stored value equal to it means
-// "never actually chosen". Mirror of HL_LEGACY in src/overlay.js.
+// "never actually chosen". The accent has no entry: it postdates that page, so
+// any stored accent is a real choice. Mirror of HL_LEGACY in src/overlay.js.
 const HL_LEGACY = { left: '#ec4899', right: '#7c3aed' };
 
-const HL_SIDES = ['left', 'right'];
+// The three colour slots, in the order the page shows them. Named "slots" rather
+// than "sides" since the accent isn't one — it cuts across both.
+const HL_SLOTS = ['left', 'right', 'accent'];
+const HL_KEY_BY_SLOT = { left: 'hlLeft', right: 'hlRight', accent: 'hlAccent' };
+const hlKey = (slot) => HL_KEY_BY_SLOT[slot];
 
 // Which theme GitHub is in, so the page shows the defaults that actually apply.
 // src/overlay.js records it after measuring a real diff; until it has (nothing
@@ -117,18 +142,30 @@ function shift(hex, amt) {
   return '#' + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
 }
 
-function accentFor(fill, mode, side) {
+function accentFor(fill, mode, slot) {
   const d = HL_DEFAULTS[mode];
-  if (String(fill).toLowerCase() === d[side]) return side === 'left' ? d.leftA : d.rightA;
+  if (String(fill).toLowerCase() === d[slot]) return d[slot + 'A'];
   return shift(fill, mode === 'dark' ? 0.5 : -0.4);
 }
 
 // The user's own colour if they picked one, else the default for the theme
 // GitHub is in. Mirror of fillFor() in src/overlay.js.
-function resolveFill(stored, side) {
-  const chosen = normHex(stored[side === 'left' ? 'hlLeft' : 'hlRight']);
-  if (chosen && chosen !== HL_LEGACY[side]) return chosen;
-  return HL_DEFAULTS[ghMode][side];
+function resolveFill(stored, slot) {
+  const chosen = normHex(stored[hlKey(slot)]);
+  if (chosen && chosen !== HL_LEGACY[slot]) return chosen;
+  return HL_DEFAULTS[ghMode][slot];
+}
+
+// The panel level is a plain radio group; these two just read and write it, and
+// are kept apart from the rest so the group's name stays in one place.
+function setPanelView(view) {
+  const hit = document.querySelector(`input[name="panelView"][value="${view}"]`);
+  if (hit) hit.checked = true;
+}
+
+function panelView() {
+  const hit = document.querySelector('input[name="panelView"]:checked');
+  return normView(hit && hit.value);
 }
 
 // Clamp an arbitrary stored value to a valid slider index.
@@ -138,7 +175,7 @@ function normSpeed(v) {
   return n;
 }
 
-// Paint the preview with the two chosen fills and their derived accents. It is
+// Paint the preview with the three chosen fills and their derived accents. It is
 // rendered in GitHub's canvas/text colours for the detected theme, so it shows
 // the contrast the fill will actually have to survive.
 function updatePreview() {
@@ -146,11 +183,11 @@ function updatePreview() {
   preview.classList.toggle('pv-gh-dark', ghMode === 'dark');
   preview.classList.toggle('pv-gh-light', ghMode !== 'dark');
   $('pvCap').textContent = 'Live preview · GitHub ' + ghMode;
-  HL_SIDES.forEach((side) => {
-    const fill = $(side === 'left' ? 'hlLeft' : 'hlRight').value;
-    const v = side === 'left' ? '--pv-left' : '--pv-right';
+  HL_SLOTS.forEach((slot) => {
+    const fill = $(hlKey(slot)).value;
+    const v = '--pv-' + slot;
     preview.style.setProperty(v, fill);
-    preview.style.setProperty(v + '-d', accentFor(fill, ghMode, side));
+    preview.style.setProperty(v + '-d', accentFor(fill, ghMode, slot));
   });
 }
 
@@ -177,8 +214,8 @@ function updateSpeed() {
 
 // Keep a colour picker and its hex text field mirrored. `picker` is the source of
 // truth for what gets saved; the text field just offers a typeable alternative.
-function bindColor(side, initial) {
-  const id = side === 'left' ? 'hlLeft' : 'hlRight';
+function bindColor(slot, initial) {
+  const id = hlKey(slot);
   const picker = $(id);
   const hex = $(id + 'Hex');
   const set = (value) => {
@@ -220,14 +257,16 @@ function load() {
 
 function loadSync() {
   chrome.storage.sync.get(
-    ['baseurl', 'token', 'timeout', 'autoTrigger', 'blinkSpeed', 'theme', 'hlLeft', 'hlRight'],
+    ['baseurl', 'token', 'timeout', 'autoTrigger', 'blinkSpeed', 'theme', 'panelView']
+      .concat(HL_SLOTS.map(hlKey)),
     (r) => {
       r = r || {};
       $('baseurl').value = liveBaseurl(r.baseurl);
       $('token').value = r.token || DEFAULTS.token;
       $('timeout').value = r.timeout || DEFAULTS.timeout;
       $('triggerAuto').checked = r.autoTrigger === true;
-      HL_SIDES.forEach((s) => bindColor(s, resolveFill(r, s)));
+      setPanelView(normView(r.panelView));
+      HL_SLOTS.forEach((s) => bindColor(s, resolveFill(r, s)));
       $('blinkSpeed').value = normSpeed(r.blinkSpeed);
       setTheme(r.theme, false);
       updatePreview();
@@ -249,55 +288,131 @@ function setTheme(theme, persist) {
   if (persist) chrome.storage.sync.set({ theme: t });
 }
 
-function save() {
+// --- saving ---------------------------------------------------------------
+// Every control on this page writes itself the moment it changes: the settings
+// are independent one-click choices, and a single Save button at the foot of the
+// page meant changing the panel level at the top ended in a scroll to commit it.
+//
+// One writer for the whole form rather than a patch per control. It reads the
+// current state of every field, so which control fired doesn't matter and the
+// colour/timeout rules below can't drift out of step with a partial write.
+
+// `normalise` writes the clamped timeout back into its field. Only the field's
+// own change event (i.e. blur/Enter) does that — clamping while the digits are
+// still being typed would rewrite "1" to "10" under the cursor.
+function save(normalise) {
   const baseurl = $('baseurl').value.trim() || DEFAULTS.baseurl;
   const token = $('token').value.trim();
   const timeout = Math.min(1000, Math.max(10, parseInt($('timeout').value, 10) || DEFAULTS.timeout));
   const autoTrigger = $('triggerAuto').checked;
   const blinkSpeed = normSpeed($('blinkSpeed').value);
-  const write = { baseurl, token, timeout, autoTrigger, blinkSpeed };
+  const write = { baseurl, token, timeout, autoTrigger, blinkSpeed, panelView: panelView() };
 
   // A colour still sitting on the current default isn't a choice, so it is
   // cleared rather than written. Storing it would pin the colour to whichever
   // theme GitHub happened to be in at save time — someone who opened this page
   // only to change the timeout would silently lose the theme-following default.
   const clear = [];
-  HL_SIDES.forEach((side) => {
-    const id = side === 'left' ? 'hlLeft' : 'hlRight';
+  HL_SLOTS.forEach((slot) => {
+    const id = hlKey(slot);
     const value = $(id).value;
-    if (value.toLowerCase() === HL_DEFAULTS[ghMode][side]) clear.push(id);
+    if (value.toLowerCase() === HL_DEFAULTS[ghMode][slot]) clear.push(id);
     else write[id] = value;
   });
 
+  if (normalise) $('timeout').value = timeout;
+
+  // storage.sync is rate-limited (120 writes/minute), and auto-saving turns every
+  // keystroke and slider step into a candidate write. Skipping a write that would
+  // store exactly what is already there keeps a debounce flush from spending the
+  // budget on nothing.
+  const sig = JSON.stringify([write, clear]);
+  if (sig === lastWritten) return;
+  lastWritten = sig;
+
   chrome.storage.sync.set(write, () => {
     if (clear.length) chrome.storage.sync.remove(clear);
-    $('timeout').value = timeout;
-    const status = $('status');
-    status.textContent = 'Saved.';
-    setTimeout(() => (status.textContent = ''), 1500);
+    flashSaved();
   });
 }
 
-// Back to the defaults for the theme GitHub is in. Clearing the stored pair (as
-// well as resetting the pickers) is what puts the colours back under GitHub's
+let lastWritten = null;
+let saveTimer = null;
+
+// Controls that fire continuously — a dragged slider, a held-down key — go
+// through here so one gesture is one write.
+function scheduleSave() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => save(false), 400);
+}
+
+// Commit anything still pending right now: a field that is mid-debounce when the
+// page is closed or hidden would otherwise lose its last edit.
+function flushSave() {
+  clearTimeout(saveTimer);
+  save(false);
+}
+
+// The "Saved" confirmation is a floating pill rather than a line at the foot of
+// the page, so it is visible wherever the control that triggered it was.
+let savedTimer = null;
+function flashSaved() {
+  const status = $('status');
+  status.textContent = 'Saved';
+  status.classList.add('show');
+  clearTimeout(savedTimer);
+  savedTimer = setTimeout(() => status.classList.remove('show'), 1400);
+}
+
+// Back to the defaults for the theme GitHub is in. Clearing the stored colours
+// (as well as resetting the pickers) is what puts them back under GitHub's
 // control, so they follow along again if the user later switches its theme.
 function resetColors() {
-  chrome.storage.sync.remove(['hlLeft', 'hlRight']);
-  HL_SIDES.forEach((side) => {
-    const id = side === 'left' ? 'hlLeft' : 'hlRight';
-    $(id).value = HL_DEFAULTS[ghMode][side];
-    $(id + 'Hex').value = HL_DEFAULTS[ghMode][side];
+  HL_SLOTS.forEach((slot) => {
+    const id = hlKey(slot);
+    $(id).value = HL_DEFAULTS[ghMode][slot];
+    $(id + 'Hex').value = HL_DEFAULTS[ghMode][slot];
   });
   updatePreview();
+  // The pickers now sit on the defaults, so save() clears the stored set for us.
+  save(false);
 }
 
 document.addEventListener('DOMContentLoaded', () => {
   applyTheme(document.documentElement.dataset.theme); // sync the button's label/state
   load();
-  $('save').addEventListener('click', save);
   $('reset').addEventListener('click', resetColors);
-  $('blinkSpeed').addEventListener('input', updateSpeed);
   $('themeToggle').addEventListener('click', () => {
     setTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark', true);
+  });
+
+  // Discrete choices commit immediately; typed and dragged ones debounce.
+  $('triggerAuto').addEventListener('change', () => save(false));
+  document.querySelectorAll('input[name="panelView"]').forEach((radio) => {
+    radio.addEventListener('change', () => save(false));
+  });
+  $('blinkSpeed').addEventListener('input', () => {
+    updateSpeed();
+    scheduleSave();
+  });
+  // The colour pickers already repaint the preview on input (see bindColor); the
+  // save rides along on the same events rather than a second listener each.
+  HL_SLOTS.forEach((slot) => {
+    const id = hlKey(slot);
+    $(id).addEventListener('input', scheduleSave);
+    $(id + 'Hex').addEventListener('change', () => save(false));
+  });
+  ['baseurl', 'token', 'timeout'].forEach((id) => {
+    $(id).addEventListener('input', scheduleSave);
+    $(id).addEventListener('change', () => {
+      clearTimeout(saveTimer);
+      save(true); // blur/Enter: also normalise the timeout field
+    });
+  });
+
+  // Closing the tab, or switching away from it, is not a cancel.
+  window.addEventListener('beforeunload', flushSave);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') flushSave();
   });
 });

@@ -11,6 +11,14 @@ window.RMX.overlay = (function () {
   const FLASH = 'rmx-flash';
   const SEL = 'rmx-sel'; // neon "selected refactoring" highlight, both sides
   const ON = 'rmx-on'; // blink "on" phase — the darker-yellow fill is visible
+  // A selected line the refactoring only REACHES rather than changes — a call
+  // site left behind by an Extract, a statement that mentions a renamed
+  // variable. content.js classifies these from RefactoringMiner's own location
+  // description (see isAccentLocation); this class is how the line then takes
+  // the accent fill instead of its side's, and how the edge chips know to leave
+  // it out of their totals. Set per selection, not per paint: which indices are
+  // lit decides whether a line is reached-by or changed (see applySelection).
+  const ACC = 'rmx-acc';
 
   // Blink colours are user-configurable (options page → chrome.storage.sync) and
   // come as two pairs: one for when GitHub itself is in light mode, one for dark.
@@ -26,17 +34,31 @@ window.RMX.overlay = (function () {
   // each pair the two fills are matched in luminance to within 0.002, so neither
   // side visually dominates.
   //
-  // `left`/`right` are the fills; `leftA`/`rightA` are the hand-picked
-  // outline+stripe accents used while a side stays at its default. A custom
-  // colour derives its accent from the fill instead (see accentFor) — away from
-  // the page background, so it stays visible in either GitHub mode.
+  // `accent` is the THIRD fill, for the lines a refactoring only reaches (see
+  // ACC above). It is not a side, so it does not join the left/right pairing:
+  // its hue sits at ~283°, in the wide gap between amber and azure and clear of
+  // the reds GitHub's removed-line background occupies, and it is matched to the
+  // SAME luminance as the pair it sits among (within 0.002 of their mean) so a
+  // call site never looks louder than the change that produced it.
+  //
+  // `left`/`right`/`accent` are the fills; `leftA`/`rightA`/`accentA` are the
+  // hand-picked outline+stripe accents used while a colour stays at its default.
+  // A custom colour derives its accent from the fill instead (see accentFor) —
+  // away from the page background, so it stays visible in either GitHub mode.
   //
   // Contrast against GitHub's syntax palette, worst token (its comment grey):
-  // 3.6:1 for all four fills; against default code text, 12.5:1 light / 9.3:1 dark.
+  // 3.6:1 for all six fills; against default code text, 12.5:1 light / 9.3:1 dark
+  // (the accent fills: 12.4:1 and 9.3:1).
   // Keep in sync with the table mirrored in options.js.
   const HL_DEFAULTS = {
-    light: { left: '#ffe1a8', leftA: '#9a6700', right: '#d1e7fd', rightA: '#0969da' },
-    dark: { left: '#4b3a0f', leftA: '#d4a72c', right: '#143d69', rightA: '#58a6ff' },
+    light: {
+      left: '#ffe1a8', leftA: '#9a6700', right: '#d1e7fd', rightA: '#0969da',
+      accent: '#f5dbff', accentA: '#a626d4',
+    },
+    dark: {
+      left: '#4b3a0f', leftA: '#d4a72c', right: '#143d69', rightA: '#58a6ff',
+      accent: '#532c66', accentA: '#cf8ef0',
+    },
   };
 
   // The pair that used to be the default for both themes. The old options page
@@ -70,12 +92,88 @@ window.RMX.overlay = (function () {
     return '#' + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
   }
 
+  // --- segment colour -------------------------------------------------------
+  // Clicking a code element in a description highlights just that element's
+  // characters, inside a line whose whole background is already the side's fill.
+  // So the segment takes the fill's OPPOSITE: its complementary hue (180° away),
+  // pushed hard in the opposite lightness direction as well. In GitHub's light
+  // theme the fills are pale and the code is dark, so the segment goes deep and
+  // its text goes white; in the dark theme it is the other way round. Between
+  // the hue flip and the lightness flip there is no mistaking the element for
+  // the line it sits in.
+  function hexToHsl(hex) {
+    const m = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(hex || '');
+    if (!m) return null;
+    let h = m[1];
+    if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+    const n = parseInt(h, 16);
+    const r = ((n >> 16) & 255) / 255;
+    const g = ((n >> 8) & 255) / 255;
+    const b = (n & 255) / 255;
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    const l = (max + min) / 2;
+    if (max === min) return { h: 0, s: 0, l };
+    const d = max - min;
+    const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    let hue;
+    if (max === r) hue = ((g - b) / d + (g < b ? 6 : 0)) / 6;
+    else if (max === g) hue = ((b - r) / d + 2) / 6;
+    else hue = ((r - g) / d + 4) / 6;
+    return { h: hue * 360, s, l };
+  }
+
+  function hslToHex(h, s, l) {
+    const hh = (((h % 360) + 360) % 360) / 360;
+    const f = (p, q, t) => {
+      if (t < 0) t += 1;
+      if (t > 1) t -= 1;
+      if (t < 1 / 6) return p + (q - p) * 6 * t;
+      if (t < 1 / 2) return q;
+      if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+      return p;
+    };
+    let r, g, b;
+    if (s === 0) {
+      r = g = b = l;
+    } else {
+      const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+      const p = 2 * l - q;
+      r = f(p, q, hh + 1 / 3);
+      g = f(p, q, hh);
+      b = f(p, q, hh - 1 / 3);
+    }
+    const to = (v) => Math.round(Math.max(0, Math.min(1, v)) * 255);
+    return '#' + ((1 << 24) + (to(r) << 16) + (to(g) << 8) + to(b)).toString(16).slice(1);
+  }
+
+  // The segment fill + its text colour, opposite the given line fill.
+  function segmentFor(fill, mode) {
+    const hsl = hexToHsl(fill);
+    // A colour we can't read (or a grey, which has no opposite hue) still needs a
+    // segment that stands out, so fall back to the theme's strongest contrast.
+    if (!hsl || hsl.s < 0.08) {
+      return mode === 'dark'
+        ? { bg: '#e6edf3', fg: '#0d1117' }
+        : { bg: '#1f2328', fg: '#ffffff' };
+    }
+    const sat = Math.max(0.55, Math.min(0.85, hsl.s + 0.35));
+    // Lightness mirrors across the midpoint and is then driven to the end the
+    // fill is not at, so the segment can never sit at the fill's own brightness.
+    const light = mode === 'dark' ? 0.72 : 0.34;
+    return {
+      bg: hslToHex(hsl.h + 180, sat, light),
+      fg: mode === 'dark' ? '#0d1117' : '#ffffff',
+    };
+  }
+
   // Outline/stripe shade for a fill. Defaults keep their hand-picked accent; a
   // custom colour is pushed away from the page background so the outline reads
-  // against both the fill and the canvas around it.
-  function accentFor(fill, mode, side) {
+  // against both the fill and the canvas around it. `slot` is 'left', 'right',
+  // or 'accent'.
+  function accentFor(fill, mode, slot) {
     const d = HL_DEFAULTS[mode];
-    if (String(fill).toLowerCase() === d[side]) return side === 'left' ? d.leftA : d.rightA;
+    if (String(fill).toLowerCase() === d[slot]) return d[slot + 'A'];
     return shift(fill, mode === 'dark' ? 0.5 : -0.4);
   }
 
@@ -127,11 +225,13 @@ window.RMX.overlay = (function () {
 
   // The user's own colour if they picked one, else the default for whichever
   // theme GitHub is in. A chosen colour is a deliberate override and applies in
-  // both themes; only the untouched default follows GitHub.
-  function fillFor(mode, side) {
-    const chosen = hlStored[side === 'left' ? 'hlLeft' : 'hlRight'];
-    if (chosen && chosen.toLowerCase() !== HL_LEGACY[side]) return chosen;
-    return HL_DEFAULTS[mode][side];
+  // both themes; only the untouched default follows GitHub. `slot` is 'left',
+  // 'right', or 'accent' — the accent has no legacy value to discount, since it
+  // never existed before the old options page stopped writing colours out.
+  function fillFor(mode, slot) {
+    const chosen = hlStored[HL_KEY_BY_SLOT[slot]];
+    if (chosen && chosen.toLowerCase() !== HL_LEGACY[slot]) return chosen;
+    return HL_DEFAULTS[mode][slot];
   }
 
   // Record which theme GitHub turned out to be in, so the options page can show
@@ -150,18 +250,32 @@ window.RMX.overlay = (function () {
     recordMode(mode);
     const left = fillFor(mode, 'left');
     const right = fillFor(mode, 'right');
+    const accent = fillFor(mode, 'accent');
     const leftA = accentFor(left, mode, 'left');
     const rightA = accentFor(right, mode, 'right');
+    const accentA = accentFor(accent, mode, 'accent');
     const root = document.documentElement.style;
     root.setProperty('--rmx-left', left);
     root.setProperty('--rmx-left-d', leftA);
     root.setProperty('--rmx-right', right);
     root.setProperty('--rmx-right-d', rightA);
+    root.setProperty('--rmx-accent', accent);
+    root.setProperty('--rmx-accent-d', accentA);
     // The peek popover is always dark, so whichever of the two is the lighter
     // one in this mode is what shows up on it: the pale fill in GitHub light
     // mode, the bright accent in GitHub dark mode.
     root.setProperty('--rmx-left-tip', mode === 'dark' ? leftA : left);
     root.setProperty('--rmx-right-tip', mode === 'dark' ? rightA : right);
+    root.setProperty('--rmx-accent-tip', mode === 'dark' ? accentA : accent);
+    const segL = segmentFor(left, mode);
+    const segR = segmentFor(right, mode);
+    const segA = segmentFor(accent, mode);
+    root.setProperty('--rmx-left-seg', segL.bg);
+    root.setProperty('--rmx-left-seg-fg', segL.fg);
+    root.setProperty('--rmx-right-seg', segR.bg);
+    root.setProperty('--rmx-right-seg-fg', segR.fg);
+    root.setProperty('--rmx-accent-seg', segA.bg);
+    root.setProperty('--rmx-accent-seg-fg', segA.fg);
   }
 
   // Re-pick the palette when GitHub's theme changes under us: its own switcher
@@ -189,10 +303,33 @@ window.RMX.overlay = (function () {
     if (changed && selectedIndices.length) resyncPulse();
   }
 
+  // How much of the report panel the reader wants on screen, and with it how much
+  // of each refactoring's RefactoringMiner record is shown. One setting drives
+  // both, because they're the same question: the panel is only as big as the
+  // detail it has to carry.
+  //
+  //   compact  — the pinned bottom-left card. Type + element summary per row;
+  //              the description opens on demand. The original panel.
+  //   expanded — the same card, elongated along the bottom, with each
+  //              refactoring's full description on the row itself.
+  //   detailed — a full-width bottom dock: description plus every code element
+  //              RefactoringMiner reported for the refactoring, and a checkbox
+  //              per refactoring type to filter the list down to one kind.
+  //
+  // Stored as `panelView` by the options page. Keep in sync with options.js.
+  const PANEL_VIEWS = ['compact', 'expanded', 'detailed'];
+  const PANEL_VIEW_DEFAULT = 'compact';
+  let panelView = PANEL_VIEW_DEFAULT;
+
+  function normView(v) {
+    return PANEL_VIEWS.indexOf(v) === -1 ? PANEL_VIEW_DEFAULT : v;
+  }
+
   // Pull the stored blink colours and speed (falling back to defaults) and mirror
   // them onto :root, then keep them in sync so edits in the options page recolour
   // or re-time any open diff live. The onChanged listener is installed once per page.
-  const HL_KEYS = ['hlLeft', 'hlRight'];
+  const HL_KEY_BY_SLOT = { left: 'hlLeft', right: 'hlRight', accent: 'hlAccent' };
+  const HL_KEYS = ['hlLeft', 'hlRight', 'hlAccent'];
 
   function loadPrefs() {
     watchGithubTheme();
@@ -200,16 +337,17 @@ window.RMX.overlay = (function () {
     const store =
       typeof chrome !== 'undefined' && chrome.storage && chrome.storage.sync;
     if (!store) return applyBlinkSpeed(BLINK_SPEED_DEFAULT);
-    store.get(HL_KEYS.concat('blinkSpeed'), (r) => {
+    store.get(HL_KEYS.concat(['blinkSpeed', 'panelView']), (r) => {
       hlStored = r || {};
       applyColors();
       applyBlinkSpeed(hlStored.blinkSpeed);
+      setPanelView(hlStored.panelView);
     });
     if (chrome.storage.onChanged && !window.__rmxColorWatch) {
       window.__rmxColorWatch = true;
       chrome.storage.onChanged.addListener((changes, area) => {
         if (area !== 'sync') return;
-        if (changes.blinkSpeed || HL_KEYS.some((k) => changes[k])) loadPrefs();
+        if (changes.blinkSpeed || changes.panelView || HL_KEYS.some((k) => changes[k])) loadPrefs();
       });
     }
   }
@@ -224,14 +362,36 @@ window.RMX.overlay = (function () {
       .${CLASS}.${SEL}[data-rmx-side="L"].${ON}{background:var(--rmx-left,#ffe1a8) !important;}
       .${CLASS}.${SEL}[data-rmx-side="R"]{box-shadow:inset 3px 0 0 var(--rmx-right-d,#0969da),0 0 0 2px var(--rmx-right-d,#0969da) !important;transition:background-color var(--rmx-blink-fade,2s) ease-in-out;}
       .${CLASS}.${SEL}[data-rmx-side="R"].${ON}{background:var(--rmx-right,#d1e7fd) !important;}
+      /* A line the selection only REACHES takes the accent instead of its side's
+         colour — same outline and blink, one hue that says "this is where the
+         change is felt, not where it is". The attribute selector is here only to
+         out-specify the two side rules above, which it must win against on every
+         cell it applies to; it matches whatever side the line is on. */
+      .${CLASS}.${SEL}.${ACC}[data-rmx-side]{box-shadow:inset 3px 0 0 var(--rmx-accent-d,#a626d4),0 0 0 2px var(--rmx-accent-d,#a626d4) !important;}
+      .${CLASS}.${SEL}.${ACC}[data-rmx-side].${ON}{background:var(--rmx-accent,#f5dbff) !important;}
       .${TIP}{position:absolute;z-index:2147483647;max-width:460px;white-space:pre-wrap;
         background:#1f2328;color:#fff;padding:6px 9px;border-radius:6px;pointer-events:none;
         font:12px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;opacity:0;transition:opacity .08s;}
       .${FLASH}{animation:rmx-flash 1.1s ease-out 2;}
       @keyframes rmx-flash{0%,100%{filter:none;}50%{filter:brightness(1.45);}}
 
+      /* The clicked code element, painted over the characters themselves rather
+         than the row. Its fill is the complement of the side's line fill (see
+         segmentFor), and it carries its own text colour because it is deliberately
+         far enough from the canvas that GitHub's syntax colours would not survive
+         on it. Highlights sit above the line's background and below its text, so
+         the two never fight. */
+      ::highlight(${SEG_L}){background-color:var(--rmx-left-seg,#0b4f8a);color:var(--rmx-left-seg-fg,#fff);}
+      ::highlight(${SEG_R}){background-color:var(--rmx-right-seg,#8a4a0b);color:var(--rmx-right-seg-fg,#fff);}
+      /* Same rule on an accent line: the complement is taken from the accent
+         fill, since that is the colour the element is actually sitting on. */
+      ::highlight(${SEG_A}){background-color:var(--rmx-accent-seg,#3d8a0b);color:var(--rmx-accent-seg-fg,#fff);}
+
       /* Peek popover body (extends .rmx-tip): a live glance at the counterpart. */
       .rmx-tip-title{font-weight:600;}
+      /* Which refactoring reaches a call site / reference — secondary to the
+         description above it, which is what the reader hovered to find out. */
+      .rmx-tip-owner{margin-top:3px;opacity:.75;}
       .rmx-tip-code{margin-top:6px;padding:6px 8px;border-radius:5px;background:rgba(255,255,255,.09);
         font:11px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;display:flex;flex-direction:column;gap:1px;}
       /* The peek popover is dark whatever mode GitHub is in, so it needs its own
@@ -266,7 +426,7 @@ window.RMX.overlay = (function () {
          refactoring's off-screen lines. Fixed size — they can't stack up. */
       .rmx-edge{position:fixed;left:0;right:14px;z-index:2147483599;display:flex;justify-content:center;pointer-events:none;}
       #rmx-edge-top-wrap{top:48px;}
-      #rmx-edge-bot-wrap{bottom:16px;}
+      #rmx-edge-bot-wrap{bottom:calc(16px + var(--rmx-dock-h,0px));}
       .rmx-edge-chip{display:none;pointer-events:auto;align-items:center;gap:6px;
         padding:4px 10px;border-radius:999px;background:var(--bgColor-default,#fff);color:var(--fgColor-default,#1f2328);
         border:1px solid var(--borderColor-default,#d0d7de);box-shadow:0 4px 14px rgba(31,35,40,.18);
@@ -281,7 +441,10 @@ window.RMX.overlay = (function () {
 
       /* Minimap: a slim right-edge rail with one tick per refactoring and a
          viewport thumb — the always-on overview of where the changes are. */
-      #rmx-minimap{position:fixed;top:44px;right:0;bottom:12px;width:12px;z-index:2147483598;display:none;
+      /* --rmx-dock-h is the height the detailed panel occupies along the bottom
+         (0 in every other view), so the rail and the bottom edge chip sit above
+         the dock instead of underneath it. */
+      #rmx-minimap{position:fixed;top:44px;right:0;bottom:calc(12px + var(--rmx-dock-h,0px));width:12px;z-index:2147483598;display:none;
         background:var(--bgColor-muted,#f6f8fa);border-left:1px solid var(--borderColor-muted,#d8dee4);
         transition:width .12s;}
       #rmx-minimap.rmx-show{display:block;}
@@ -324,8 +487,10 @@ window.RMX.overlay = (function () {
       #rmx-report .rmx-rp-row{display:flex;align-items:flex-start;gap:6px;padding:6px 11px;}
       #rmx-report .rmx-rp-main{flex:1;min-width:0;cursor:pointer;}
       #rmx-report .rmx-rp-type{font-weight:600;}
-      /* Collapsed rows show only the type; the summary joins the detail card the
-         moment the row is opened (by a title click or the explain caret). */
+      /* Compact only: a shut row shows just the type, and the summary joins the
+         detail card the moment the row is opened (by a title click or the
+         explain caret). The richer levels print the real description on the row
+         instead, build no disclosure, and hide the summary outright. */
       #rmx-report .rmx-rp-sum{display:none;color:var(--fgColor-muted,#656d76);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
       #rmx-report .rmx-rp-item.rmx-open .rmx-rp-sum{display:block;margin-top:1px;white-space:normal;overflow:visible;overflow-wrap:anywhere;}
       #rmx-report .rmx-rp-info{flex:0 0 auto;margin-top:1px;width:20px;height:20px;padding:0;cursor:pointer;
@@ -343,28 +508,154 @@ window.RMX.overlay = (function () {
       #rmx-report .rmx-rp-descline{line-height:1.45;overflow-wrap:anywhere;}
       #rmx-report .rmx-rp-rel{color:var(--fgColor-muted,#656d76);}
       #rmx-report .rmx-rp-codeel{font:11.5px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--fgColor-default,#1f2328);}
+      /* A code element RefactoringMiner linked to its own line. Monospace like
+         any other code element, but accented and underlined so it reads as the
+         thing you can click — clicking reveals that line rather than navigating. */
+      #rmx-report .rmx-rp-link{font:11.5px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;
+        color:var(--fgColor-accent,#0969da);text-decoration:underline;
+        text-decoration-color:var(--borderColor-accent-muted,rgba(9,105,218,.4));
+        text-underline-offset:2px;cursor:pointer;overflow-wrap:anywhere;border-radius:3px;}
+      #rmx-report .rmx-rp-link:hover{text-decoration-color:currentColor;
+        background:var(--bgColor-accent-muted,rgba(9,105,218,.1));}
+      #rmx-report .rmx-rp-link:focus-visible{outline:2px solid var(--fgColor-accent,#0969da);outline-offset:1px;}
       #rmx-report .rmx-rp-msg{padding:10px 11px;color:var(--fgColor-muted,#656d76);display:flex;align-items:center;gap:8px;}
       #rmx-report .rmx-rp-err{color:var(--fgColor-danger,#cf222e);}
       #rmx-report .rmx-rp-spinner{width:12px;height:12px;flex:0 0 auto;border-radius:50%;
         border:2px solid var(--borderColor-default,#d0d7de);border-top-color:var(--fgColor-accent,#0969da);
         animation:rmx-spin .8s linear infinite;}
       @keyframes rmx-spin{to{transform:rotate(360deg);}}
+
+      /* --- the three detail levels ---------------------------------------
+         Every row is built with all three levels' content in it; these rules
+         decide what is on show and how much room the panel takes to show it.
+         The base rules above ARE the compact level, so it needs no overrides. */
+
+      /* Content that only the richer levels reveal, hidden by default. */
+      #rmx-report .rmx-rp-full{display:none;}
+      #rmx-report .rmx-rp-files{display:none;}
+      #rmx-report .rmx-rp-locs{display:none;}
+      #rmx-report .rmx-rp-num{display:none;}
+      #rmx-report .rmx-rp-filter{display:none;}
+
+      /* The refactoring's whole RefactoringMiner sentence, on the row itself.
+         Unclamped: the levels that show it have no disclosure to open, so a
+         truncated description would have nowhere to finish. A long one makes its
+         row taller and the list scrolls. */
+      /* No display property here: that stays with the level rules below, so this
+         rule can style the block without un-hiding it in the compact level. */
+      #rmx-report .rmx-rp-full{margin-top:3px;color:var(--fgColor-muted,#656d76);line-height:1.5;
+        overflow-wrap:anywhere;}
+      /* File chips: where the refactoring landed, which the compact row has no
+         room for and which is the first thing you want on a multi-file PR. */
+      #rmx-report .rmx-rp-files{margin-top:4px;flex-wrap:wrap;gap:4px;}
+      #rmx-report .rmx-rp-file{padding:1px 6px;border-radius:999px;max-width:100%;
+        background:var(--bgColor-neutral-muted,rgba(140,149,159,.15));color:var(--fgColor-muted,#656d76);
+        font:10.5px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;
+        overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+
+      /* Elongated: same pinned card, stretched along the bottom edge, with each
+         row carrying its full description instead of hiding it behind a caret. */
+      #rmx-report.rmx-v-expanded{width:min(760px,58vw);max-width:58vw;}
+      #rmx-report.rmx-v-expanded .rmx-rp-body{max-height:34vh;}
+      #rmx-report.rmx-v-expanded .rmx-rp-row{padding:8px 12px;}
+      #rmx-report.rmx-v-expanded .rmx-rp-full{display:block;}
+      #rmx-report.rmx-v-expanded .rmx-rp-files{display:flex;}
+      /* The element summary is the compact level's stand-in for the description;
+         with the real sentence on the row it would just say it again. */
+      #rmx-report.rmx-v-expanded .rmx-rp-sum{display:none !important;}
+
+      /* Detailed: a dock across the whole bottom of the page — the level that
+         trades the diff's bottom third for the complete record. Rows become
+         cards in a grid so the width is actually used rather than leaving one
+         narrow column against a wide empty strip. */
+      #rmx-report.rmx-v-detailed{left:0;right:0;bottom:0;width:auto;max-width:none;
+        height:var(--rmx-dock-h,34vh);display:flex;flex-direction:column;
+        border-radius:0;border-left:0;border-right:0;border-bottom:0;
+        box-shadow:0 -6px 22px rgba(31,35,40,.22);}
+      #rmx-report.rmx-v-detailed.rmx-collapsed{height:auto;}
+      /* grid-auto-rows must be min-content: the dock has a definite height, and
+         with auto rows the cards get squeezed into equal shares of it (each one
+         clipped to a single line) instead of taking the height they need and
+         letting the dock scroll. */
+      #rmx-report.rmx-v-detailed .rmx-rp-body{flex:1;max-height:none;min-height:0;
+        display:grid;grid-template-columns:repeat(auto-fill,minmax(420px,1fr));
+        grid-auto-rows:min-content;align-content:start;gap:8px;padding:10px;
+        background:var(--bgColor-muted,#f6f8fa);}
+      #rmx-report.rmx-v-detailed .rmx-rp-item{border:1px solid var(--borderColor-muted,#d8dee4);
+        border-radius:8px;background:var(--bgColor-default,#fff);overflow:hidden;}
+      #rmx-report.rmx-v-detailed .rmx-rp-item:last-child{border:1px solid var(--borderColor-muted,#d8dee4);}
+      #rmx-report.rmx-v-detailed .rmx-rp-msg{grid-column:1/-1;background:var(--bgColor-default,#fff);}
+      #rmx-report.rmx-v-detailed .rmx-rp-full{display:block;}
+      #rmx-report.rmx-v-detailed .rmx-rp-files{display:flex;}
+      #rmx-report.rmx-v-detailed .rmx-rp-locs{display:block;}
+      #rmx-report.rmx-v-detailed .rmx-rp-num{display:inline;color:var(--fgColor-muted,#656d76);
+        font-variant-numeric:tabular-nums;font-weight:400;margin-right:5px;}
+      #rmx-report.rmx-v-detailed .rmx-rp-sum{display:none !important;}
+      #rmx-report.rmx-v-detailed .rmx-rp-filter{display:flex;}
+      /* The dock spans the page, so its own header does too — but the title and
+         the collapse caret belong at the two ends, not floating mid-width. */
+      #rmx-report.rmx-v-detailed .rmx-rp-head{padding:8px 14px;}
+
+      /* Per-location table: one line per code element RefactoringMiner named,
+         with the role it plays ("original attribute declaration") — the part of
+         the JSON no other level shows. Clicking one blinks that side. */
+      #rmx-report .rmx-rp-locs{margin:0 11px 8px;border-top:1px solid var(--borderColor-muted,#d8dee4);padding-top:6px;}
+      #rmx-report .rmx-rp-loc{display:flex;align-items:baseline;gap:7px;padding:3px 0;cursor:pointer;border-radius:5px;}
+      #rmx-report .rmx-rp-loc:hover{background:var(--bgColor-muted,#f6f8fa);}
+      #rmx-report .rmx-rp-loc-side{flex:0 0 auto;width:15px;height:15px;border-radius:4px;
+        display:flex;align-items:center;justify-content:center;
+        font:9.5px/1 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-weight:700;
+        /* The badge takes the side accent, which is dark in GitHub's light theme
+           and bright in its dark one — so the glyph takes the canvas colour and
+           stays legible on both instead of being pinned to white. */
+        color:var(--bgColor-default,#fff);}
+      #rmx-report .rmx-rp-loc-side.rmx-rp-L{background:var(--rmx-left-d,#9a6700);}
+      #rmx-report .rmx-rp-loc-side.rmx-rp-R{background:var(--rmx-right-d,#0969da);}
+      #rmx-report .rmx-rp-loc-body{flex:1;min-width:0;}
+      #rmx-report .rmx-rp-loc-el{font:11.5px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;
+        color:var(--fgColor-default,#1f2328);overflow-wrap:anywhere;}
+      #rmx-report .rmx-rp-loc-meta{color:var(--fgColor-muted,#656d76);font-size:11px;line-height:1.45;overflow-wrap:anywhere;}
+      #rmx-report .rmx-rp-loc-kind{font-variant:small-caps;letter-spacing:.02em;}
+
+      /* Type filter: one checkbox per refactoring type present, plus an "all"
+         master, so 26 refactorings of 16 kinds can be narrowed to the one kind
+         being reviewed. Sits under the header, above the list. */
+      #rmx-report .rmx-rp-filter{flex-wrap:wrap;gap:5px;padding:8px 14px;
+        border-bottom:1px solid var(--borderColor-muted,#d8dee4);background:var(--bgColor-muted,#f6f8fa);
+        max-height:22vh;overflow-y:auto;}
+      #rmx-report .rmx-rp-chk{display:inline-flex;align-items:center;gap:5px;cursor:pointer;user-select:none;
+        padding:2px 8px 2px 6px;border-radius:999px;border:1px solid var(--borderColor-default,#d0d7de);
+        background:var(--bgColor-default,#fff);font-size:11.5px;line-height:1.6;}
+      #rmx-report .rmx-rp-chk:hover{border-color:var(--fgColor-muted,#656d76);}
+      #rmx-report .rmx-rp-chk input{margin:0;cursor:pointer;}
+      #rmx-report .rmx-rp-chk-n{color:var(--fgColor-muted,#656d76);font-variant-numeric:tabular-nums;}
+      #rmx-report .rmx-rp-chk-all{font-weight:600;}
+
+      /* Collapsing wins over every level. The base collapse rules match on the
+         same specificity as the level rules above and lose on source order, so
+         they are restated here with the level in the selector. */
+      #rmx-report.rmx-v-detailed.rmx-collapsed .rmx-rp-body,
+      #rmx-report.rmx-v-detailed.rmx-collapsed .rmx-rp-filter{display:none;}
     `;
     document.head.appendChild(s);
   }
 
   function clearCell(el) {
-    el.classList.remove(CLASS, FLASH, SEL, ON);
+    el.classList.remove(CLASS, FLASH, SEL, ON, ACC);
     el.removeAttribute('data-rmx-desc');
     el.removeAttribute('data-rmx-index');
     el.removeAttribute('data-rmx-side');
     el.removeAttribute('data-rmx-file');
+    el.removeAttribute('data-rmx-reached');
+    el.removeAttribute('data-rmx-role');
+    el.removeAttribute('data-rmx-inert');
   }
 
   function clearAll() {
     document.querySelectorAll('.' + CLASS).forEach(clearCell);
     cellsByIndex = new Map();
     selCells = [];
+    clearSegment();
     cachedHost = null; // the diff (and its scroll container) is being rebuilt
   }
 
@@ -518,6 +809,18 @@ window.RMX.overlay = (function () {
     if (list.indexOf(cell) === -1) list.push(cell);
   }
 
+  // Write an attribute, or remove it when the value is empty — the diff recycles
+  // its DOM nodes, so a cell that no longer earns the attribute has to lose it
+  // rather than keep the previous line's. Skips the write when it wouldn't change
+  // anything, since this runs per cell on every scroll repaint.
+  function setOrDrop(cell, name, value) {
+    if (!value) {
+      if (cell.hasAttribute(name)) cell.removeAttribute(name);
+    } else if (cell.getAttribute(name) !== value) {
+      cell.setAttribute(name, value);
+    }
+  }
+
   // Tag every mounted cell the plan covers, and untag every cell it no longer
   // does. The /changes diff virtualizes rows: React *recycles* a DOM node to
   // render a different line as you scroll, rewriting the text/anchor it manages
@@ -566,12 +869,43 @@ window.RMX.overlay = (function () {
       }
       const indices = [];
       const descs = [];
+      // Which of those indices only REACH this line. Per index, not per cell: one
+      // line can be a call site of refactoring A and changed code of B, and it has
+      // to answer differently depending on which of them is selected. A line that
+      // any non-accent contribution of an index covers is changed code for that
+      // index — being part of the change wins over being reached by it.
+      const reached = new Set();
+      // RefactoringMiner's words for what the reached-by locations ARE
+      // ("extracted method invocation"), which is all the hover on such a line
+      // has to show — see peekHtml. Kept as "<index> <description>" rather than
+      // a bare list: the hover is scoped to whichever refactoring is active, and
+      // one line can be reached by two of them with different wording (the left
+      // side says "the original variable" where the right says "the renamed"),
+      // so the text has to stay attached to the refactoring it came from.
+      const roles = [];
       contribs.forEach((c) => {
         if (indices.indexOf(c.index) === -1) indices.push(c.index);
         if (descs.indexOf(c.summary) === -1) descs.push(c.summary);
+        if (!c.accent) return;
+        reached.add(c.index);
+        const role = c.role && c.index + ' ' + c.role;
+        if (role && roles.indexOf(role) === -1) roles.push(role);
       });
+      // Separate pass so the rule doesn't depend on the order the contributions
+      // happen to arrive in: any plain contribution clears the flag, whether it
+      // came before or after the accent one.
+      contribs.forEach((c) => { if (!c.accent) reached.delete(c.index); });
       const indexAttr = indices.join(' ');
       const descAttr = descs.join('\n');
+      const reachedAttr = indices.filter((i) => reached.has(i)).join(' ');
+      // A line NO selected refactoring can claim as its own changed code. Nothing
+      // useful can happen when it is clicked — there is no counterpart to pair it
+      // with and no change to centre on — so it is marked inert here, once, and
+      // the click handler and the hover both read the mark (see installTooltip).
+      // Derived rather than recomputed at click time because it is a property of
+      // the line, not of what happens to be selected.
+      const inert = reachedAttr === indexAttr;
+      const roleAttr = roles.join('\n');
       group.cells.forEach((cell) => {
         touched.add(cell);
         cell.classList.add(CLASS);
@@ -579,6 +913,11 @@ window.RMX.overlay = (function () {
         if (entry.filePath) cell.setAttribute('data-rmx-file', entry.filePath);
         if (cell.getAttribute('data-rmx-desc') !== descAttr) cell.setAttribute('data-rmx-desc', descAttr);
         if (cell.getAttribute('data-rmx-index') !== indexAttr) cell.setAttribute('data-rmx-index', indexAttr);
+        // Absent rather than empty on the ordinary line, so these attributes
+        // exist only where they have something to say.
+        setOrDrop(cell, 'data-rmx-reached', reachedAttr);
+        setOrDrop(cell, 'data-rmx-role', roleAttr);
+        setOrDrop(cell, 'data-rmx-inert', inert ? '1' : '');
         indices.forEach((i) => indexCell(nextByIndex, i, cell));
       });
       tagged++;
@@ -626,12 +965,13 @@ window.RMX.overlay = (function () {
   // click into a long burst of unfold requests.
   const MAX_REVEALS_PER_FILE = 12;
 
-  // The location a selection should land on: the first target of the first
-  // index. content.js emits the right ("after") side first, which is where a
-  // reader wants to be taken.
+  // The location a selection should land on: the first CHANGED target of the
+  // first index (see leadTarget — a call site is somewhere the refactoring is
+  // felt, not somewhere it happened, so it isn't where a reader wants to arrive).
+  // content.js emits the right ("after") side first, which is the side they want.
   function primaryTarget(indices) {
     for (let k = 0; k < indices.length; k++) {
-      const t = targetsFor(indices[k])[0];
+      const t = leadTarget(indices[k]);
       if (t) return t;
     }
     return null;
@@ -694,11 +1034,34 @@ window.RMX.overlay = (function () {
     return blinkPeriod ? Math.min(BLINK_FAST_MS, halfPeriod()) : BLINK_FAST_MS;
   }
 
+  // Is this lit line merely REACHED BY every refactoring lighting it, rather than
+  // changed by any of them? paintAll records the answer per index
+  // (data-rmx-reached); the selection decides it per cell, because a line reached
+  // by A can still be changed code in B, and with both selected it is the change
+  // that should show. So: accent only when every selected index that tagged this
+  // cell lists it as reached.
+  // The refactorings that only reach this line, as paintAll recorded them.
+  function reachedIndicesOf(el) {
+    const reached = el.getAttribute('data-rmx-reached');
+    return reached ? reached.split(' ') : [];
+  }
+
+  function isReachedOnly(el) {
+    const set = reachedIndicesOf(el);
+    if (!set.length) return false;
+    const mine = (el.getAttribute('data-rmx-index') || '').split(' ');
+    // Restricted to the indices actually lit: an unselected refactoring's claim
+    // on the line says nothing about how this selection should paint it.
+    const lit = mine.filter((i) => selectedIndices.indexOf(i) !== -1);
+    return lit.length > 0 && lit.every((i) => set.indexOf(i) !== -1);
+  }
+
   // Marks every cell of the selected refactoring(s) and sets its fill to the
   // current blink phase. Additive + idempotent, so scroll re-paints just sync
   // newly mounted cells to the current phase. SEL keeps the outline always;
-  // ON (the fill) is what blinks. During the attention phase transitions are
-  // suppressed so the fast blink is a crisp binary flash.
+  // ON (the fill) is what blinks, ACC swaps the colour it blinks in. During the
+  // attention phase transitions are suppressed so the fast blink is a crisp
+  // binary flash.
   function applySelection() {
     const seen = new Set();
     selectedIndices.forEach((i) => {
@@ -707,18 +1070,199 @@ window.RMX.overlay = (function () {
         seen.add(el);
         el.classList.add(SEL);
         el.classList.toggle(ON, blinkOn);
+        el.classList.toggle(ACC, isReachedOnly(el));
         el.style.transitionDuration = inAttentionPhase ? '0s' : '';
       });
     });
     selCells = Array.from(seen);
+    // Re-resolved here rather than painted once, so the element survives the
+    // virtualized diff unmounting and recycling its row while you scroll.
+    applySegment();
     // With no selection, a repaint only needs the viewport-relative refresh (a
     // tick that just became measurable); a live selection re-syncs everything.
     schedulePins(selectedIndices.length > 0);
   }
 
+  // --- code-element segment -------------------------------------------------
+  // A click on a code element in a description highlights that element's exact
+  // characters, not the whole diff row: the row already carries the selection
+  // fill, and painting the two the same way would say nothing about which part
+  // of the line the description was pointing at.
+  //
+  // Painted with the CSS Custom Highlight API rather than by wrapping the
+  // characters in a span. GitHub renders a line as a run of syntax-coloured
+  // elements and an element rarely lines up with them, so a wrapper would mean
+  // splitting GitHub's own nodes — inside a diff that recycles those nodes as it
+  // scrolls. A Highlight paints over whatever is there, crosses element
+  // boundaries by itself, and can recolour the text (which is what keeps the
+  // code readable on a deep segment fill).
+  const SEG_L = 'rmx-seg-l';
+  const SEG_R = 'rmx-seg-r';
+  const SEG_A = 'rmx-seg-a'; // on a reached-by line, whose fill is the accent
+  // At most one is ever registered — the others are cleared on every repaint, so
+  // a segment that moves between lines of different colours can't leave the old
+  // highlight behind.
+  const SEG_NAMES = [SEG_L, SEG_R, SEG_A];
+  // The element the selection is pointing at, kept so a repaint can re-resolve
+  // it: the virtualized diff unmounts and recycles rows, which leaves a stored
+  // Range pointing at nodes that now show a different line.
+  let segment = null;
+
+  function highlightsSupported() {
+    return typeof CSS !== 'undefined' && CSS.highlights && typeof Highlight === 'function';
+  }
+
+  function clearSegment() {
+    segment = null;
+    if (!highlightsSupported()) return;
+    SEG_NAMES.forEach((n) => CSS.highlights.delete(n));
+  }
+
+  // The cell of a line that holds the source text, as opposed to its numbering
+  // twin. Same rule codeOf uses: the widest run of text that isn't the number.
+  function codeCell(cells, line) {
+    let best = null;
+    let bestLen = 0;
+    (cells || []).forEach((c) => {
+      if (!c || !c.isConnected) return;
+      const t = (c.textContent || '').trim();
+      if (!t || t === String(line)) return;
+      if (t.length > bestLen) {
+        bestLen = t.length;
+        best = c;
+      }
+    });
+    return best;
+  }
+
+  // How many characters of a cell's text sit before the source line proper.
+  // GitHub's diffs disagree: some render the +/-/space marker into the cell text
+  // ahead of the indentation, others keep it out of the text entirely — and a
+  // space marker in front of an indented line is indistinguishable from the
+  // indentation itself. So the guess (the same rule the peek popover uses) is
+  // checked against the columns and overruled when the other offset lines up
+  // better: the element's first character must be non-blank and must follow a
+  // blank, and a single-line element's last character must be non-blank too.
+  // Getting this wrong slides the highlight by one character.
+  function markerWidth(text, loc) {
+    const guess = /^[+\- ](?=\s)/.test(text) ? 1 : 0;
+    const blank = (c) => c === undefined || /\s/.test(c);
+    const score = (off) => {
+      let s = 0;
+      const a = off + Math.max(1, loc.startColumn || 1) - 1;
+      if (text[a] && /\S/.test(text[a])) s++;
+      if (a > 0 && blank(text[a - 1])) s++;
+      if (loc.startLine === loc.endLine && loc.endColumn > loc.startColumn) {
+        const b = off + loc.endColumn - 2;
+        if (text[b] && /\S/.test(text[b])) s++;
+      }
+      return s;
+    };
+    const alt = guess === 1 ? 0 : 1;
+    return score(guess) >= score(alt) ? guess : alt;
+  }
+
+  // Character offsets within a cell's text for the part of `loc` that falls on
+  // `line`, or null when the element covers none of it. Columns are 1-based over
+  // the SOURCE line, so the marker width above is added back on.
+  //
+  // Only a single-line element has a meaningful end column: RefactoringMiner's
+  // multi-line ranges are declaration ranges whose end overshoots (the same
+  // overshoot content.js trims when planning the paint), so a multi-line element
+  // is highlighted from its start column to the end of that line — which is the
+  // signature, or the `if (…)` clause, and is what the description names.
+  function segmentOffsets(text, loc, line) {
+    const marker = markerWidth(text, loc);
+    const len = text.length;
+    const from = (col) => Math.max(0, Math.min(len, marker + Math.max(1, col || 1) - 1));
+    const single = loc.startLine === loc.endLine;
+    let start;
+    let end;
+    if (line === loc.startLine) {
+      start = from(loc.startColumn);
+      end = single && loc.endColumn > loc.startColumn ? from(loc.endColumn) : len;
+    } else if (line === loc.endLine) {
+      start = marker;
+      end = from(loc.endColumn);
+    } else if (line > loc.startLine && line < loc.endLine) {
+      start = marker;
+      end = len;
+    } else {
+      return null;
+    }
+    // Trailing whitespace in the cell would paint a bar off the end of the code.
+    while (end > start && /\s/.test(text[end - 1])) end--;
+    while (start < end && /\s/.test(text[start])) start++;
+    return end > start ? { start, end } : null;
+  }
+
+  // A DOM Range over [start, end) characters of an element's rendered text,
+  // walking its text nodes so the range can span GitHub's syntax elements.
+  function rangeOverText(root, start, end) {
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    let seen = 0;
+    let sNode = null;
+    let sOff = 0;
+    let eNode = null;
+    let eOff = 0;
+    let n;
+    while ((n = walker.nextNode())) {
+      const len = n.nodeValue.length;
+      if (!sNode && seen + len > start) {
+        sNode = n;
+        sOff = start - seen;
+      }
+      if (sNode && seen + len >= end) {
+        eNode = n;
+        eOff = end - seen;
+        break;
+      }
+      seen += len;
+    }
+    if (!sNode || !eNode) return null;
+    const range = document.createRange();
+    try {
+      range.setStart(sNode, sOff);
+      range.setEnd(eNode, eOff);
+    } catch (_) {
+      return null; // offsets slid out from under us mid-recycle
+    }
+    return range;
+  }
+
+  // Paint (or repaint) the stored element. Safe to call on every repaint: it
+  // re-resolves the cell and range from scratch, and quietly drops the highlight
+  // while the line is scrolled out of the virtualized diff.
+  function applySegment() {
+    if (!segment || !highlightsSupported()) return;
+    const cells = RMX.github.lineCells(segment.digest, segment.side, segment.line);
+    const cell = codeCell(cells, segment.line);
+    // Which of the three complements to paint in is decided by the LINE, not by
+    // the segment: the element has to stand out from whatever fill it is sitting
+    // on, and on a reached-by line that fill is the accent. Resolved here on
+    // every repaint rather than stored, because the same line can change colour
+    // when the selection does (see isReachedOnly).
+    const name = cell && cell.classList.contains(ACC)
+      ? SEG_A
+      : (segment.side === 'L' ? SEG_L : SEG_R);
+    SEG_NAMES.forEach((n) => { if (n !== name) CSS.highlights.delete(n); });
+    if (!cell) return void CSS.highlights.delete(name);
+    const offsets = segmentOffsets(cell.textContent || '', segment.loc, segment.line);
+    const range = offsets && rangeOverText(cell, offsets.start, offsets.end);
+    if (!range) return void CSS.highlights.delete(name);
+    CSS.highlights.set(name, new Highlight(range));
+  }
+
+  // Remember which element to paint, then paint it.
+  function setSegment(digest, side, line, loc) {
+    if (!loc || !highlightsSupported()) return clearSegment();
+    segment = { digest, side: side === 'L' ? 'L' : 'R', line, loc };
+    applySegment();
+  }
+
   function removeSelectionClasses() {
     document.querySelectorAll('.' + SEL).forEach((el) => {
-      el.classList.remove(SEL, ON);
+      el.classList.remove(SEL, ON, ACC);
       el.style.transitionDuration = '';
     });
     selCells = [];
@@ -770,6 +1314,10 @@ window.RMX.overlay = (function () {
   }
 
   async function select(indices) {
+    // Any element highlight belongs to the previous click, not this selection.
+    // Cleared here rather than in each caller so a cell click, a deep link and
+    // the navigator all drop it; focusTarget sets the new one afterwards.
+    clearSegment();
     // Load/expand a collapsed file and unfold every hidden line of this
     // refactoring first, then re-tag what that mounted, so the blink below
     // covers the whole refactoring rather than just the parts GitHub had shown.
@@ -811,6 +1359,7 @@ window.RMX.overlay = (function () {
     inAttentionPhase = false;
     selectedIndices = [];
     blinkOn = false;
+    clearSegment();
     removeSelectionClasses();
     stackCollapsed.top = false;
     stackCollapsed.bottom = false;
@@ -835,10 +1384,20 @@ window.RMX.overlay = (function () {
   const stackCollapsed = { top: false, bottom: false }; // retained: clearSelection() still resets it
   let refreshRaf = null;
 
+  // The target a jump should land on: the first one that is part of the change
+  // itself, falling back to the list's head when a refactoring somehow reports
+  // nothing but reached-by lines. Everything that navigates to a refactoring
+  // rather than through it goes through here, so the minimap tick, the navigator
+  // swatch and the selection scroll all agree on where it "is".
+  function leadTarget(index) {
+    const list = targetsFor(index);
+    return list.find((t) => !t.accent) || list[0] || null;
+  }
+
   // Which side a refactoring mainly lives on, for its accent colour — the "after"
   // (right) side by default, since that's where extracted/renamed code lands.
   function refSide(index) {
-    const t = targetsFor(index)[0];
+    const t = leadTarget(index);
     return t && t.side === 'L' ? 'L' : 'R';
   }
   // Small solid marks (nav swatch, edge-chip dot) sit on canvas-coloured chrome,
@@ -1145,6 +1704,13 @@ window.RMX.overlay = (function () {
     const vh = window.innerHeight || document.documentElement.clientHeight;
     const above = [], below = [];
     distinctSelected().forEach((cell) => {
+      // Reached-by lines are deliberately not counted and not jumped to. The
+      // chips answer "how much of this refactoring is off screen, and take me
+      // there" — a call site is neither: counting it inflates the number past
+      // what the refactoring actually changed, and a jump aimed at one lands the
+      // reader somewhere the change isn't. They stay painted in the accent
+      // colour, so the reach is still visible once you're looking at it.
+      if (cell.classList.contains(ACC)) return;
       const r = cell.getBoundingClientRect();
       if (!r.height) return; // unmounted by virtualization
       if (r.bottom <= TOP_ZONE) above.push(cell);
@@ -1266,15 +1832,116 @@ window.RMX.overlay = (function () {
     await RMX.github.revealLine(t.digest, t.side, t.line, t.filePath);
     if (repaint) await repaint();
     applySelection();
-    return mountedCells(index)[0] || null;
+    return landingCell(index);
+  }
+
+  // The mounted line to LAND on for a refactoring. mountedCells is in document
+  // order, so its head is whichever of the refactoring's lines sits highest on
+  // the page — and for an Extract that is routinely the call site left behind
+  // above the extracted method, so "go to this refactoring" used to open on the
+  // invocation rather than on the change. Skip the lines this refactoring only
+  // reaches; fall back to them only if it has nothing else mounted, since some
+  // line is better than none.
+  function landingCell(index) {
+    const cells = mountedCells(index);
+    const key = String(index);
+    return cells.find((c) => reachedIndicesOf(c).indexOf(key) === -1) || cells[0] || null;
   }
 
   // Focus one refactoring by feed index: reveal its file, blink it, and bring a
   // mounted line into view. Shared by the report rows, navigator, and minimap.
   async function focus(index) {
     await select([String(index)]);
-    const cell = mountedCells(index)[0] || (await revealPrimary(index));
+    const cell = landingCell(index) || (await revealPrimary(index));
     if (cell) scrollToCell(cell);
+  }
+
+  // Focus one *location* of a refactoring: same blink, but land on the side (and,
+  // where it's one of the lines we actually tag, the line) the caller names
+  // rather than on the refactoring's default landing spot. Used by the detailed
+  // panel's per-location rows, where the whole point is that you picked which end
+  // of a Move you wanted to look at.
+  //
+  // The line may not be one we can land on: content.js trims RefactoringMiner's
+  // ranges before tagging them (an enclosing declaration contributes its header
+  // line, not its body), so fall back to any line of that side, then to the
+  // refactoring as a whole.
+  async function focusAt(index, side, line, loc) {
+    return focusTarget(index, null, side, line, loc);
+  }
+
+  // Follow one of RefactoringMiner's markup links: its fragment is
+  // `#diff-<sha256(path)><L|R><line>`, the same key the diff gives its line
+  // cells, so the href alone says exactly which line to land on. `label` is the
+  // link's own text, which is the code element's name — it tells two locations
+  // reported on the same line apart.
+  async function focusAnchor(index, href, label) {
+    const m = /diff-([0-9a-f]{64})([LR])(\d+)/.exec(href || '');
+    if (!m) return focus(index);
+    const side = m[2];
+    const line = parseInt(m[3], 10);
+    return focusTarget(index, m[1], side, line, locationAt(index, side, line, label));
+  }
+
+  // Which reported location a markup link names, so its columns can bound the
+  // highlight. Matched on the line the link points at; where a line carries more
+  // than one location (a method declaration and the conditional inside it can
+  // both start there) the link's text picks between them.
+  function locationAt(index, side, line, label) {
+    const locs = (locsByIndex[String(index)] || []).filter(
+      (l) => l.side === side && (l.startLine === line || (l.startLine < line && l.endLine >= line)),
+    );
+    if (!locs.length) return null;
+    const named = label && locs.find((l) => l.codeElement === label);
+    // Prefer an exact start on this line over a range merely passing through it.
+    return named || locs.find((l) => l.startLine === line) || locs[0];
+  }
+
+  // Land on one line of a refactoring. `digest` narrows to a file when the
+  // caller knows one (a markup link does; a location row leaves it null and the
+  // side alone picks).
+  //
+  // The named line may not be one the diff tagged — content.js trims
+  // RefactoringMiner's ranges before painting, so an enclosing declaration
+  // contributes only its header line — hence the reveal falls back to the raw
+  // digest+line, and the scroll uses the cells revealLine itself resolved rather
+  // than looking for a tagged one.
+  // `loc` is the reported location the caller is pointing at, when it knows one:
+  // its columns bound the element highlight painted on the landing line.
+  async function focusTarget(index, digest, side, line, loc) {
+    await select([String(index)]);
+    const wanted = side === 'L' ? 'L' : 'R';
+    let pool = targetsFor(index).filter((t) => t.side === wanted);
+    if (digest) {
+      const sameFile = pool.filter((t) => t.digest === digest);
+      if (sameFile.length) pool = sameFile;
+    }
+    const t =
+      pool.find((x) => x.line === line) ||
+      (digest ? { digest, side: wanted, line, filePath: filePathFor(index, digest) } : pool[0]);
+    if (!t) return focus(index);
+
+    const revealed = await RMX.github.revealLine(t.digest, t.side, t.line, t.filePath);
+    if (repaint) await repaint();
+    // Set before applySelection so the line fill and the element land together.
+    setSegment(t.digest, t.side, line, loc);
+    applySelection();
+    const onSide = mountedCells(index, wanted);
+    const cell =
+      (revealed && revealed[0]) ||
+      onSide.find((c) => lineNum(c) === t.line) ||
+      onSide[0];
+    if (cell) scrollToCell(cell);
+    else await focus(index);
+  }
+
+  // The path a digest stands for, if any of this refactoring's targets names it
+  // (a digest is sha256 of the path, so either side's target will do). revealLine
+  // only needs it for a file collapsed behind "Viewed", which renders no rows to
+  // identify itself by.
+  function filePathFor(index, digest) {
+    const hit = targetsFor(index).find((t) => t.digest === digest && t.filePath);
+    return hit ? hit.filePath : '';
   }
 
   // Populate the navigator + minimap from the report rows (feed order). Called by
@@ -1321,6 +1988,43 @@ window.RMX.overlay = (function () {
     }
   }
 
+  // The hover for a reached-by line. Deliberately the short form: what this line
+  // IS, in RefactoringMiner's own words ("extracted method invocation",
+  // "statement referencing the renamed variable"), and which refactoring it
+  // belongs to. None of the counterpart machinery the peek below runs applies —
+  // a call site has no other side to glance at, and the line can't be clicked, so
+  // a "click to jump" hint would be a lie. This tooltip is all such a line does.
+  function reachedHtml(cell, indices) {
+    // Only the descriptions belonging to the refactorings this peek is about —
+    // see the encoding in paintAll.
+    const roles = [];
+    (cell.getAttribute('data-rmx-role') || '').split('\n').filter(Boolean).forEach((entry) => {
+      const cut = entry.indexOf(' ');
+      if (cut === -1 || indices.indexOf(entry.slice(0, cut)) === -1) return;
+      const text = entry.slice(cut + 1);
+      if (roles.indexOf(text) === -1) roles.push(text);
+    });
+    const html = roles
+      .map((r) => '<div class="rmx-tip-title">' + escapeHtml(sentence(r)) + '</div>')
+      .join('') ||
+      '<div class="rmx-tip-title">Referenced by this refactoring</div>';
+    // Which refactoring reaches it, under the description — the same summary the
+    // report row and the navigator use for it.
+    const owners = indices
+      .map((i) => descByIndex[i])
+      .filter(Boolean)
+      .map((d) => '<div class="rmx-tip-owner">' + escapeHtml(d) + '</div>')
+      .join('');
+    return html + owners;
+  }
+
+  // Capitalise the first letter. RefactoringMiner's location descriptions are
+  // mid-sentence fragments; as a tooltip's first line they read as a title.
+  function sentence(s) {
+    const t = String(s || '');
+    return t ? t.charAt(0).toUpperCase() + t.slice(1) : t;
+  }
+
   // Hover peek: the refactoring's summary, plus a live glance at its counterpart
   // on the other side — the actual code lines when they're mounted, or a jump
   // hint when they've scrolled off / sit in a collapsed file.
@@ -1335,6 +2039,18 @@ window.RMX.overlay = (function () {
     // the peek to just that refactoring; otherwise show every one the line joins.
     const active = cellIndices.filter((i) => selectedIndices.indexOf(i) !== -1);
     const indices = active.length ? active : cellIndices;
+    // The reached-by form wins when every refactoring THIS PEEK IS ABOUT merely
+    // reaches the line — which is the same scoping the colour uses, so the hover
+    // and the fill always agree. It matters on a line that is a reference for one
+    // refactoring and changed code for another sitting just below it: with the
+    // first selected the line is accent-filled and reads as a reference; with the
+    // second selected it is that refactoring's own line and gets the full peek.
+    // With nothing selected the scope is every index on the line, so this reduces
+    // to the paint-time inert case.
+    const reached = reachedIndicesOf(cell);
+    if (reached.length && indices.every((i) => reached.indexOf(i) !== -1)) {
+      return reachedHtml(cell, indices);
+    }
     // One title row per shown refactoring, using its own summary (data-rmx-desc
     // dedups them into one blob, so use the per-index map instead).
     let html = indices
@@ -1426,7 +2142,18 @@ window.RMX.overlay = (function () {
       }
       const idxAttr = cell.getAttribute('data-rmx-index');
       if (!idxAttr) return;
-      const indices = idxAttr.split(' ');
+      // A reached-by line is not clickable. It carries no counterpart to pair
+      // with — a call site has no "other side" — and taking the reader somewhere
+      // on the strength of one would move them away from the change they were
+      // looking at. It stays hoverable, which is the whole of what it offers.
+      // Returning (rather than falling through to clearSelection) means clicking
+      // one is a no-op, not a way to lose the selection you already had.
+      if (cell.hasAttribute('data-rmx-inert')) return;
+      // On a line that is a call site of one refactoring and changed code of
+      // another, the click acts only on the ones it genuinely belongs to.
+      const reached = reachedIndicesOf(cell);
+      const indices = idxAttr.split(' ').filter((i) => reached.indexOf(i) === -1);
+      if (!indices.length) return;
       // await so a counterpart in a collapsed file is revealed before we scroll.
       await select(indices);
       scrollToCounterpart(cell, indices);
@@ -1440,7 +2167,7 @@ window.RMX.overlay = (function () {
 
   // Scroll to and flash a refactoring by its feed index (for ?rm= deep links).
   function scrollToRefactoring(index) {
-    const cell = mountedCells(index)[0];
+    const cell = landingCell(index);
     if (!cell) return false;
     scrollToCell(cell);
     cell.classList.add(FLASH);
@@ -1448,11 +2175,18 @@ window.RMX.overlay = (function () {
     return true;
   }
 
-  // --- refactorings report panel (bottom-left) ----------------------------
+  // --- refactorings report panel ------------------------------------------
   // A collapsible list of every refactoring the current view carries — a stand-in
   // for the action's PR comment, and the only listing available on commit pages.
   // Clicking a row selects (blinks) that refactoring and scrolls to it. Shown in
   // both PR and commit views.
+  //
+  // It renders at one of three detail levels (see PANEL_VIEWS): the pinned
+  // bottom-left card, the same card elongated with full descriptions, or a
+  // full-width bottom dock that also lists every code element and offers a
+  // per-type filter. The level only changes what the panel shows — never what
+  // was analysed or what is tagged in the diff — so switching is a re-render of
+  // the rows already in hand.
   let reportEl = null;
 
   function ensureReport() {
@@ -1460,21 +2194,63 @@ window.RMX.overlay = (function () {
     ensureStyle();
     reportEl = document.createElement('div');
     reportEl.id = 'rmx-report';
+    reportEl.className = 'rmx-v-' + panelView;
     const head = document.createElement('div');
     head.className = 'rmx-rp-head';
     head.innerHTML = '<span class="rmx-rp-title">Refactorings</span><span class="rmx-rp-caret">▾</span>';
-    head.addEventListener('click', () => reportEl.classList.toggle('rmx-collapsed'));
+    head.addEventListener('click', () => {
+      reportEl.classList.toggle('rmx-collapsed');
+      applyDockHeight(); // a collapsed dock stops reserving the bottom strip
+    });
+    const filter = document.createElement('div');
+    filter.className = 'rmx-rp-filter';
     const body = document.createElement('div');
     body.className = 'rmx-rp-body';
     reportEl.appendChild(head);
+    reportEl.appendChild(filter);
     reportEl.appendChild(body);
     document.body.appendChild(reportEl);
+    applyDockHeight();
     return reportEl;
   }
 
-  function reportTitle(n) {
-    ensureReport().querySelector('.rmx-rp-title').textContent =
-      typeof n === 'number' ? `Refactorings (${n})` : 'Refactorings';
+  // Only the detailed dock reserves space along the bottom edge; the minimap and
+  // the bottom edge chip read this so they clear it. A collapsed dock is just its
+  // header, which is short enough to sit under them.
+  const DOCK_HEIGHT = '34vh';
+  function applyDockHeight() {
+    const docked =
+      panelView === 'detailed' && reportEl && !reportEl.classList.contains('rmx-collapsed');
+    document.documentElement.style.setProperty('--rmx-dock-h', docked ? DOCK_HEIGHT : '0px');
+  }
+
+  // Adopt a detail level. Re-renders from the rows already held, so a change in
+  // the options page re-draws an open diff without re-analysing it.
+  function setPanelView(view) {
+    const next = normView(view);
+    if (next === panelView && reportEl) return;
+    const wasDetailed = panelView === 'detailed';
+    panelView = next;
+    // The type filter is part of the detailed level and its checkboxes go with
+    // it, so leaving that level clears it — otherwise the reader lands in a
+    // smaller panel showing a fraction of the refactorings with no visible
+    // reason and no control to undo it.
+    if (wasDetailed && next !== 'detailed') hiddenTypes = new Set();
+    if (!reportEl) return;
+    PANEL_VIEWS.forEach((v) => reportEl.classList.toggle('rmx-v-' + v, v === next));
+    applyDockHeight();
+    if (lastRows) showReport(lastRows);
+  }
+
+  // `n` is how many rows are on show, `total` how many the page carries. They
+  // differ only when the detailed level's type filter is hiding some, and saying
+  // so is what stops a filtered list from reading as a shorter analysis.
+  function reportTitle(n, total) {
+    const label =
+      typeof n !== 'number' ? 'Refactorings'
+        : typeof total === 'number' && total !== n ? `Refactorings (${n} of ${total})`
+          : `Refactorings (${n})`;
+    ensureReport().querySelector('.rmx-rp-title').textContent = label;
   }
   function reportBody() {
     const body = ensureReport().querySelector('.rmx-rp-body');
@@ -1491,6 +2267,7 @@ window.RMX.overlay = (function () {
     spin.className = 'rmx-rp-spinner';
     msg.appendChild(spin);
     msg.appendChild(document.createTextNode(label || 'Analysing commit…'));
+    reportFilter().textContent = '';
     reportBody().appendChild(msg);
   }
 
@@ -1499,14 +2276,31 @@ window.RMX.overlay = (function () {
     const msg = document.createElement('div');
     msg.className = 'rmx-rp-msg rmx-rp-err';
     msg.textContent = message || 'Could not load refactorings.';
+    reportFilter().textContent = '';
     reportBody().appendChild(msg);
+  }
+
+  function reportFilter() {
+    return ensureReport().querySelector('.rmx-rp-filter');
   }
 
   // Report rows are expandable: the row body reveals/blinks the refactoring, and
   // an inline disclosure opens a card with RefactoringMiner's description for it,
   // formatted into one clause per line.
-  let rpItems = {};      // feed index (string) -> item element, for current-row sync
-  let rpOpenItem = null; // single-open accordion
+  let rpItems = {};    // feed index (string) -> item element, for current-row sync
+  // The compact level's open explanation cards. Usually one — opening a row
+  // closes the last — but a click in the DIFF selects every refactoring reported
+  // on that line, and all of them open together, since the reason you clicked a
+  // line carrying three is to find out what the three are.
+  let rpOpenItems = [];
+  // feed index (string) -> the refactoring's reported locations, so a click on a
+  // code element can find the columns that bound it (see locationAt).
+  let locsByIndex = {};
+  let lastRows = null;   // the rows showReport last drew, so a level change can redraw
+  // Types the reader has switched OFF in the detailed level's filter. Held as the
+  // hidden set rather than the shown one so a fresh page (or a type that only
+  // appears after a re-analysis) starts visible.
+  let hiddenTypes = new Set();
 
   // Connective phrases RefactoringMiner uses to join a description's clauses.
   // Splitting on them turns its run-on sentence into one relation per line
@@ -1537,9 +2331,152 @@ window.RMX.overlay = (function () {
     });
   }
 
+  // --- RefactoringMiner markup ----------------------------------------------
+  // Alongside the plain description, RefactoringMiner hands us the same sentence
+  // as markdown with every code element linked to the exact line it sits on:
+  //
+  //   **Rename Attribute** [_full_name](…#diff-<digest>L3) to
+  //   [_display_name](…#diff-<digest>R6) in class `customer_profile.CustomerProfile`
+  //
+  // That is strictly better than picking the elements out of the prose: the
+  // element boundaries are marked, and each one carries its own line. So when a
+  // row has markup the panel renders from it, and clicking an element reveals
+  // and blinks THAT line rather than the refactoring's default landing spot.
+  // Rows without it (an older feed) keep the prose path below.
+
+  // `**bold**`, `[text](url)`, `` `code` `` — the only three markdown forms
+  // RefactoringMiner emits. Everything between matches is literal text.
+  const MD_TOKEN = /\*\*([^*]+)\*\*|\[([^\]]*)\]\(([^)]*)\)|`([^`]+)`/g;
+
+  function markupTokens(markup) {
+    const src = (markup || '').replace(/\s+/g, ' ').trim();
+    const out = [];
+    if (!src) return out;
+    let at = 0;
+    let m;
+    MD_TOKEN.lastIndex = 0;
+    while ((m = MD_TOKEN.exec(src))) {
+      if (m.index > at) out.push({ kind: 'text', text: src.slice(at, m.index) });
+      if (m[1] !== undefined) out.push({ kind: 'bold', text: m[1] });
+      else if (m[2] !== undefined) out.push({ kind: 'link', text: m[2], href: m[3] });
+      else out.push({ kind: 'code', text: m[4] });
+      at = m.index + m[0].length;
+    }
+    if (at < src.length) out.push({ kind: 'text', text: src.slice(at) });
+    return out;
+  }
+
+  // One linked code element. A plain left-click is ours — reveal the line in
+  // place, which is the whole point and something a navigation cannot do on a
+  // virtualized or folded diff. Modified clicks (new tab, new window, download)
+  // are left to the browser, which is why this stays a real <a href>.
+  function markupLink(token, index) {
+    const a = document.createElement('a');
+    a.className = 'rmx-rp-link';
+    a.textContent = token.text;
+    a.href = token.href || '';
+    a.title = 'Go to this code element';
+    a.addEventListener('click', (e) => {
+      // Stopped for every click, modified or not: the row's own handler would
+      // otherwise jump to the refactoring's default landing spot behind a click
+      // that asked for one specific line — or for a new tab.
+      e.stopPropagation();
+      if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      e.preventDefault();
+      focusAnchor(index, a.getAttribute('href'), token.text);
+    });
+    return a;
+  }
+
+  function markupNode(token, index) {
+    if (token.kind === 'link') return markupLink(token, index);
+    if (token.kind === 'bold') {
+      const b = document.createElement('b');
+      b.textContent = token.text;
+      return b;
+    }
+    if (token.kind === 'code') {
+      const c = document.createElement('span');
+      c.className = 'rmx-rp-codeel';
+      c.textContent = token.text;
+      return c;
+    }
+    return document.createTextNode(token.text);
+  }
+
+  // The sentence as one flowing line, for the row itself.
+  function renderMarkupInline(tokens, index) {
+    const frag = document.createDocumentFragment();
+    tokens.forEach((t) => frag.appendChild(markupNode(t, index)));
+    return frag;
+  }
+
+  // The same tokens broken one relation per line for the explanation card, the
+  // way describeClauses breaks the prose — except the split happens between
+  // tokens, so a linked element is never cut in half. Only the literal text
+  // carries the connectives, so only text tokens are ever split.
+  const CONNECTOR_RE = new RegExp(
+    '\\s+(?=(?:' + DESC_CONNECTORS.map((c) => c.replace(/ /g, '\\s+')).join('|') + ')\\s)',
+    'i',
+  );
+
+  function markupLines(tokens, type) {
+    const lines = [];
+    let line = [];
+    const push = () => {
+      // Trim the empty edges a split leaves behind before keeping the line.
+      while (line.length && line[0].kind === 'text' && !line[0].text.trim()) line.shift();
+      if (line.length) lines.push(line);
+      line = [];
+    };
+    tokens.forEach((t, i) => {
+      // The row already shows the type in bold; repeating it opens every card
+      // with a line that says nothing new.
+      if (i === 0 && t.kind === 'bold' && type && t.text.trim() === String(type).trim()) return;
+      if (t.kind !== 'text') return void line.push(t);
+      const parts = t.text.split(CONNECTOR_RE);
+      parts.forEach((part, k) => {
+        if (k > 0) push(); // a connective starts a new relation
+        if (part) line.push({ kind: 'text', text: part });
+      });
+    });
+    push();
+    return lines;
+  }
+
+  function renderMarkupCard(row) {
+    const tokens = markupTokens(row.markup);
+    const lines = markupLines(tokens, row.type);
+    const frag = document.createDocumentFragment();
+    if (!lines.length) return frag;
+    const list = document.createElement('div');
+    list.className = 'rmx-rp-desclist';
+    lines.forEach((tks) => {
+      const line = document.createElement('div');
+      line.className = 'rmx-rp-descline';
+      tks.forEach((t, i) => {
+        const node = markupNode(t, row.index);
+        // The leading connective ("in class", "extracted from") is the label of
+        // the relation, so it is greyed the way the prose path greys it.
+        if (i === 0 && t.kind === 'text') {
+          const rel = document.createElement('span');
+          rel.className = 'rmx-rp-rel';
+          rel.textContent = t.text;
+          line.appendChild(rel);
+          return;
+        }
+        line.appendChild(node);
+      });
+      list.appendChild(line);
+    });
+    frag.appendChild(list);
+    return frag;
+  }
+
   // The explanation card body: RefactoringMiner's description for the refactoring,
   // formatted one clause per line (or shown verbatim when it doesn't split).
   function buildDetail(row) {
+    if (row.markup) return renderMarkupCard(row);
     const frag = document.createDocumentFragment();
     const desc = (row.detail || '').replace(/\s+/g, ' ').trim();
     if (!desc) return frag;
@@ -1572,15 +2509,107 @@ window.RMX.overlay = (function () {
     return frag;
   }
 
+  // The files a refactoring touches, as chips. Null when the row carries no
+  // location data (an older caller, or a refactoring with no locations at all).
+  function fileChips(row) {
+    const paths = row.files || [];
+    if (!paths.length) return null;
+    const wrap = document.createElement('div');
+    wrap.className = 'rmx-rp-files';
+    paths.forEach((p) => {
+      const chip = document.createElement('span');
+      chip.className = 'rmx-rp-file';
+      // The basename is what identifies the file at a glance; the full path is
+      // there on hover for the repos where two directories hold the same name.
+      chip.textContent = p.split('/').pop() || p;
+      chip.title = p;
+      wrap.appendChild(chip);
+    });
+    return wrap;
+  }
+
+  // Every code element RefactoringMiner attached to the refactoring, one line
+  // each: the side it's on, its own role in the refactoring ("original attribute
+  // declaration"), the element itself, and where it lives. Clicking a line takes
+  // you to that side specifically, rather than to the refactoring's default
+  // landing spot — the point of listing them separately.
+  function buildLocations(row) {
+    const locs = row.locations || [];
+    if (!locs.length) return null;
+    const wrap = document.createElement('div');
+    wrap.className = 'rmx-rp-locs';
+    locs.forEach((l) => {
+      const line = document.createElement('div');
+      line.className = 'rmx-rp-loc';
+
+      const side = document.createElement('span');
+      side.className = 'rmx-rp-loc-side rmx-rp-' + (l.side === 'L' ? 'L' : 'R');
+      side.textContent = l.side === 'L' ? 'L' : 'R';
+
+      const bodyEl = document.createElement('div');
+      bodyEl.className = 'rmx-rp-loc-body';
+      if (l.codeElement) {
+        const el = document.createElement('div');
+        el.className = 'rmx-rp-loc-el';
+        el.textContent = l.codeElement;
+        bodyEl.appendChild(el);
+      }
+      const meta = document.createElement('div');
+      meta.className = 'rmx-rp-loc-meta';
+      if (l.role) meta.appendChild(document.createTextNode(l.role + ' · '));
+      const kind = document.createElement('span');
+      kind.className = 'rmx-rp-loc-kind';
+      kind.textContent = (l.kind || '').toLowerCase().replace(/_/g, ' ');
+      if (kind.textContent) {
+        meta.appendChild(kind);
+        meta.appendChild(document.createTextNode(' · '));
+      }
+      meta.appendChild(document.createTextNode(locWhere(l)));
+      bodyEl.appendChild(meta);
+
+      line.appendChild(side);
+      line.appendChild(bodyEl);
+      line.title = 'Go to ' + locWhere(l);
+      line.addEventListener('click', (e) => {
+        e.stopPropagation(); // the row's own click would jump to the other side
+        // The location carries its own columns, so this lights up the element
+        // itself on arrival, the same as clicking it in the description.
+        focusAt(row.index, l.side, l.startLine, l);
+      });
+      wrap.appendChild(line);
+    });
+    return wrap;
+  }
+
+  function locWhere(l) {
+    const file = (l.filePath || '').split('/').pop() || l.filePath || '';
+    if (!l.startLine) return file;
+    const lines = l.endLine && l.endLine !== l.startLine ? `${l.startLine}–${l.endLine}` : l.startLine;
+    return `${file}:${lines}`;
+  }
+
+  // Open exactly these cards and close every other one. The single primitive the
+  // three ways of opening a card share, so "one at a time" and "these three at
+  // once" are the same operation with a different list rather than two accordions
+  // that can disagree about what is open.
+  function setOpenDetails(items) {
+    const wanted = items.filter(Boolean);
+    rpOpenItems.forEach((el) => { if (wanted.indexOf(el) === -1) markOpen(el, false); });
+    wanted.forEach((el) => markOpen(el, true));
+    rpOpenItems = wanted;
+  }
+
+  function markOpen(item, open) {
+    item.classList.toggle('rmx-open', open);
+    // Only the compact level builds the disclosure button (see the row builder),
+    // so the richer levels have no aria state to keep in step.
+    const info = item.querySelector('.rmx-rp-info');
+    if (info) info.setAttribute('aria-expanded', String(open));
+  }
+
   function toggleDetail(item, force) {
     const open = force !== undefined ? force : !item.classList.contains('rmx-open');
-    if (rpOpenItem && rpOpenItem !== item) {
-      rpOpenItem.classList.remove('rmx-open');
-      rpOpenItem.querySelector('.rmx-rp-info').setAttribute('aria-expanded', 'false');
-    }
-    item.classList.toggle('rmx-open', open);
-    item.querySelector('.rmx-rp-info').setAttribute('aria-expanded', String(open));
-    rpOpenItem = open ? item : null;
+    setOpenDetails(open ? [item] : []);
   }
 
   // Mark the report row of the current selection, so stepping in the navigator or
@@ -1595,14 +2624,101 @@ window.RMX.overlay = (function () {
     Object.keys(rpItems).forEach((idx) => {
       rpItems[idx].classList.toggle('rmx-rp-cur', selectedIndices.indexOf(idx) !== -1);
     });
+    // Selecting from the diff opens the matching explanation card(s), the same as
+    // clicking the row would — a click on a highlighted line is a question about
+    // what that refactoring IS, and the answer lives behind the caret. In feed
+    // order rather than selection order, so two rows always open the way the list
+    // reads. The richer levels print the description on the row already and build
+    // no card, so there is nothing to open there.
+    if (panelView !== 'compact') return;
+    const open = Object.keys(rpItems)
+      .filter((idx) => selectedIndices.indexOf(idx) !== -1)
+      .sort((a, b) => Number(a) - Number(b))
+      .map((idx) => rpItems[idx]);
+    setOpenDetails(open);
+    if (open.length) revealReportItem(open[0]);
   }
 
-  // `rows`: [{ index, type, summary, detail }].
+  // Scroll the panel's own list — never the page — so a card that just opened is
+  // visible. scrollIntoView would take the document with it, dragging the reader
+  // away from the diff line they just clicked, which is the one thing this must
+  // not do.
+  function revealReportItem(item) {
+    const body = item.parentElement;
+    if (!body || body.scrollHeight <= body.clientHeight) return;
+    const top = item.offsetTop - body.offsetTop;
+    const bottom = top + item.offsetHeight;
+    if (top < body.scrollTop) body.scrollTop = top;
+    else if (bottom > body.scrollTop + body.clientHeight) {
+      // Prefer showing the card's start when it is taller than the list.
+      body.scrollTop = Math.min(top, bottom - body.clientHeight);
+    }
+  }
+
+  // Build the detailed level's type filter: an "all" master plus one checkbox per
+  // refactoring type present, each carrying how many of that type there are.
+  // Filtering is a view concern — it hides rows (and the navigator/minimap entries
+  // that go with them) so you can step through one kind of refactoring at a time.
+  // Nothing is un-analysed and nothing in the diff is un-tagged by it, so a
+  // filtered-out line still lights up if you click it.
+  function buildFilter(rows) {
+    const bar = reportFilter();
+    bar.textContent = '';
+    if (panelView !== 'detailed' || !rows.length) return;
+
+    const counts = new Map();
+    rows.forEach((r) => counts.set(r.type, (counts.get(r.type) || 0) + 1));
+    // Types that vanished with a re-analysis shouldn't stay latched off.
+    hiddenTypes.forEach((t) => { if (!counts.has(t)) hiddenTypes.delete(t); });
+
+    const chip = (label, count, checked, onToggle, extra) => {
+      const wrap = document.createElement('label');
+      wrap.className = 'rmx-rp-chk' + (extra ? ' ' + extra : '');
+      const box = document.createElement('input');
+      box.type = 'checkbox';
+      box.checked = checked;
+      box.addEventListener('change', () => onToggle(box.checked));
+      const text = document.createElement('span');
+      text.textContent = label;
+      const n = document.createElement('span');
+      n.className = 'rmx-rp-chk-n';
+      n.textContent = count;
+      wrap.appendChild(box);
+      wrap.appendChild(text);
+      wrap.appendChild(n);
+      bar.appendChild(wrap);
+      return box;
+    };
+
+    chip('All types', rows.length, hiddenTypes.size === 0, (on) => {
+      hiddenTypes = on ? new Set() : new Set(counts.keys());
+      showReport(rows);
+    }, 'rmx-rp-chk-all');
+
+    Array.from(counts.keys()).forEach((type) => {
+      chip(type, counts.get(type), !hiddenTypes.has(type), (on) => {
+        if (on) hiddenTypes.delete(type);
+        else hiddenTypes.add(type);
+        showReport(rows);
+      });
+    });
+  }
+
+  // `rows`: [{ index, type, summary, detail, description, files, locations }].
+  // The last four are only drawn by the richer levels (see PANEL_VIEWS); a row
+  // without them still renders, so an older caller degrades to the compact list.
   function showReport(rows) {
-    reportTitle(rows.length);
-    setNav(rows); // feed the navigator + minimap the same list (feed order)
+    lastRows = rows;
+    // Keyed off the unfiltered list: a hidden row's line can still be reached
+    // from the diff, and its element should still resolve.
+    locsByIndex = {};
+    rows.forEach((r) => { locsByIndex[String(r.index)] = r.locations || []; });
+    const shown = rows.filter((r) => !hiddenTypes.has(r.type));
+    reportTitle(shown.length, rows.length);
+    setNav(shown); // navigator + minimap follow the filter, in feed order
+    buildFilter(rows);
     rpItems = {};
-    rpOpenItem = null;
+    rpOpenItems = [];
     const body = reportBody();
     if (!rows.length) {
       const msg = document.createElement('div');
@@ -1611,7 +2727,15 @@ window.RMX.overlay = (function () {
       body.appendChild(msg);
       return;
     }
-    rows.forEach((row) => {
+    if (!shown.length) {
+      const msg = document.createElement('div');
+      msg.className = 'rmx-rp-msg';
+      msg.textContent = 'Every refactoring type is filtered out.';
+      body.appendChild(msg);
+      return;
+    }
+    rows = shown;
+    rows.forEach((row, ordinal) => {
       const item = document.createElement('div');
       item.className = 'rmx-rp-item';
 
@@ -1623,34 +2747,60 @@ window.RMX.overlay = (function () {
       main.title = row.summary;
       const type = document.createElement('div');
       type.className = 'rmx-rp-type';
-      type.textContent = row.type;
+      // The dock numbers its cards, so a refactoring can be referred to by
+      // position while the list is filtered down.
+      const num = document.createElement('span');
+      num.className = 'rmx-rp-num';
+      num.textContent = ordinal + 1 + '.';
+      type.appendChild(num);
+      type.appendChild(document.createTextNode(row.type));
       const sum = document.createElement('div');
       sum.className = 'rmx-rp-sum';
       sum.textContent = row.summary;
       main.appendChild(type);
       main.appendChild(sum);
-      // reveal → blink → centre (shared with the navigator and minimap), and
-      // open this row so its summary + explanation appear on the same click.
-      main.addEventListener('click', () => { focus(row.index); toggleDetail(item, true); });
-
-      const info = document.createElement('button');
-      info.className = 'rmx-rp-info';
-      info.type = 'button';
-      info.title = 'Show explanation';
-      info.setAttribute('aria-label', 'Show explanation');
-      info.setAttribute('aria-expanded', 'false');
-      info.innerHTML = '<span class="rmx-rp-info-caret">▾</span>';
-      info.addEventListener('click', (e) => { e.stopPropagation(); toggleDetail(item); });
-
+      // The richer levels put RefactoringMiner's whole sentence on the row. Built
+      // for every level and revealed by CSS, so switching level never rebuilds
+      // the DOM from data the panel might not have.
+      const full = document.createElement('div');
+      full.className = 'rmx-rp-full';
+      if (row.markup) full.appendChild(renderMarkupInline(markupTokens(row.markup), row.index));
+      else full.textContent = row.description || row.detail || '';
+      if (full.textContent) main.appendChild(full);
+      const files = fileChips(row);
+      if (files) main.appendChild(files);
       head.appendChild(main);
-      head.appendChild(info);
-
-      const detail = document.createElement('div');
-      detail.className = 'rmx-rp-detail';
-      detail.appendChild(buildDetail(row));
-
       item.appendChild(head);
-      item.appendChild(detail);
+
+      // The disclosure belongs to the compact level alone. It exists to reach a
+      // description the narrow row has no room for, and the richer levels print
+      // that description on the row itself — a caret there would only open a
+      // second copy of what is already on screen. Built per level rather than
+      // hidden by CSS because a level change re-renders from lastRows anyway.
+      if (panelView === 'compact') {
+        // reveal → blink → centre (shared with the navigator and minimap), and
+        // open this row so its summary + explanation appear on the same click.
+        main.addEventListener('click', () => { focus(row.index); toggleDetail(item, true); });
+
+        const info = document.createElement('button');
+        info.className = 'rmx-rp-info';
+        info.type = 'button';
+        info.title = 'Show explanation';
+        info.setAttribute('aria-label', 'Show explanation');
+        info.setAttribute('aria-expanded', 'false');
+        info.innerHTML = '<span class="rmx-rp-info-caret">▾</span>';
+        info.addEventListener('click', (e) => { e.stopPropagation(); toggleDetail(item); });
+        head.appendChild(info);
+
+        const detail = document.createElement('div');
+        detail.className = 'rmx-rp-detail';
+        detail.appendChild(buildDetail(row));
+        item.appendChild(detail);
+      } else {
+        main.addEventListener('click', () => focus(row.index));
+      }
+      const locs = buildLocations(row);
+      if (locs) item.appendChild(locs);
       body.appendChild(item);
       rpItems[String(row.index)] = item;
     });
@@ -1664,13 +2814,19 @@ window.RMX.overlay = (function () {
       reportEl = null;
     }
     rpItems = {};
-    rpOpenItem = null;
+    rpOpenItems = [];
+    lastRows = null;
+    locsByIndex = {};
+    // The filter describes one page's refactorings, so it doesn't survive to the
+    // next one — a type hidden on this PR shouldn't silently hide rows on another.
+    hiddenTypes = new Set();
+    document.documentElement.style.setProperty('--rmx-dock-h', '0px');
     teardownFocusUI();
   }
 
   return {
     ensureStyle, clearAll, setPlan, paintAll, installTooltip,
     select, applySelection, clearSelection, scrollToRefactoring, setTargets, setRepaint,
-    showReport, reportLoading, reportError, hideReport,
+    showReport, reportLoading, reportError, hideReport, setPanelView,
   };
 })();

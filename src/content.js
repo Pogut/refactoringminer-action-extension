@@ -3,7 +3,23 @@ window.RMX = window.RMX || {};
 // Orchestrator: figure out the page, pick a view adapter, fetch the feed the
 // action published, and paint the overlays. Re-paints on GitHub's soft (Turbo)
 // navigations and as the virtualized diff mounts more rows on scroll.
+//
+// Injected two ways, both narrowed to the diff URLs in the manifest:
+//   • declaratively, when a diff URL is loaded as a DOCUMENT, and
+//   • on demand by the service worker, when GitHub pushState-navigates INTO one
+//     from a page this script doesn't cover (the repo page, the pull list, a
+//     notification). No document loads on those, so nothing would be injected
+//     otherwise — see ensureInjected in service-worker.js.
+// `window.__rmxLoaded` below is what the second path checks to avoid injecting
+// over a copy that is already running.
 (function () {
+  // Both injection paths can land on the same page — the service worker checks
+  // this flag before injecting, but a declarative injection racing an on-demand
+  // one would otherwise start a second copy: two URL pollers, two sets of
+  // listeners, two analyses of the same page. Bail rather than double up.
+  if (window.__rmxLoaded) return;
+  window.__rmxLoaded = true;
+
   const RMX = window.RMX;
   let currentRefactorings = null;
   let autoTrigger = false;
@@ -261,6 +277,16 @@ window.RMX = window.RMX || {};
             summary,
             header,
             trailing: !header && line === range.endLine && line !== range.startLine,
+            // `accent` marks a line that is only REACHED BY the refactoring —
+            // a call site, a statement that mentions the renamed variable —
+            // rather than part of the change itself (see isAccentLocation).
+            // `role` carries RefactoringMiner's own words for what the location
+            // is ("extracted method invocation"), which is the whole content of
+            // the hover on such a line: it can't be clicked, so the tooltip is
+            // the only thing it has to offer. Only set where it's used, so the
+            // plan doesn't carry a string per line for the common case.
+            accent: !!range.accent,
+            role: range.accent ? range.role || '' : '',
           });
         }
       });
@@ -298,7 +324,7 @@ window.RMX = window.RMX || {};
   const HEADER_SCAN_LINES = 8;
 
   // The line ranges one refactoring actually paints on, both sides, as
-  // { digest, side, startLine, endLine, filePath, header }. Single source of
+  // { digest, side, startLine, endLine, filePath, header, accent, role }. Single source of
   // truth for the two things that have to agree about a refactoring's extent:
   // what gets tagged, and what a selection must unfold before it CAN be tagged.
   //
@@ -339,7 +365,13 @@ window.RMX = window.RMX || {};
         }
         const digest = digests[cr.filePath];
         if (!digest) return;
-        ranges.push({ digest, side, startLine, endLine, filePath: cr.filePath, header });
+        const accent = isAccentLocation(cr);
+        ranges.push({
+          digest, side, startLine, endLine, filePath: cr.filePath, header,
+          accent,
+          // The location's own description, kept only where the overlay shows it.
+          role: accent ? cr.description || '' : '',
+        });
       });
     });
     return ranges;
@@ -364,12 +396,27 @@ window.RMX = window.RMX || {};
       effectiveRanges(r, digests).forEach((range) => {
         [range.startLine, range.endLine].forEach((line) => {
           const key = range.digest + range.side + line;
-          if (seen[key]) return;
-          seen[key] = true;
+          const hit = seen[key];
+          // One line can be covered by two ranges of the same refactoring — a
+          // call site sitting inside the code that was extracted. Being part of
+          // the change wins, so a second, non-accent range clears the flag on
+          // the entry the first one made rather than adding a duplicate.
+          if (hit) {
+            if (!range.accent) hit.accent = false;
+            return;
+          }
           // filePath rides along so a file collapsed behind "Viewed" can still
           // be identified: with none of its rows rendered, the path is the only
           // handle GitHub's markup reliably offers.
-          list.push({ digest: range.digest, side: range.side, line, filePath: range.filePath });
+          const entry = {
+            digest: range.digest, side: range.side, line, filePath: range.filePath,
+            // Reached-by lines are still revealed and still light up — they're
+            // how the refactoring's reach is visible — but a jump prefers a line
+            // that IS the change (see primaryTarget in overlay.js).
+            accent: !!range.accent,
+          };
+          seen[key] = entry;
+          list.push(entry);
         });
       });
       if (list.length) targets[index] = list;
@@ -395,6 +442,27 @@ window.RMX = window.RMX || {};
     return d.indexOf('added') !== -1 || d.indexOf('extracted') !== -1;
   }
 
+  // A location the refactoring only REACHES: the call sites an Extract or Inline
+  // leaves behind, and the statements that merely mention a variable that was
+  // renamed or retyped. RefactoringMiner names them in the location's own
+  // `description` — "extracted method invocation", "inlined method invocation",
+  // "statement referencing the renamed variable" (and the original / changed-type
+  // variants) — and that description is the ONLY thing that separates them from
+  // the changed code: their codeElementType and line ranges look identical.
+  //
+  // They earn their own accent colour rather than the side's fill, because they
+  // answer a different question — not "what changed" but "what else this touches"
+  // — and for the same reason they don't count toward the off-screen line totals
+  // the edge chips report (see overlay.js: the accent class, and refreshEdges).
+  //
+  // Substring matching rather than the five literals: RefactoringMiner phrases
+  // these per refactoring type, and a new one worded the same way should be
+  // picked up without a change here.
+  function isAccentLocation(loc) {
+    const d = (loc.description || '').toLowerCase();
+    return d.indexOf('invocation') !== -1 || d.indexOf('referencing') !== -1;
+  }
+
   // Concise one-liner, e.g. "Rename Attribute: _full_name → _display_name".
   function summarize(r) {
     const left = firstCodeElement(r.leftSideLocations);
@@ -410,22 +478,117 @@ window.RMX = window.RMX || {};
     return s.length > 60 ? s.slice(0, 57) + '…' : s;
   }
 
-  // Report rows: the type (shown bold), a type-free element summary, and the
-  // refactoring's full RefactoringMiner description for the expandable detail
-  // card. `index` links a row back to its tagged cells so a click selects/blinks it.
+  // Report rows. One row carries everything any of the panel's three detail
+  // levels needs, so switching level is a re-render of the same data rather than
+  // a re-analysis (see RMX.overlay.setPanelView):
+  //   • `summary`     — type-free element summary, the compact level's one-liner
+  //   • `detail`      — the full RefactoringMiner sentence, split into clauses
+  //                     for the expandable card (every level)
+  //   • `description` — that same sentence verbatim, shown inline on the row
+  //                     from the expanded level up
+  //   • `markup`      — the same sentence as RefactoringMiner's markdown, with
+  //                     every code element carrying a link to the exact line it
+  //                     sits on. Retargeted onto this page (see retargetMarkup).
+  //   • `files`       — the distinct paths the refactoring touches
+  //   • `locations`   — every left/right code element RefactoringMiner reported,
+  //                     with its own per-location description and type. This is
+  //                     the part the compact panel never surfaces; the detailed
+  //                     level lists it in full.
+  // `index` links a row back to its tagged cells so a click selects/blinks it.
   function reportRows(refactorings) {
-    return refactorings.map((r, index) => ({
-      index,
-      type: r.type,
-      summary: elementSummary(r),
-      detail: r.description || '',
-    }));
+    return refactorings.map((r, index) => {
+      const locations = locationRows(r);
+      return {
+        index,
+        type: r.type,
+        summary: elementSummary(r),
+        detail: r.description || '',
+        description: r.description || '',
+        markup: retargetMarkup(r.markup),
+        files: distinctFiles(locations),
+        locations,
+      };
+    });
+  }
+
+  // Point every link in RefactoringMiner's markup at the page it is being shown
+  // on, keeping only the query and the `#diff-<digest><L|R><line>` fragment —
+  // which is the part that identifies the line, and the only part the panel
+  // actually uses.
+  //
+  // The rewrite is needed because the service is called with a single
+  // `commitId`, and an integer means "pull request" while a sha means "commit" —
+  // it cannot tell a standalone commit from a commit that happens to sit inside
+  // a PR, so a sha request always emits regular-commit links:
+  //     …/<owner>/<repo>/commit/<sha>?diff=split#diff-<digest>R591
+  // On a commit-within-a-PR page those point off the page the reader is on.
+  // Rebasing onto the current path rather than swapping `/commit/` for
+  // `/pull/<n>/changes/` also keeps the classic URLs right: GitHub serves the
+  // same diffs at /pull/<n>/files and /pull/<n>/commits/<sha>, and a link should
+  // land back where the reader already is.
+  //
+  // Clicking a link never navigates anyway — the panel intercepts it and reveals
+  // the line in place (RMX.overlay) — but the href is what a middle-click, a
+  // "copy link address", or a failed intercept falls back to, so it has to be
+  // a URL that works.
+  function retargetMarkup(markup) {
+    const text = markup || '';
+    if (!text) return '';
+    const base = window.location.origin + window.location.pathname;
+    return text.replace(/\]\((https?:\/\/[^)\s]+)\)/g, (whole, url) => {
+      let u;
+      try {
+        u = new URL(url);
+      } catch (_) {
+        return whole; // not a URL we can reason about — leave the markup as it came
+      }
+      if (u.hostname !== 'github.com') return whole;
+      return '](' + base + u.search + u.hash + ')';
+    });
   }
   function elementSummary(r) {
     const left = firstCodeElement(r.leftSideLocations);
     const right = firstCodeElement(r.rightSideLocations);
     if (left && right && left !== right) return `${shorten(left)} → ${shorten(right)}`;
     return shorten(right || left || r.description || '');
+  }
+
+  // RefactoringMiner's raw locations, flattened to one list in the order a reader
+  // wants them: the "before" side first, then "after". `side` is the L/R the diff
+  // itself uses, so a location row can be matched back to a tagged cell.
+  function locationRows(r) {
+    const out = [];
+    [['L', r.leftSideLocations], ['R', r.rightSideLocations]].forEach(([side, list]) => {
+      (list || []).forEach((l) => {
+        out.push({
+          side,
+          filePath: l.filePath || '',
+          startLine: l.startLine,
+          endLine: l.endLine,
+          // 1-based columns of the code element within its start/end lines. This
+          // is what lets a click highlight the element itself rather than the
+          // whole diff row (see RMX.overlay segment highlighting).
+          startColumn: l.startColumn,
+          endColumn: l.endColumn,
+          codeElement: l.codeElement || '',
+          // RefactoringMiner's own words for what this location IS within the
+          // refactoring ("original attribute declaration", "extracted method
+          // declaration"), which is the single most useful field the compact
+          // panel throws away.
+          role: l.description || '',
+          kind: l.codeElementType || '',
+        });
+      });
+    });
+    return out;
+  }
+
+  function distinctFiles(locations) {
+    const seen = [];
+    locations.forEach((l) => {
+      if (l.filePath && seen.indexOf(l.filePath) === -1) seen.push(l.filePath);
+    });
+    return seen;
   }
 
   // When the user follows one of the action's PR-comment links, GitHub lands us
@@ -493,15 +656,24 @@ window.RMX = window.RMX || {};
     return true;
   }
 
+  // Watch for the diff mounting more rows (virtualization, unfolds) so they get
+  // tagged too. Re-attached whenever the body it was watching is no longer the
+  // page's: a Turbo visit swaps the whole <body> element out, which leaves the
+  // observer bound to a detached node — still "set", so the old `if (observer)
+  // return;` guard meant it was never rebound and rows mounted after such a
+  // navigation silently stopped being tagged.
+  let observedBody = null;
   function observe() {
-    if (observer) return;
+    if (observer && observedBody === document.body) return;
+    if (observer) observer.disconnect();
     observer = new MutationObserver((mutations) => {
       if (!currentRefactorings) return;
       for (let i = 0; i < mutations.length; i++) {
         if (relevantMutation(mutations[i])) return schedulePaint();
       }
     });
-    observer.observe(document.body, {
+    observedBody = document.body;
+    observer.observe(observedBody, {
       childList: true,
       subtree: true,
       attributes: true,
