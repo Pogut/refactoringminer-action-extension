@@ -2346,23 +2346,84 @@ window.RMX.overlay = (function () {
 
   // `**bold**`, `[text](url)`, `` `code` `` — the only three markdown forms
   // RefactoringMiner emits. Everything between matches is literal text.
-  const MD_TOKEN = /\*\*([^*]+)\*\*|\[([^\]]*)\]\(([^)]*)\)|`([^`]+)`/g;
+  //
+  // Scanned by hand rather than with one regex because the code elements
+  // RefactoringMiner links carry brackets and parentheses of their own —
+  // `[if(!dict_registry[i])](…)` is a real Invert Condition link — and a
+  // `[^\]]*` link text stops at the first inner `]`, which drops the whole
+  // link (URL and all) back to literal text on the row. Both halves are read
+  // with a depth counter instead, so a link ends at ITS closing delimiter.
+
+  // Index of the delimiter matching the `open` at `at`, or -1 if it never
+  // closes. src[at] is assumed to be `open`.
+  function matchDelim(src, at, open, close) {
+    let depth = 0;
+    for (let i = at; i < src.length; i++) {
+      if (src[i] === open) depth++;
+      else if (src[i] === close && --depth === 0) return i;
+    }
+    return -1;
+  }
+
+  // The `[text](url)` starting at `at`, plus where it ends — or null when what
+  // sits there isn't a complete link, in which case the `[` is literal text.
+  function linkAt(src, at) {
+    const textEnd = matchDelim(src, at, '[', ']');
+    if (textEnd === -1 || src[textEnd + 1] !== '(') return null;
+    const hrefEnd = matchDelim(src, textEnd + 1, '(', ')');
+    if (hrefEnd === -1) return null;
+    return {
+      token: {
+        kind: 'link',
+        text: src.slice(at + 1, textEnd),
+        href: src.slice(textEnd + 2, hrefEnd),
+      },
+      next: hrefEnd + 1,
+    };
+  }
 
   function markupTokens(markup) {
     const src = (markup || '').replace(/\s+/g, ' ').trim();
     const out = [];
     if (!src) return out;
-    let at = 0;
-    let m;
-    MD_TOKEN.lastIndex = 0;
-    while ((m = MD_TOKEN.exec(src))) {
-      if (m.index > at) out.push({ kind: 'text', text: src.slice(at, m.index) });
-      if (m[1] !== undefined) out.push({ kind: 'bold', text: m[1] });
-      else if (m[2] !== undefined) out.push({ kind: 'link', text: m[2], href: m[3] });
-      else out.push({ kind: 'code', text: m[4] });
-      at = m.index + m[0].length;
+    let at = 0; // start of the literal run built up since the last token
+    let i = 0;
+    const flush = (upto) => {
+      if (upto > at) out.push({ kind: 'text', text: src.slice(at, upto) });
+    };
+    while (i < src.length) {
+      const ch = src[i];
+      let token = null;
+      let next = 0;
+      if (ch === '[') {
+        const link = linkAt(src, i);
+        if (link) {
+          token = link.token;
+          next = link.next;
+        }
+      } else if (ch === '*' && src[i + 1] === '*') {
+        const end = src.indexOf('**', i + 2);
+        if (end > i + 2) {
+          token = { kind: 'bold', text: src.slice(i + 2, end) };
+          next = end + 2;
+        }
+      } else if (ch === '`') {
+        const end = src.indexOf('`', i + 1);
+        if (end > i + 1) {
+          token = { kind: 'code', text: src.slice(i + 1, end) };
+          next = end + 1;
+        }
+      }
+      if (!token) {
+        i++;
+        continue;
+      }
+      flush(i);
+      out.push(token);
+      i = next;
+      at = next;
     }
-    if (at < src.length) out.push({ kind: 'text', text: src.slice(at) });
+    flush(src.length);
     return out;
   }
 
