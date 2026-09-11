@@ -240,38 +240,55 @@ window.RMX.github = (function () {
   //                                    classic header and the React diff alike.
   //   3. the file path, which the feed gives us, against the attributes GitHub
   //      renders it into (data-tagsearch-path and data-path on the classic
-  //      header) or a title/aria-label that spells it out.
-  //   4. a link pointing at the file — the file-tree entry or a permalink.
+  //      header, data-file-path on the React "Expand all lines" button) or a
+  //      title/aria-label that spells it out.
+  //   4. a link pointing at the file — the header's own title link.
   //   5. the old climb from a mounted cell.
   //
-  // Step 4 has to stay LAST. It used to share step 2's querySelector, and since
-  // the file tree is rendered before the diff, that one call always returned the
-  // sidebar entry: a link with no "Load diff" button, no chevron and no rows
-  // under it. Every caller below then searched inside that link and found
-  // nothing, which is what made a large file — the ones GitHub parks behind
-  // "Large diffs are not rendered by default" — permanently unreachable.
+  // Steps 3 and 4 both match things that are NOT the file, and both of those
+  // sit EARLIER in the document than the diff, so a plain querySelector picks
+  // them every time:
+  //   • the file-tree sidebar entry, a link with no chevron, no "Load diff" and
+  //     no rows under it — and, worse, a directory toggle a few levels up that
+  //     fileBoxOf would happily hand back as this file's "expand" control;
+  //   • our OWN report panel, whose per-file chips carry title="<path>".
+  // Both are skipped by outsideDiff, so the lookups can only ever land on
+  // GitHub's own diff markup.
+  const NOT_THE_DIFF = [
+    '[role="tree"]', '[class*="TreeView" i]', '[class*="file-tree" i]',
+    '[data-testid*="file-tree" i]', '[id^="rmx-"]', '[class*="rmx-"]',
+  ].join(',');
+
+  function outsideDiff(el) {
+    return !!el.closest(NOT_THE_DIFF);
+  }
+
+  // The first match for `selector` that is part of GitHub's diff rather than of
+  // the file tree or of our own panel.
+  function firstInDiff(selector) {
+    return Array.prototype.find.call(document.querySelectorAll(selector), (el) => !outsideDiff(el));
+  }
+
   function fileBox(digest) {
     const anchor = 'diff-' + digest;
     return document.getElementById(anchor) ||
-      document.querySelector(`[data-anchor="${anchor}"], [data-diff-anchor="${anchor}"]`);
+      firstInDiff(`[data-anchor="${anchor}"], [data-diff-anchor="${anchor}"]`);
   }
 
   function fileRoot(digest, filePath) {
     const anchor = 'diff-' + digest;
     const byId = document.getElementById(anchor);
     if (byId) return byId;
-    const byAnchor = document.querySelector(
-      `[data-anchor="${anchor}"], [data-diff-anchor="${anchor}"]`,
-    );
+    const byAnchor = fileBox(digest);
     if (byAnchor) return fileBoxOf(byAnchor);
     if (filePath) {
       const p = attrValue(filePath);
-      const byPath = document.querySelector(
+      const byPath = firstInDiff(
         `[data-tagsearch-path="${p}"], [data-path="${p}"], [data-file-path="${p}"], [title="${p}"], [aria-label="${p}"]`,
       );
       if (byPath) return fileBoxOf(byPath);
     }
-    const byHref = document.querySelector(`a[href$="#${anchor}"]`);
+    const byHref = firstInDiff(`a[href$="#${anchor}"]`);
     if (byHref) return fileBoxOf(byHref);
     return fileContainer(digest);
   }
@@ -645,11 +662,37 @@ window.RMX.github = (function () {
   // Unfold the entire file in one go. The blunt fallback for when the targeted
   // walk can't place the line (an unfamiliar control layout, a fold too long to
   // step through), so a reveal degrades to "show everything" rather than failing.
+  //
+  // The label is matched by PREFIX: the classic control says exactly "Expand
+  // all", but the React diff names the file in the same breath — its live
+  // aria-label is "Expand all lines: src/main/java/…" — and an anchored match
+  // missed that, leaving this last resort dead on the diff that needs it most.
   function expandAll(file) {
-    const el = file.querySelector('.js-expand-full') || controlByLabel(file, /^expand all( lines)?$/i);
+    const el = file.querySelector('.js-expand-full') || controlByLabel(file, /^expand all( lines)?\b/i);
     if (!el) return false;
     el.click();
     return true;
+  }
+
+  // Open a file the reviewer collapsed, and wait for its rows. A file the
+  // reviewer marked "Viewed" is collapsed too, and nothing else can work until
+  // it is open: the React diff has no rows to unfold, and the classic diff's
+  // rows are present but display:none. Expanding leaves the "Viewed" tick
+  // exactly as they set it. A file that is already showing is left alone, so a
+  // merely folded or virtualized line takes the route it always did.
+  async function expandCollapsed(digest, side, line, filePath) {
+    if (anyRenderedRow(digest)) return [];
+    const root = fileRoot(digest, filePath);
+    const opener = root && expandFile(root);
+    if (!opener) return [];
+    // Short wait: expanding is local and near-instant, and if the line turns
+    // out to ALSO be folded inside the file we just opened, the unfold walk is
+    // what places it. No reason to sit out a long timeout first.
+    const cells = await waitForLine(digest, side, line, 10, 100);
+    // Still nothing of the file on screen, so that control was not the chevron.
+    // Retire it rather than press it again for every remaining line.
+    if (!cells.length && !anyRenderedRow(digest)) duds.add(opener);
+    return cells;
   }
 
   // Force GitHub to render (side, line) so it becomes taggable, then resolve to
@@ -660,24 +703,8 @@ window.RMX.github = (function () {
     let cells = visibleCells(digest, side, line);
     if (cells.length) return cells;
 
-    // A file the reviewer marked "Viewed" is collapsed, and nothing below can
-    // work until it is open: the React diff has no rows to unfold, and the
-    // classic diff's rows are present but display:none. Expanding leaves the
-    // "Viewed" tick exactly as they set it. Skipped entirely for a file that is
-    // already showing, so a merely folded or virtualized line takes the same
-    // route it always did.
-    const root = anyRenderedRow(digest) ? null : fileRoot(digest, filePath);
-    const opener = root && expandFile(root);
-    if (opener) {
-      // Short wait: expanding is local and near-instant, and if the line turns
-      // out to ALSO be folded inside the file we just opened, the walk below is
-      // what places it. No reason to sit out a long timeout first.
-      cells = await waitForLine(digest, side, line, 10, 100);
-      if (cells.length) return cells;
-      // Still nothing of the file on screen, so that control was not the
-      // chevron. Retire it rather than press it again for every remaining line.
-      if (!anyRenderedRow(digest)) duds.add(opener);
-    }
+    cells = await expandCollapsed(digest, side, line, filePath);
+    if (cells.length) return cells;
 
     // Still not a single row of this file anywhere: the diff has virtualized the
     // whole file away, so there is nothing here to expand, load or unfold yet.
@@ -688,13 +715,20 @@ window.RMX.github = (function () {
       await mountFile(digest);
       cells = visibleCells(digest, side, line);
       if (cells.length) return cells;
+      // Mounting can land a file that is ALSO collapsed: its header is on the
+      // page now, so the chevron is findable where a moment ago there was
+      // nothing of the file to find it by. Without this second attempt the
+      // reveal stops here having only scrolled to the file's name, which is
+      // exactly what mountFile's anchor click does.
+      cells = await expandCollapsed(digest, side, line, filePath);
+      if (cells.length) return cells;
     }
 
-    // Re-resolved rather than reusing `root`: that was looked up before
-    // mountFile ran, when a virtualized file had no container on the page yet.
-    // fileContainer needs a mounted cell, which a "Load diff" file has none of,
-    // so fileRoot's container lookup is what finds those.
-    const file = fileContainer(digest) || fileRoot(digest, filePath) || root;
+    // Re-resolved rather than reused: the earlier lookups ran before mountFile,
+    // when a virtualized file had no container on the page yet. fileContainer
+    // needs a mounted cell, which a "Load diff" file has none of, so fileRoot's
+    // container lookup is what finds those.
+    const file = fileContainer(digest) || fileRoot(digest, filePath);
     if (file) {
       // Bring the file to the viewport only when NONE of it is rendered — a
       // virtualized page mounts nothing for a file that's far off screen. Doing
@@ -726,7 +760,7 @@ window.RMX.github = (function () {
     }
 
     // Targeted unfolding didn't place it — fall back to opening the whole file.
-    const whole = file || fileContainer(digest) || root;
+    const whole = file || fileContainer(digest);
     if (whole && expandAll(whole)) return waitForLine(digest, side, line);
     return visibleCells(digest, side, line);
   }

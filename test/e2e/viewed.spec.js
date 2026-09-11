@@ -412,3 +412,133 @@ test('a viewed control is never mistaken for the expand control', async ({ page 
   );
   expect(clicks).toBe(0);
 });
+
+// --- what is NOT the file ---------------------------------------------------
+// A collapsed React file renders no rows AND drops its data-diff-anchor, so the
+// only handles left are the path and a link to #diff-<digest>. Both also match
+// things that are not the file and that sit EARLIER in the document than the
+// diff: the file-tree sidebar, and our own report panel (whose per-file chips
+// carry title="<path>"). Picking either of those is what left a collapsed file
+// shut while the page scrolled to its name.
+//
+// The markup below is the live React header, captured from github.com: an
+// unlabelled chevron whose octicon is the only signal, the header's own title
+// link, and `button.js-expand-all-difflines-button` carrying data-file-path and
+// aria-label="Expand all lines: <path>".
+async function reactCollapsedFile(page, { digest, filePath }) {
+  await page.evaluate(({ digest, filePath }) => {
+    window.__treeClicks = 0;
+    window.__chevronClicks = 0;
+
+    // 1. Our own panel, rendered before the diff in this fixture so a naive
+    //    querySelector would reach it first.
+    const dock = document.createElement('div');
+    dock.id = 'rmx-report';
+    const chip = document.createElement('span');
+    chip.className = 'rmx-rp-file';
+    chip.title = filePath; // matches fileRoot's title="<path>" arm
+    dock.appendChild(chip);
+    document.body.appendChild(dock);
+
+    // 2. The file-tree sidebar: a link to the file, under a directory row whose
+    //    own chevron is a perfectly good-looking "expand control".
+    const tree = document.createElement('ul');
+    tree.setAttribute('role', 'tree');
+    const dir = document.createElement('li');
+    const dirToggle = document.createElement('button');
+    dirToggle.innerHTML = '<svg class="octicon octicon-chevron-right"></svg>';
+    dirToggle.style.display = 'block';
+    dirToggle.style.height = '20px';
+    dirToggle.addEventListener('click', () => { window.__treeClicks++; });
+    const treeLink = document.createElement('a');
+    treeLink.href = '#diff-' + digest;
+    treeLink.textContent = filePath.split('/').pop();
+    dir.appendChild(dirToggle);
+    dir.appendChild(treeLink);
+    tree.appendChild(dir);
+    document.body.appendChild(tree);
+
+    // 3. The collapsed file itself: header only, no rows, no data-diff-anchor.
+    const header = document.createElement('div');
+    header.className = 'DiffFileHeader-module__diff-file-header__UuNN4';
+    const chevron = document.createElement('button');
+    chevron.innerHTML = '<svg class="octicon octicon-chevron-right"></svg>';
+    chevron.style.display = 'block';
+    chevron.style.height = '20px';
+    const title = document.createElement('a');
+    title.href = '#diff-' + digest;
+    title.textContent = filePath;
+    const expandAll = document.createElement('button');
+    expandAll.className = 'js-expand-all-difflines-button';
+    expandAll.setAttribute('data-file-path', filePath);
+    expandAll.setAttribute('aria-label', 'Expand all lines: ' + filePath);
+    expandAll.innerHTML = '<svg class="octicon octicon-unfold"></svg>';
+    expandAll.style.display = 'block';
+    expandAll.style.height = '20px';
+    header.appendChild(chevron);
+    header.appendChild(title);
+    header.appendChild(expandAll);
+    const body = document.createElement('div');
+    const file = document.createElement('div');
+    file.className = 'position-relative';
+    file.style.display = 'block';
+    file.style.height = '60px';
+    file.appendChild(header);
+    file.appendChild(body);
+    document.body.appendChild(file);
+
+    chevron.addEventListener('click', () => {
+      window.__chevronClicks++;
+      setTimeout(() => {
+        [11, 12, 13].forEach((n) => {
+          const cell = document.createElement('div');
+          cell.setAttribute('data-line-anchor', `diff-${digest}L${n}`);
+          cell.setAttribute('data-diff-side', 'left');
+          cell.setAttribute('data-line-number', String(n));
+          cell.textContent = `line ${n}`;
+          body.appendChild(cell);
+        });
+      }, 60);
+    });
+  }, { digest, filePath });
+}
+
+test('a collapsed React file is opened by its own chevron, not by the file tree', async ({ page }) => {
+  await reactCollapsedFile(page, { digest: DIGEST, filePath: PATH });
+
+  const out = await page.evaluate(
+    async ({ d, p }) => ({
+      cells: (await RMX.github.revealLine(d, 'L', 11, p)).length,
+      chevronClicks: window.__chevronClicks,
+      treeClicks: window.__treeClicks,
+    }),
+    { d: DIGEST, p: PATH },
+  );
+  expect(out.cells).toBeGreaterThan(0);
+  expect(out.chevronClicks).toBe(1);
+  expect(out.treeClicks).toBe(0);
+});
+
+test('our own panel chip is never mistaken for the file it names', async ({ page }) => {
+  // Same fixture with the path attribute stripped from GitHub's own markup, so
+  // the ONLY title="<path>" left on the page is our report panel's chip. The
+  // reveal must fall through to the header link rather than search the dock.
+  await reactCollapsedFile(page, { digest: DIGEST, filePath: PATH });
+  await page.evaluate(() => {
+    const btn = document.querySelector('.js-expand-all-difflines-button');
+    btn.removeAttribute('data-file-path');
+    btn.removeAttribute('aria-label');
+  });
+
+  const out = await page.evaluate(
+    async ({ d, p }) => ({
+      cells: (await RMX.github.revealLine(d, 'L', 11, p)).length,
+      chevronClicks: window.__chevronClicks,
+      treeClicks: window.__treeClicks,
+    }),
+    { d: DIGEST, p: PATH },
+  );
+  expect(out.cells).toBeGreaterThan(0);
+  expect(out.chevronClicks).toBe(1);
+  expect(out.treeClicks).toBe(0);
+});

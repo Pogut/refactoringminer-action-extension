@@ -306,3 +306,59 @@ test('the fold scope widens past the row that merely holds an expander', async (
   // The very first click must be the expander that actually spans line 50.
   expect(out.clicked[0]).toBe('Expand file from line 49 to line 53');
 });
+
+test('the whole-file fallback recognises the React diff\'s "Expand all lines" control', async ({ page }) => {
+  // The last resort, for a file the targeted walk cannot even scope: no rows to
+  // measure a fold against and no id="diff-<digest>" to search, so every step
+  // before this one comes back empty and "show everything" is all that is left.
+  // GitHub's React header names the file in that control's label — the live
+  // aria-label is "Expand all lines: src/main/java/…" — so an anchored
+  // /^expand all$/ match never fired and the fallback was dead on that diff.
+  await page.evaluate((d) => {
+    window.__expandAllClicks = 0;
+    const header = document.createElement('div');
+    header.setAttribute('data-diff-anchor', 'diff-' + d);
+    header.style.display = 'block';
+    header.style.height = '40px';
+
+    // Already open, so it is not an expand candidate: the file is showing, it
+    // simply has no rows rendered yet.
+    const chevron = document.createElement('button');
+    chevron.setAttribute('aria-expanded', 'true');
+    chevron.innerHTML = '<svg class="octicon octicon-chevron-down"></svg>';
+    header.appendChild(chevron);
+
+    const btn = document.createElement('button');
+    btn.setAttribute('aria-label', 'Expand all lines: python/customer_profile.py');
+    btn.innerHTML = '<svg class="octicon octicon-unfold"></svg>';
+    btn.style.display = 'block';
+    btn.style.height = '20px';
+    header.appendChild(btn);
+
+    const body = document.createElement('div');
+    header.appendChild(body);
+    document.body.appendChild(header);
+
+    btn.addEventListener('click', () => {
+      window.__expandAllClicks++;
+      [10, 11, 12].forEach((n) => {
+        const cell = document.createElement('div');
+        cell.setAttribute('data-line-anchor', `diff-${d}L${n}`);
+        cell.setAttribute('data-diff-side', 'left');
+        cell.setAttribute('data-line-number', String(n));
+        cell.textContent = `line ${n}`;
+        body.appendChild(cell);
+      });
+    });
+  }, DIGEST);
+
+  const out = await page.evaluate(
+    async (d) => ({
+      cells: (await RMX.github.revealLine(d, 'L', 11)).length,
+      clicks: window.__expandAllClicks,
+    }),
+    DIGEST,
+  );
+  expect(out.clicks).toBe(1);
+  expect(out.cells).toBeGreaterThan(0);
+});
