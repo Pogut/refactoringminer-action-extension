@@ -1,7 +1,7 @@
 # RefactoringMiner Action — Diff Overlay
 
 A Chrome (MV3) extension that overlays the refactorings detected by
-[refactoringminer-action](../refactoringminer-action) directly onto GitHub
+[refactoringminer-action](https://github.com/Pogut/refactoringminer-action) directly onto GitHub
 diffs, and works standalone on commit pages too.
 
 Two data sources ("dual mode"), chosen per page. Every page prefers the action's
@@ -22,7 +22,7 @@ ones with the action installed:
 
 Each page runs **only** the analysis for what it shows — opening one commit in a
 PR analyses that commit, not all of the PR's commits. This is the same hosted-
-service approach as [Refactoring-Aware-Commit-Review](../RefactoringAwareCommitReview)
+service approach as [Refactoring-Aware-Commit-Review](https://github.com/EmpiricalSEConcordia/Refactoringminer-Astdiff-Exporter)
 and needs no local Docker (a browser extension can't run one). The default server
 and an optional GitHub token for private repos are set in the options page. The
 extension waits for a click on its toolbar icon by default; the options page can
@@ -44,7 +44,7 @@ refactorings and highlight the same lines:
 | **Expanded** | the card elongated along the bottom | the full description and the files touched, on every row |
 | **Detailed** | a dock across the whole bottom of the page | the above, plus every code element RefactoringMiner named (its role, kind, and `file:line`, each clickable), and a checkbox per refactoring type to show one kind at a time |
 
-The detailed dock is the [Refactoring-Aware-Commit-Review](../RefactoringAwareCommitReview)
+The detailed dock is the [Refactoring-Aware-Commit-Review](https://github.com/EmpiricalSEConcordia/Refactoringminer-Astdiff-Exporter)
 full-width panel brought back as an option. Its type filter hides rows (and the
 navigator/minimap entries that go with them) — nothing is un-analysed by it, so a
 filtered-out line still blinks if you click it in the diff. Clicking the dock's
