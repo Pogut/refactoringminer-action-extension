@@ -16,10 +16,8 @@ window.RMX = window.RMX || {};
 // for just that sha.
 window.RMX.rm = (function () {
   const DEFAULTS = {
-    // Public RefactoringMiner server (replaces the retired
-    // rminer.encs.concordia.ca:8000 host). Override in the extension's options
-    // page.
-    baseurl: 'https://rminer.gveloso.com/RefactoringMiner',
+    baseurl: 'https://rminer.access.conu-csse.ca/RefactoringMiner',
+
     token: '', // GitHub OAuth token for private repos (optional)
     timeout: 60, // seconds the server waits before giving up
   };
@@ -34,11 +32,10 @@ window.RMX.rm = (function () {
   // options page has the then-current default written to storage, so bumping
   // DEFAULTS alone would leave them pointed at a dead server — rewrite those
   // stored values to the current default instead. (Keep in sync with options.js.)
-  const RETIRED = ['rminer.encs.concordia.ca:8000'];
+  // const RETIRED = ['rminer.encs.concordia.ca:8000'];
 
   function liveBaseurl(saved) {
-    if (!saved) return DEFAULTS.baseurl;
-    return RETIRED.some((h) => saved.includes(h)) ? DEFAULTS.baseurl : saved;
+    return saved || DEFAULTS.baseurl;
   }
 
   function settings() {
