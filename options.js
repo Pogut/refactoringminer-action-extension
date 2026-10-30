@@ -7,7 +7,7 @@
 // src/overlay.js; keep these defaults in sync with overlay.js HL_DEFAULTS /
 // HL_LEGACY / BLINK_PERIODS.
 const DEFAULTS = {
-  baseurl: 'https://rminer.gveloso.com/RefactoringMiner',
+  baseurl: 'https://rminer.access.conu-csse.ca/RefactoringMiner',
   token: '',
   timeout: 60,
   autoTrigger: false,
