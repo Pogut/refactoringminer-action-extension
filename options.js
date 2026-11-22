@@ -26,8 +26,9 @@ function normView(v) {
 }
 
 // Hosts that no longer serve RefactoringMiner: a stored value pointing at one is
-// shown (and re-saved) as the current default. Keep in sync with src/rm.js.
-const RETIRED_BASEURLS = ['rminer.encs.concordia.ca:8000'];
+// shown (and re-saved) as the current default. Keep in sync with src/rm.js and
+// src/service-worker.js.
+const RETIRED_BASEURLS = ['rminer.encs.concordia.ca:8000', 'rminer.gveloso.com'];
 
 function liveBaseurl(saved) {
   if (!saved) return DEFAULTS.baseurl;
@@ -306,13 +307,19 @@ function save(normalise) {
   const timeout = Math.min(1000, Math.max(10, parseInt($('timeout').value, 10) || DEFAULTS.timeout));
   const autoTrigger = $('triggerAuto').checked;
   const blinkSpeed = normSpeed($('blinkSpeed').value);
-  const write = { baseurl, token, timeout, autoTrigger, blinkSpeed, panelView: panelView() };
+  const write = { token, timeout, autoTrigger, blinkSpeed, panelView: panelView() };
+
+  // The service URL is only stored when it is a real override. Writing the
+  // default too would pin this user to today's server, so the next time the
+  // default moves they would keep hitting the old one.
+  const clear = [];
+  if (baseurl === DEFAULTS.baseurl) clear.push('baseurl');
+  else write.baseurl = baseurl;
 
   // A colour still sitting on the current default isn't a choice, so it is
   // cleared rather than written. Storing it would pin the colour to whichever
   // theme GitHub happened to be in at save time — someone who opened this page
   // only to change the timeout would silently lose the theme-following default.
-  const clear = [];
   HL_SLOTS.forEach((slot) => {
     const id = hlKey(slot);
     const value = $(id).value;

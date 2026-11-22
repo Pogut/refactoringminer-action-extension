@@ -63,11 +63,39 @@ test('rm.fetchCommit calls the configured service with gitURL, commitId, timeout
     await RMX.rm.fetchCommit('https://github.com/o/r.git', 'abc123');
     return captured;
   });
-  expect(url).toContain('rminer.gveloso.com/RefactoringMiner'); // default server
+  expect(url).toContain('rminer.access.conu-csse.ca/RefactoringMiner'); // default server
   expect(url).toContain('gitURL=' + encodeURIComponent('https://github.com/o/r.git'));
   expect(url).toContain('commitId=abc123');
   expect(url).toContain('timeout=60');
   expect(url).not.toContain('token='); // no token stored → omitted
+});
+
+test('rm.fetchCommit ignores a stored URL on a retired server, keeps a custom one', async ({ page }) => {
+  const urls = await page.evaluate(async () => {
+    const out = {};
+    let captured = '';
+    window.fetch = (u) => {
+      captured = u;
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ commits: [] }) });
+    };
+    // Stand in for chrome.storage.sync holding a URL an older options page saved.
+    const stored = (baseurl) => {
+      window.chrome = { storage: { sync: { get: (_k, cb) => cb({ baseurl }) } } };
+    };
+    stored('https://rminer.gveloso.com/RefactoringMiner');
+    await RMX.rm.fetchCommit('https://github.com/o/r.git', 'retired-1');
+    out.gveloso = captured;
+    stored('https://rminer.encs.concordia.ca:8000/RefactoringMiner');
+    await RMX.rm.fetchCommit('https://github.com/o/r.git', 'retired-2');
+    out.encs = captured;
+    stored('https://my-rm.example.com/RefactoringMiner');
+    await RMX.rm.fetchCommit('https://github.com/o/r.git', 'custom-1');
+    out.custom = captured;
+    return out;
+  });
+  expect(urls.gveloso).toContain('rminer.access.conu-csse.ca/RefactoringMiner');
+  expect(urls.encs).toContain('rminer.access.conu-csse.ca/RefactoringMiner');
+  expect(urls.custom).toContain('my-rm.example.com/RefactoringMiner');
 });
 
 test('rm.fetchCommit memoises per request (one request per gitURL+id)', async ({ page }) => {

@@ -32,10 +32,12 @@ window.RMX.rm = (function () {
   // options page has the then-current default written to storage, so bumping
   // DEFAULTS alone would leave them pointed at a dead server — rewrite those
   // stored values to the current default instead. (Keep in sync with options.js.)
-  // const RETIRED = ['rminer.encs.concordia.ca:8000'];
+  // (Keep in sync with options.js RETIRED_BASEURLS and service-worker.js.)
+  const RETIRED = ['rminer.encs.concordia.ca:8000', 'rminer.gveloso.com'];
 
   function liveBaseurl(saved) {
-    return saved || DEFAULTS.baseurl;
+    if (!saved) return DEFAULTS.baseurl;
+    return RETIRED.some((h) => saved.includes(h)) ? DEFAULTS.baseurl : saved;
   }
 
   function settings() {
