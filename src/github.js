@@ -317,7 +317,21 @@ window.RMX.github = (function () {
       CHEVRON_ICON.test(icon) ||
       /^(toggle diff contents|show diff|hide diff|expand file|collapse file|expand|collapse)$/i.test(label);
     if (!looksLikeToggle) return false;
-    return el.getAttribute('aria-expanded') !== 'true'; // already open ⇒ nothing to do
+    return !isOpenToggle(el); // already open ⇒ nothing to do
+  }
+
+  // Is this file toggle showing its file as OPEN? The classic button says so in
+  // aria-expanded. The React file header's chevron carries no aria-expanded at
+  // all, only its icon: chevron-down while the file is open, chevron-right once
+  // it is folded. Reading a missing attribute as "closed" is what folded an open
+  // file whose diff sits behind "Load diff" (it has no rows, so it looked
+  // collapsed), after which its Load diff button was gone and the file stayed
+  // shut (#35).
+  function isOpenToggle(el) {
+    const expanded = el.getAttribute('aria-expanded');
+    if (expanded === 'true') return true;
+    if (expanded === 'false') return false;
+    return /octicon-(chevron|triangle)-down\b/.test(iconClass(el));
   }
 
   function expandControl(root) {
@@ -635,8 +649,12 @@ window.RMX.github = (function () {
 
   // Click "Load diff" on a diff GitHub collapsed for size. Nothing else can be
   // revealed until this lands, so it runs before any unfolding.
+  function loadDiffControl(file) {
+    return controlByLabel(file, /^load diff$/i) || null;
+  }
+
   function loadDiff(file) {
-    const el = controlByLabel(file, /^load diff$/i);
+    const el = loadDiffControl(file);
     if (!el) return false;
     el.click();
     return true;
@@ -676,7 +694,9 @@ window.RMX.github = (function () {
       if (cells.length) return cells;
       // Still nothing of the file on screen, so that control was not the
       // chevron. Retire it rather than press it again for every remaining line.
-      if (!anyRenderedRow(digest)) duds.add(opener);
+      // Unless the file did open onto a "Load diff" placeholder: that file has
+      // no rows until the button below is pressed, and the chevron was right.
+      if (!anyRenderedRow(digest) && !loadDiffControl(root)) duds.add(opener);
     }
 
     // Still not a single row of this file anywhere: the diff has virtualized the
