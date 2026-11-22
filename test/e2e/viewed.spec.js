@@ -412,3 +412,79 @@ test('a viewed control is never mistaken for the expand control', async ({ page 
   );
   expect(clicks).toBe(0);
 });
+
+// #35: the React file header's chevron has NO aria-expanded, only an icon
+// (chevron-down = open, chevron-right = folded), confirmed against live
+// github.com. A large file GitHub parks behind "Load Diff" is open but renders no
+// rows, so it used to look collapsed: the chevron got clicked, which FOLDED the
+// file, and with it went the Load Diff button. The file then stayed shut.
+async function reactLoadDiffFile(page, { digest, lines, open }) {
+  await page.evaluate(({ digest, lines, open }) => {
+    window.__chevronClicks = 0;
+    window.__loadDiffClicks = 0;
+    const box = document.createElement('div');
+    box.id = 'diff-' + digest;
+    box.style.display = 'block';
+
+    const chevron = document.createElement('button');
+    const icon = (o) => `<svg class="octicon octicon-chevron-${o ? 'down' : 'right'}"></svg>`;
+    chevron.innerHTML = icon(open);
+    chevron.style.display = 'block';
+    chevron.style.height = '20px';
+    box.appendChild(chevron);
+
+    const body = document.createElement('div');
+    body.hidden = !open;
+    const load = document.createElement('button');
+    load.textContent = 'Load Diff';
+    load.style.display = 'block';
+    load.style.height = '20px';
+    body.appendChild(load);
+    box.appendChild(body);
+    document.body.appendChild(box);
+
+    let isOpen = open;
+    chevron.addEventListener('click', () => {
+      window.__chevronClicks++;
+      isOpen = !isOpen;
+      chevron.innerHTML = icon(isOpen);
+      body.hidden = !isOpen;
+    });
+    load.addEventListener('click', () => {
+      window.__loadDiffClicks++;
+      setTimeout(() => {
+        load.remove();
+        lines.forEach((n) => {
+          const cell = document.createElement('div');
+          cell.setAttribute('data-line-anchor', `diff-${digest}R${n}`);
+          cell.setAttribute('data-diff-side', 'right');
+          cell.setAttribute('data-line-number', String(n));
+          cell.textContent = `line ${n}`;
+          body.appendChild(cell);
+        });
+      }, 60);
+    });
+  }, { digest, lines, open });
+}
+
+test('an open file behind "Load Diff" is loaded, not folded by its chevron (#35)', async ({ page }) => {
+  await reactLoadDiffFile(page, { digest: DIGEST, lines: [10, 11, 12], open: true });
+  const out = await page.evaluate(async (d) => {
+    const cells = await RMX.github.revealLine(d, 'R', 11);
+    return { found: cells.length, chevron: window.__chevronClicks, load: window.__loadDiffClicks };
+  }, DIGEST);
+  expect(out.chevron).toBe(0); // the file was already open
+  expect(out.load).toBe(1);
+  expect(out.found).toBeGreaterThan(0);
+});
+
+test('a folded file that opens onto "Load Diff" is opened, then loaded (#35)', async ({ page }) => {
+  await reactLoadDiffFile(page, { digest: DIGEST, lines: [10, 11, 12], open: false });
+  const out = await page.evaluate(async (d) => {
+    const cells = await RMX.github.revealLine(d, 'R', 11);
+    return { found: cells.length, chevron: window.__chevronClicks, load: window.__loadDiffClicks };
+  }, DIGEST);
+  expect(out.chevron).toBe(1);
+  expect(out.load).toBe(1);
+  expect(out.found).toBeGreaterThan(0);
+});
