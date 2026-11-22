@@ -61,6 +61,26 @@ async function inject(tabId) {
   await chrome.scripting.executeScript({ target: { tabId }, files: CONTENT_FILES });
 }
 
+// --- migrating a stored service URL ----------------------------------------
+// Older versions of the options page stored the service URL on every save, even
+// when it was just the default of the day. Those users stay pinned to a server
+// that has since been retired, on every machine their Chrome profile syncs to.
+// On install/update, drop a stored URL that points at a retired host or that
+// matches the current default, so rm.js falls back to DEFAULTS. A real custom
+// server is left alone. Keep both lists in sync with src/rm.js and options.js.
+const DEFAULT_BASEURL = 'https://rminer.access.conu-csse.ca/RefactoringMiner';
+const RETIRED_BASEURLS = ['rminer.encs.concordia.ca:8000', 'rminer.gveloso.com'];
+
+chrome.runtime.onInstalled.addListener(() => {
+  chrome.storage.sync.get('baseurl', (r) => {
+    const saved = r && r.baseurl;
+    if (!saved) return;
+    if (saved === DEFAULT_BASEURL || RETIRED_BASEURLS.some((h) => saved.includes(h))) {
+      chrome.storage.sync.remove('baseurl');
+    }
+  });
+});
+
 // Chrome reports a pushState navigation exactly like a document load — the same
 // `status: 'loading'` then `status: 'complete'` pair — so the event shape cannot
 // tell them apart, and the URL only rides along on the first of the two. Acting
